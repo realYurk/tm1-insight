@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from tm1_suite.domain import (
+from tm1_insight.domain import (
     Application,
     Change,
     Chore,
@@ -224,14 +224,14 @@ def test_change_impact_health_placeholders():
 # ---------------------------------------------------------------------------
 def test_domain_model_has_no_duckdb_dependency():
     import ast
-    import tm1_suite.domain.model as dm
+    import tm1_insight.domain.model as dm
 
     with open(dm.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
 
     # 领域层不得 import duckdb / fastapi / 引擎内部模块（精确检查 import 语句，非全文）
     forbidden = {"duckdb", "fastapi", "sqlalchemy", "pydantic"}
-    forbidden_modules = {"tm1_suite.ingest", "tm1_suite.store", "tm1_suite.api"}
+    forbidden_modules = {"tm1_insight.ingest", "tm1_insight.store", "tm1_insight.api"}
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -242,16 +242,16 @@ def test_domain_model_has_no_duckdb_dependency():
             mod = node.module or ""
             assert mod.split(".")[0] not in forbidden, \
                 f"domain/model.py 不应 from {mod} import"
-            assert not mod.startswith("tm1_suite.ingest"), \
-                "domain/model.py 不应依赖 tm1_suite.ingest"
-            assert not mod.startswith("tm1_suite.store"), \
-                "domain/model.py 不应依赖 tm1_suite.store"
-            assert not mod.startswith("tm1_suite.api"), \
-                "domain/model.py 不应依赖 tm1_suite.api"
+            assert not mod.startswith("tm1_insight.ingest"), \
+                "domain/model.py 不应依赖 tm1_insight.ingest"
+            assert not mod.startswith("tm1_insight.store"), \
+                "domain/model.py 不应依赖 tm1_insight.store"
+            assert not mod.startswith("tm1_insight.api"), \
+                "domain/model.py 不应依赖 tm1_insight.api"
 
 
 def test_domain_all_exports_available():
-    import tm1_suite.domain as d
+    import tm1_insight.domain as d
 
     for name in (
         "Instance", "Model", "Snapshot", "Cube", "Dimension", "Hierarchy",

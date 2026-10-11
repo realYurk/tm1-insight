@@ -19,9 +19,9 @@ import duckdb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import tm1_suite.datasource as ds  # noqa: E402
-import tm1_suite.config as config  # noqa: E402
-from tm1_suite.config import set_data_dir, get_settings  # noqa: E402
+import tm1_insight.datasource as ds  # noqa: E402
+import tm1_insight.config as config  # noqa: E402
+from tm1_insight.config import set_data_dir, get_settings  # noqa: E402
 
 
 @pytest.fixture
@@ -38,10 +38,10 @@ def _make_real_db(data_dir: Path) -> Path:
     """在 data_dir 下造一个最小「真实」DuckDB（含 cubes 数据）。"""
     db_dir = data_dir / "db"
     db_dir.mkdir(parents=True, exist_ok=True)
-    db_path = db_dir / "tm1_suite.duckdb"
+    db_path = db_dir / "tm1_insight.duckdb"
     con = duckdb.connect(str(db_path))
     try:
-        from tm1_suite.store.schema import ALL_TABLES
+        from tm1_insight.store.schema import ALL_TABLES
         for name in ALL_TABLES:
             con.execute(f"DROP TABLE IF EXISTS {name}")
         for ddl in ALL_TABLES.values():
@@ -104,7 +104,7 @@ def test_demo_does_not_touch_real_data(isolated):
     # 切到 Demo
     ds.load_demo_data()
     # 真实 data/ 的 db 仍在（未被 demo drop）
-    real_db = real_dir / "db" / "tm1_suite.duckdb"
+    real_db = real_dir / "db" / "tm1_insight.duckdb"
     assert real_db.exists()
     con = duckdb.connect(str(real_db), read_only=True)
     try:
@@ -138,8 +138,8 @@ def test_demo_data_idempotent(isolated):
 def test_demo_dependencies_build(isolated):
     """Demo 数据能构建依赖（Graph / Impact 可用）。"""
     ds.load_demo_data()
-    from tm1_suite.store.db import Store
-    from tm1_suite.store.graph_adapter import dependencies_from_store
+    from tm1_insight.store.db import Store
+    from tm1_insight.store.graph_adapter import dependencies_from_store
     store = Store(get_settings())
     con = store.connect(read_only=True)
     try:

@@ -16,19 +16,19 @@
 """
 from __future__ import annotations
 
-from tm1_suite.dependency import (
+from tm1_insight.dependency import (
     DependencyEngine,
     build_dependencies,
     build_process_dependencies,
     build_rule_dependencies,
 )
-from tm1_suite.domain.model import (
+from tm1_insight.domain.model import (
     DependencyKind,
     Reference,
     ReferenceKind,
     Rule,
 )
-from tm1_suite.ingest import hard_extract as h
+from tm1_insight.ingest import hard_extract as h
 
 
 def _parsed(ti: dict) -> dict:
@@ -263,7 +263,7 @@ def test_build_dependencies_combined():
 
 def test_dependency_module_has_no_duckdb_dependency():
     import ast
-    import tm1_suite.dependency.engine as de
+    import tm1_insight.dependency.engine as de
 
     with open(de.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
@@ -276,8 +276,8 @@ def test_dependency_module_has_no_duckdb_dependency():
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             assert mod.split(".")[0] not in forbidden
-            assert not mod.startswith("tm1_suite.snapshot"), "engine 不应依赖 snapshot"
-            assert not mod.startswith("tm1_suite.api"), "engine 不应依赖 api"
+            assert not mod.startswith("tm1_insight.snapshot"), "engine 不应依赖 snapshot"
+            assert not mod.startswith("tm1_insight.api"), "engine 不应依赖 api"
 
 
 # ---------------------------------------------------------------------------

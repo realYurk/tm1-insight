@@ -17,8 +17,8 @@
 """
 from __future__ import annotations
 
-from tm1_suite.analysis import analyze_snapshot
-from tm1_suite.domain.model import DependencyKind, Process, Rule
+from tm1_insight.analysis import analyze_snapshot
+from tm1_insight.domain.model import DependencyKind, Process, Rule
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +272,7 @@ def test_process_from_four_segment_dict():
 
 def test_analysis_module_has_no_forbidden_dependency():
     import ast
-    import tm1_suite.analysis.assembly as aa
+    import tm1_insight.analysis.assembly as aa
 
     with open(aa.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
@@ -285,6 +285,6 @@ def test_analysis_module_has_no_forbidden_dependency():
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             assert mod.split(".")[0] not in forbidden
-            assert not mod.startswith("tm1_suite.snapshot"), "assembly 不应依赖 snapshot store"
-            assert not mod.startswith("tm1_suite.store"), "assembly 不应依赖 store"
-            assert not mod.startswith("tm1_suite.api"), "assembly 不应依赖 api"
+            assert not mod.startswith("tm1_insight.snapshot"), "assembly 不应依赖 snapshot store"
+            assert not mod.startswith("tm1_insight.store"), "assembly 不应依赖 store"
+            assert not mod.startswith("tm1_insight.api"), "assembly 不应依赖 api"

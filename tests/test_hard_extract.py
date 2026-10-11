@@ -19,7 +19,7 @@
 """
 from __future__ import annotations
 
-from tm1_suite.ingest import hard_extract as h
+from tm1_insight.ingest import hard_extract as h
 
 
 # ---------------------------------------------------------------------------

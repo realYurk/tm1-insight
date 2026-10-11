@@ -15,10 +15,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tm1_suite.domain.model import Dependency, DependencyKind  # noqa: E402
-from tm1_suite.lineage import get_upstream  # noqa: E402
-from tm1_suite.change_intelligence import analyze_changes  # noqa: E402
-from tm1_suite.impact import analyze_impact  # noqa: E402
+from tm1_insight.domain.model import Dependency, DependencyKind  # noqa: E402
+from tm1_insight.lineage import get_upstream  # noqa: E402
+from tm1_insight.change_intelligence import analyze_changes  # noqa: E402
+from tm1_insight.impact import analyze_impact  # noqa: E402
 
 
 def _make_chain(n: int) -> list[Dependency]:
@@ -66,7 +66,7 @@ def test_get_upstream_adjacency_reuse():
     # 用默认方式（每次内部建图）
     r1 = get_upstream(deps, "C19")
     # 用预构建邻接表（复用）
-    from tm1_suite.lineage.engine import build_adjacency
+    from tm1_insight.lineage.engine import build_adjacency
     adj = build_adjacency(deps)
     r2 = get_upstream(deps, "C19", _adj=adj)
     # 结果应一致（确定性）

@@ -50,7 +50,7 @@ if exist "release" rmdir /s /q "release"
 
 REM ---- 4. Run PyInstaller ----
 echo  [TM1 Insight] Building executable (this may take a few minutes)...
-%PY% -m PyInstaller --noconfirm --clean tm1_suite.spec
+%PY% -m PyInstaller --noconfirm --clean tm1_insight.spec
 if errorlevel 1 goto build_fail
 
 REM ---- 5. Assemble release directory ----

@@ -25,8 +25,8 @@ import json
 
 import pytest
 
-from tm1_suite.collector import TM1Collector, collect_snapshot
-from tm1_suite.snapshot import SnapshotStore, validate_snapshot_payload
+from tm1_insight.collector import TM1Collector, collect_snapshot
+from tm1_insight.snapshot import SnapshotStore, validate_snapshot_payload
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +297,7 @@ def test_no_real_tm1_connection():
     # 整个测试套件不 import TM1py、不 connect；本用例显式确认 collector 模块
     # 未 import TM1py（保持可 mock / 离线可测）
     import ast
-    import tm1_suite.collector as col
+    import tm1_insight.collector as col
 
     with open(col.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())

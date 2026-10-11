@@ -1,7 +1,7 @@
 services:
-  tm1-suite:
+  tm1-insight:
     build: .
-    image: tm1-suite:latest
+    image: tm1-insight:latest
     env_file:
       - .env
     volumes:
@@ -10,5 +10,5 @@ services:
     ports:
       - "${WEB_PORT:-8000}:8000"
     # 单命令启动 Web UI；如需手动入库可执行：
-    #   docker compose run --rm tm1-suite ingest
+    #   docker compose run --rm tm1-insight ingest
     command: web

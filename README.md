@@ -1,4 +1,4 @@
-# tm1-suite
+# TM1 Insight
 
 > IBM Planning Analytics / TM1 的元数据工作台：**离线浏览 · 血缘追踪 · 影响分析 · 健康巡检 · 代码生成 · 前端资产审计**，一站式。
 
@@ -10,7 +10,7 @@
 
 ## 这是什么
 
-TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层计算、数据源头难以追溯。**tm1-suite** 把 TM1 的全部元数据（Cube / 维度 / TI 进程 / Chore / Rule / 前端 Excel 资产）抽取到本地一份 **DuckDB + Parquet** 仓库，然后提供：
+TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层计算、数据源头难以追溯。**TM1 Insight** 把 TM1 的全部元数据（Cube / 维度 / TI 进程 / Chore / Rule / 前端 Excel 资产）抽取到本地一份 **DuckDB + Parquet** 仓库，然后提供：
 
 | 能力 | 说明 |
 |---|---|
@@ -90,15 +90,15 @@ TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层�
 
 > **演示数据 vs 真实数据**：Demo 模式是一套虚构的「销售 → 成本 → 利润」模型，
 > 用于让你先看完整界面和功能长什么样。要看你自己 TM1 环境的真实数据，请按下方
-> 「方式 C」配置连接后运行 `tm1-suite ingest`。
+> 「方式 C」配置连接后运行 `tm1-insight ingest`。
 
 ---
 
 ### 方式 C · 命令行安装（拉真实数据）
 
 ```bash
-git clone https://github.com/realYurk/tm1-suite.git
-cd tm1-suite
+git clone https://github.com/realYurk/tm1-insight.git
+cd tm1-insight
 
 # 安装依赖 + 以可编辑模式安装本包
 pip install -e .
@@ -127,7 +127,7 @@ TM1_NAMESPACE=你的命名空间（可选）
 测试连通：
 
 ```bash
-tm1-suite check
+tm1-insight check
 ```
 
 看到"连接成功"和对象数量，就说明连上了。
@@ -136,10 +136,10 @@ tm1-suite check
 
 ```bash
 # 拉取全部元数据并入库（首次约 10-20 分钟）
-tm1-suite ingest
+tm1-insight ingest
 
 # 启动 Web UI
-tm1-suite web
+tm1-insight web
 ```
 
 浏览器打开 **http://localhost:8000** 即可。
@@ -151,7 +151,7 @@ tm1-suite web
 ```bash
 docker compose up -d
 # 首次需手动入库：
-docker compose run --rm tm1-suite ingest
+docker compose run --rm tm1-insight ingest
 ```
 
 ---
@@ -240,7 +240,7 @@ docker compose run --rm tm1-suite ingest
 
 - **数据源指示器**：侧边栏实时显示当前数据源（Local TM1 Data / Demo Mode）。
 - **导入数据包**：上传 `.duckdb` 或 `.zip` 数据包，一键切换本地数据。
-- **选择本地目录**：指向已有 `data/` 目录（含 `db/tm1_suite.duckdb`）。
+- **选择本地目录**：指向已有 `data/` 目录（含 `db/tm1_insight.duckdb`）。
 - **Demo 模式**：无任何本地数据时自动生成内置小型模型，保证首开即有内容。
 - **TM1 连接配置**：连接 TM1 Server、重新拉取元数据、重新扫描前端资产。
 
@@ -249,13 +249,13 @@ docker compose run --rm tm1-suite ingest
 ## CLI 命令速查
 
 ```bash
-tm1-suite status            # 查看各表行数与数据库路径（离线可用）
-tm1-suite query "<Cube名>"  # 查某个 Cube 的读写者 + 维度（离线可用）
-tm1-suite audit             # 重扫前端 Excel 资产（离线可用）
-tm1-suite ingest            # 拉取 + 入库（需要连 TM1）
-tm1-suite ingest --no-export  # 不重新拉取，仅用已有 raw 数据入库
-tm1-suite check             # 测试 TM1 连接
-tm1-suite web               # 启动 Web UI（--no-browser 不自动开浏览器）
+tm1-insight status            # 查看各表行数与数据库路径（离线可用）
+tm1-insight query "<Cube名>"  # 查某个 Cube 的读写者 + 维度（离线可用）
+tm1-insight audit             # 重扫前端 Excel 资产（离线可用）
+tm1-insight ingest            # 拉取 + 入库（需要连 TM1）
+tm1-insight ingest --no-export  # 不重新拉取，仅用已有 raw 数据入库
+tm1-insight check             # 测试 TM1 连接
+tm1-insight web               # 启动 Web UI（--no-browser 不自动开浏览器）
 ```
 
 ---
@@ -268,25 +268,25 @@ tm1-suite web               # 启动 Web UI（--no-browser 不自动开浏览器
 
 ```bash
 # 1. 解压到任意目录，进入
-cd tm1-suite
+cd tm1-insight
 
 # 2. 装依赖
 pip install -e .
 
 # 3. 直接启动（无需连 TM1）
-tm1-suite web
+tm1-insight web
 ```
 
 **场景 B：纯程序，自己连 TM1 拉数据**
 
 ```bash
-git clone https://github.com/realYurk/tm1-suite.git
-cd tm1-suite
+git clone https://github.com/realYurk/tm1-insight.git
+cd tm1-insight
 pip install -e .
 cp .env.example .env   # 填真实连接信息
-tm1-suite check        # 测连通
-tm1-suite ingest       # 拉数据
-tm1-suite web          # 启动
+tm1-insight check        # 测连通
+tm1-insight ingest       # 拉数据
+tm1-insight web          # 启动
 ```
 
 > 说明：以上两种场景也可以用 `start.bat` 替代，它会在无数据时自动生成演示数据，
@@ -297,8 +297,8 @@ tm1-suite web          # 启动
 ## 项目结构
 
 ```
-tm1-suite/
-├── src/tm1_suite/
+tm1-insight/
+├── src/tm1_insight/
 │   ├── api/                 # FastAPI Web UI（路由 + Jinja2 模板 + 静态资源）
 │   ├── cli.py               # CLI 入口（typer）
 │   ├── config.py            # 配置（.env 加载 + 数据目录覆盖）
@@ -318,7 +318,7 @@ tm1-suite/
 ├── start.bat                # Windows 一键启动（源码模式）
 ├── launcher.py              # 便携版 exe 启动入口
 ├── build_portable.bat       # 便携版打包脚本（生成 TM1 Insight.exe）
-├── tm1_suite.spec           # PyInstaller 打包配置
+├── tm1_insight.spec           # PyInstaller 打包配置
 ├── make_release.py          # 打包脚本（程序体 / 数据体分离）
 ├── Dockerfile / docker-compose.yml
 ├── requirements.txt / pyproject.toml
@@ -378,25 +378,25 @@ A：常见原因与对策：
 
 **Q：打开页面是空的？**
 A：说明本地还没有数据。直接双击 `start.bat` 会自动生成一套演示数据；
-要看真实数据则需配置 `.env` 连接 TM1 后运行 `tm1-suite ingest`。
+要看真实数据则需配置 `.env` 连接 TM1 后运行 `tm1-insight ingest`。
 
 **Q：新电脑没有数据，打开是空壳吗？**
 A：不会。首次启动若检测不到本地数据，会自动进入 **Demo 模式**，加载内置小型模型，让你先看到完整能力；之后可导入真实数据包切换。
 
 **Q：怎么导入别人打包的数据包？**
-A：在「设置 / 数据源管理」上传 `.duckdb` 文件或 `.zip` 数据包，或选择本地 `data/` 目录（含 `db/tm1_suite.duckdb`），一键切换。
+A：在「设置 / 数据源管理」上传 `.duckdb` 文件或 `.zip` 数据包，或选择本地 `data/` 目录（含 `db/tm1_insight.duckdb`），一键切换。
 
-**Q：`tm1-suite` 命令找不到？**
-A：确认 `pip install -e .` 成功；或改用 `python -m tm1_suite.cli <命令>`。
+**Q：`tm1-insight` 命令找不到？**
+A：确认 `pip install -e .` 成功；或改用 `python -m tm1_insight.cli <命令>`。
 
 **Q：Windows 上不想装 Python？**
 A：直接用便携版 `TM1 Insight.exe`，解压双击即可，无需任何开发环境。
 
 **Q：Chore 步骤为空？**
-A：Chore 步骤数据需在拉取元数据时展开。重新 `tm1-suite ingest` 即可填充。
+A：Chore 步骤数据需在拉取元数据时展开。重新 `tm1-insight ingest` 即可填充。
 
 **Q：怎么更新数据？**
-A：连上 TM1 后重新 `tm1-suite ingest`；或直接替换别人打包好的 `data/` 目录。
+A：连上 TM1 后重新 `tm1-insight ingest`；或直接替换别人打包好的 `data/` 目录。
 
 ---
 

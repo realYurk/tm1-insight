@@ -7,8 +7,8 @@
 """
 from __future__ import annotations
 
-from tm1_suite import parser
-from tm1_suite.ingest import hard_extract as h
+from tm1_insight import parser
+from tm1_insight.ingest import hard_extract as h
 
 
 def _ti(prolog="", metadata="", data="", epilog="", name="P"):

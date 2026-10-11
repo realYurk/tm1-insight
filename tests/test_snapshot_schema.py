@@ -27,8 +27,8 @@ from pathlib import Path
 
 import pytest
 
-from tm1_suite.domain.model import Cube, Dimension, Process, Rule
-from tm1_suite.snapshot import (
+from tm1_insight.domain.model import Cube, Dimension, Process, Rule
+from tm1_insight.snapshot import (
     SnapshotSchemaError,
     SUPPORTED_SCHEMA_VERSION,
     cube_to_payload,
@@ -208,7 +208,7 @@ def test_payload_has_no_schema_version():
 # ---------------------------------------------------------------------------
 def test_schema_output_feeds_analysis():
     # 用 schema 序列化产物再交给 Analysis Assembly，验证链路仍通
-    from tm1_suite.analysis import analyze_snapshot
+    from tm1_insight.analysis import analyze_snapshot
 
     proc = Process(name="P_Load", code="CellPutN(100, 'Cube_A', '2024', 'Measure');")
     rule = Rule(cube="Cube_X", referenced_cubes=("Cube_A",))

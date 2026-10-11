@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tm1-suite"
+name = "tm1-insight"
 version = "0.2.0"
-description = "高性能 TM1 运维套件：Explorer / Audit / Graph 三视图统一元数据仓库"
+description = "TM1 Insight：高性能 TM1 运维套件（Explorer / Audit / Graph 三视图统一元数据仓库）"
 requires-python = ">=3.9"
 dependencies = [
     "fastapi>=0.110",
@@ -31,13 +31,13 @@ dev = [
 ]
 
 [project.scripts]
-tm1-suite = "tm1_suite.cli:app"
+tm1-insight = "tm1_insight.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-tm1_suite = ["api/static/*", "api/templates/*"]
+tm1_insight = ["api/static/*", "api/templates/*"]
 
 [tool.ruff]
 line-length = 100

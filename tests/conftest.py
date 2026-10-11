@@ -1,6 +1,6 @@
 """pytest 共享 fixture。
 
-只负责把 src/ 加入 import 路径，让 tm1_suite 包可导入。
+只负责把 src/ 加入 import 路径，让 tm1_insight 包可导入。
 不连接任何真实 TM1 Server、不触碰 data/ 下的生产 DuckDB / raw / parquet。
 """
 from __future__ import annotations

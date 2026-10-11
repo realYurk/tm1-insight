@@ -16,18 +16,18 @@
 """
 from __future__ import annotations
 
-from tm1_suite.dependency import (
+from tm1_insight.dependency import (
     build_process_dependencies,
     build_rule_dependencies,
 )
-from tm1_suite.domain.model import (
+from tm1_insight.domain.model import (
     Dependency,
     DependencyKind,
     Reference,
     ReferenceKind,
     Rule,
 )
-from tm1_suite.ingest import hard_extract as h
+from tm1_insight.ingest import hard_extract as h
 
 
 def _ti(prolog="", metadata="", data="", epilog="", name="P", parameters=None):

@@ -19,8 +19,8 @@
 """
 from __future__ import annotations
 
-from tm1_suite.domain.model import Dependency, DependencyKind
-from tm1_suite.lineage import (
+from tm1_insight.domain.model import Dependency, DependencyKind
+from tm1_insight.lineage import (
     LineageEngine,
     build_lineage,
     get_downstream,
@@ -298,14 +298,14 @@ def test_downstream_empty_for_unknown_source():
 # ---------------------------------------------------------------------------
 def test_lineage_module_has_no_forbidden_dependency():
     import ast
-    import tm1_suite.lineage.engine as le
+    import tm1_insight.lineage.engine as le
 
     with open(le.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
 
     forbidden = {"duckdb", "fastapi", "sqlalchemy", "networkx", "neo4j"}
-    forbidden_modules = {"tm1_suite.ingest", "tm1_suite.store", "tm1_suite.api",
-                         "tm1_suite.parser", "tm1_suite.resolver"}
+    forbidden_modules = {"tm1_insight.ingest", "tm1_insight.store", "tm1_insight.api",
+                         "tm1_insight.parser", "tm1_insight.resolver"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -313,9 +313,9 @@ def test_lineage_module_has_no_forbidden_dependency():
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             assert mod.split(".")[0] not in forbidden
-            assert not mod.startswith("tm1_suite.ingest"), "engine 不应依赖 ingest（不重新解析 TI）"
-            assert not mod.startswith("tm1_suite.parser"), "engine 不应依赖 parser"
-            assert not mod.startswith("tm1_suite.resolver"), "engine 不应依赖 resolver"
+            assert not mod.startswith("tm1_insight.ingest"), "engine 不应依赖 ingest（不重新解析 TI）"
+            assert not mod.startswith("tm1_insight.parser"), "engine 不应依赖 parser"
+            assert not mod.startswith("tm1_insight.resolver"), "engine 不应依赖 resolver"
 
 
 def test_lineage_engine_class_api():

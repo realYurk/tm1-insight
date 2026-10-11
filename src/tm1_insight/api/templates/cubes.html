@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Cube 浏览 · TM1 Insight{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">首页</a><span class="sep">/</span><span class="current">Cube 浏览</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Cube 浏览</h1>
+    <p class="page-sub">全部 Cube 及其维度 / 规则 / 血缘</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="list-toolbar">
+    <h2>Cubes <span class="tag">{{ total }}</span></h2>
+    <form class="list-search" method="get" action="/cubes">
+      <input type="search" name="q" value="{{ q }}" placeholder="搜索 Cube 名…">
+      <button type="submit" class="btn primary btn-sm">搜索</button>
+      {% if q %}<a class="btn ghost btn-sm" href="/cubes">清除</a>{% endif %}
+    </form>
+  </div>
+
+  {% if cubes %}
+  <ul class="list">
+    {% for c in cubes %}
+    <li>
+      <a href="/explorer/cube/{{ c.name }}">{{ c.name }}</a>
+      <span class="tag">{{ c.dimension_count }} 维</span>
+      {% if c.has_rules %}<span class="tag rule">规则</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">{% include "icons/cube.svg" %}</div>
+    <div class="empty-title">{% if q %}没有匹配的 Cube{% else %}暂无 Cube 数据{% endif %}</div>
+    <div class="empty-desc">{% if q %}换个关键词试试，或<a href="/cubes">清除搜索</a>。{% else %}尚未入库任何 Cube，请到「连接设置」拉取 TM1 元数据。{% endif %}</div>
+  </div>
+  {% endif %}
+
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    <span class="pagination-info">共 {{ total }} 项 · 第 {{ page }} / {{ total_pages }} 页</span>
+    <div class="pagination-btns">
+      {% if page > 1 %}<a class="btn ghost btn-sm" href="/cubes?q={{ q|urlencode }}&page={{ page - 1 }}">上一页</a>{% endif %}
+      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/cubes?q={{ q|urlencode }}&page={{ page + 1 }}">下一页</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 记录当前列表位置，供详情页「返回列表」恢复搜索词与页码（标签页会话级，不污染下次打开）
+(function () {
+  try { sessionStorage.setItem('cubes-last', JSON.stringify({ q: {{ q|tojson }}, page: {{ page }} })); } catch (e) {}
+})();
+</script>
+{% endblock %}

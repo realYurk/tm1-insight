@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir -e .
 
 EXPOSE 8000
 
-ENTRYPOINT ["tm1-suite"]
+ENTRYPOINT ["tm1-insight"]

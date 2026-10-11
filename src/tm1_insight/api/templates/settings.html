@@ -1,0 +1,384 @@
+{% extends "base.html" %}
+{% block title %}连接 · TM1 Insight{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">首页</a><span class="sep">/</span><span class="current">连接设置</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">设置</h1>
+    <p class="page-sub">数据源、TM1 连接、前端资产扫描</p>
+  </div>
+</div>
+
+<!-- ============ 数据源（Data Sources） ============ -->
+<div class="card">
+  <h2>数据源</h2>
+  <div class="ds-current">
+    <div class="ds-current-main">
+      <div class="ds-current-label">当前数据源</div>
+      <div class="ds-current-value" id="ds-current-value">
+        <span class="dot" id="ds-dot"></span>
+        <span id="ds-current-name">{{ data_source.label }}</span>
+        <span class="tag" id="ds-current-tag">{{ 'Demo' if data_source.type == 'demo' else ('Ready' if data_source.ready else '') }}</span>
+      </div>
+      <div class="muted small" id="ds-current-location">{{ data_source.location or '—' }}</div>
+    </div>
+    <div class="ds-current-meta muted small" id="ds-current-meta">
+      {% if data_source.counts %}
+      {{ data_source.counts.get('cubes', 0) }} Cubes · {{ data_source.counts.get('processes', 0) }} Processes · {{ data_source.counts.get('dimensions', 0) }} Dimensions
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- 可用数据源切换 -->
+  <div class="ds-options" style="margin-top:16px">
+    <div class="muted small" style="margin-bottom:8px">可用数据源</div>
+    <div class="ds-option-row">
+      <button type="button" class="btn ghost" id="btn-use-local" onclick="switchToLocal()">● 本地数据</button>
+      <button type="button" class="btn ghost" id="btn-use-demo" onclick="switchToDemo()">○ 示例数据 (Demo)</button>
+      <button type="button" class="btn ghost" id="btn-reset" onclick="resetSource()" title="回到默认用户数据目录">↺ 重置</button>
+    </div>
+  </div>
+
+  <!-- 导入本地数据 -->
+  <div class="ds-import" style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border)">
+    <div class="muted small" style="margin-bottom:10px">
+      导入本地数据 —— 选择一个 TM1 Insight 的 <code>data</code> 目录（含 <code>db/tm1_insight.duckdb</code>），系统直接读取，无需复制文件。
+    </div>
+    <div class="ds-import-row">
+      <input type="text" id="ds-path" class="input" placeholder="例如 D:\...\tm1-insight\data" style="flex:1">
+      <button type="button" class="btn primary" id="btn-detect" onclick="detectData()">检测数据</button>
+    </div>
+    <div id="detect-result" class="ds-detect-result" hidden></div>
+  </div>
+</div>
+
+<!-- TM1 连接 -->
+<div class="card">
+  <h2>TM1 服务器连接</h2>
+  <p class="muted small">填写连接信息后点击「开始拉取」，后台并行拉取全部元数据入库。密码留空则使用 <code>.env</code> 默认凭据。</p>
+  <form id="scan-form" onsubmit="return false;">
+    <div class="grid">
+      <label>地址
+        <input id="tm1_address" value="{{ tm1_address }}" placeholder="例如 192.168.1.100">
+      </label>
+      <label>端口
+        <input id="tm1_port" value="{{ tm1_port }}" placeholder="例如 30003">
+      </label>
+      <label>用户
+        <input id="tm1_user" value="{{ tm1_user }}" placeholder="登录用户名">
+      </label>
+      <label>密码
+        <input id="tm1_password" type="password" placeholder="登录密码">
+      </label>
+      <label>命名空间（可选）
+        <input id="tm1_namespace" value="{{ tm1_namespace }}" placeholder="CAM 命名空间">
+      </label>
+      <label class="checkbox">SSL
+        <input id="tm1_ssl" type="checkbox" {% if tm1_ssl %}checked{% endif %}>
+      </label>
+    </div>
+    <div class="actions">
+      <button type="submit" id="scan-btn" class="btn primary" onclick="startIngest()">开始拉取</button>
+      <span id="ingest-status" class="status-inline muted"></span>
+    </div>
+  </form>
+</div>
+
+<!-- 前端资产扫描 -->
+<div class="card">
+  <h2>前端资产扫描</h2>
+  <p class="muted small">只读本地 Excel（<code>applications/</code> 与 <code>externals/</code>），不访问 TM1，用于「前端文件 → 后端 Cube」映射。</p>
+  <table class="table">
+    <tbody>
+      <tr><td>应用目录 <code>applications/</code></td><td><code>{{ input_applications_dir }}</code></td></tr>
+      <tr><td>外部仓库 <code>externals/</code></td><td><code>{{ input_externals_dir }}</code></td></tr>
+    </tbody>
+  </table>
+  <div class="actions">
+    <button type="button" class="btn ghost" onclick="scanFrontend()">扫描前端资产</button>
+  </div>
+  <div class="progress-wrap" id="audit-progress">
+    <div class="progress-track"><div class="progress-fill" id="audit-progress-fill"></div></div>
+    <div class="progress-label">
+      <span id="audit-progress-text">准备中…</span>
+      <span class="pct" id="audit-progress-pct"></span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ============ 数据源（Data Sources） ============
+function refreshDsStatus() {
+  fetch('/api/datasource/status')
+    .then(r => r.json())
+    .then(j => {
+      document.getElementById('ds-current-name').textContent = j.label || '数据';
+      document.getElementById('ds-current-location').textContent = j.location || '—';
+      const meta = document.getElementById('ds-current-meta');
+      if (j.counts && j.counts.cubes) {
+        meta.textContent = `${j.counts.cubes} Cubes · ${j.counts.processes} Processes · ${j.counts.dimensions} Dimensions`;
+      } else {
+        meta.textContent = '';
+      }
+      const tag = document.getElementById('ds-current-tag');
+      if (j.type === 'demo') { tag.textContent = 'Demo'; tag.className = 'tag violet'; }
+      else if (j.ready) { tag.textContent = 'Ready'; tag.className = 'tag ok'; }
+      else { tag.textContent = 'Empty'; tag.className = 'tag'; }
+    })
+    .catch(() => {});
+}
+
+async function detectData() {
+  const path = document.getElementById('ds-path').value.trim();
+  const resultEl = document.getElementById('detect-result');
+  const btn = document.getElementById('btn-detect');
+  if (!path) { showDetectResult('<span class="err">请输入一个目录路径。</span>'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '检测中…';
+  resultEl.hidden = false;
+  resultEl.innerHTML = '<div class="muted">Detecting…</div>';
+
+  try {
+    const r = await fetch('/api/datasource/detect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const j = await r.json();
+    if (!r.ok) { showDetectResult('<span class="err">✕ ' + (j.error || '检测失败') + '</span>'); return; }
+    if (!j.valid) {
+      showDetectResult('<div class="err">✕ 数据校验失败</div><div class="muted small">原因：' + (j.error || '未知') + '</div>');
+      return;
+    }
+    // 成功：结构化展示
+    let html = '<div class="ok">✓ 数据检测成功</div>';
+    html += '<table class="table ds-detect-table"><tbody>';
+    html += '<tr><td>DuckDB</td><td>' + (j.has_duckdb ? '✓ Found' : '✕') + '</td></tr>';
+    html += '<tr><td>Parquet</td><td>' + (j.has_parquet ? '✓ Found' : '✕') + '</td></tr>';
+    html += '<tr><td>TM1 metadata</td><td>' + (j.has_raw ? '✓ Detected' : '—') + '</td></tr>';
+    if (j.counts && j.counts.cubes) {
+      html += '<tr><td>Cubes</td><td><b>' + j.counts.cubes + '</b></td></tr>';
+      html += '<tr><td>Processes</td><td><b>' + j.counts.processes + '</b></td></tr>';
+      html += '<tr><td>Dimensions</td><td><b>' + j.counts.dimensions + '</b></td></tr>';
+      if (j.counts.chores) html += '<tr><td>Chores</td><td><b>' + j.counts.chores + '</b></td></tr>';
+    }
+    if (j.db_size) html += '<tr><td>数据大小</td><td>' + formatBytes(j.db_size) + '</td></tr>';
+    html += '</tbody></table>';
+    if (j.partial) html += '<div class="warn">⚠ 部分数据：Parquet / metadata 不完整，但 DuckDB 可用。</div>';
+    html += '<div class="actions" style="margin-top:12px"><button type="button" class="btn primary" onclick="useData()">使用这份数据</button></div>';
+    showDetectResult(html);
+  } catch (e) {
+    showDetectResult('<span class="err">请求失败：' + e + '</span>');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '检测数据';
+  }
+}
+
+function showDetectResult(html) {
+  const resultEl = document.getElementById('detect-result');
+  resultEl.innerHTML = html;
+  resultEl.hidden = false;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+async function useData() {
+  const path = document.getElementById('ds-path').value.trim();
+  const resultEl = document.getElementById('detect-result');
+  resultEl.innerHTML = '<div class="muted">正在切换数据源…</div>';
+  try {
+    const r = await fetch('/api/datasource/use', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'local', path }),
+    });
+    const j = await r.json();
+    if (!r.ok) { showDetectResult('<span class="err">✕ ' + (j.error || '切换失败') + '</span>'); return; }
+    showDetectResult('<div class="ok">✓ 本地数据加载成功</div><div class="muted small">正在刷新…</div>');
+    setTimeout(() => location.href = '/', 800);
+  } catch (e) {
+    showDetectResult('<span class="err">请求失败：' + e + '</span>');
+  }
+}
+
+async function switchToDemo() {
+  const resultEl = document.getElementById('detect-result');
+  resultEl.hidden = false;
+  resultEl.innerHTML = '<div class="muted">正在切换到示例数据…</div>';
+  try {
+    const r = await fetch('/api/datasource/use', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'demo' }),
+    });
+    const j = await r.json();
+    if (!r.ok) { showDetectResult('<span class="err">✕ ' + (j.error || '切换失败') + '</span>'); return; }
+    showDetectResult('<div class="ok">✓ 已切换到示例数据 (Demo Mode)</div>');
+    setTimeout(() => location.href = '/', 800);
+  } catch (e) {
+    showDetectResult('<span class="err">请求失败：' + e + '</span>');
+  }
+}
+
+function switchToLocal() {
+  const inp = document.getElementById('ds-path');
+  inp.focus();
+  if (inp.value.trim()) { detectData(); }
+  else {
+    const resultEl = document.getElementById('detect-result');
+    resultEl.hidden = false;
+    resultEl.innerHTML = '<div class="muted small">请在上方输入本地数据目录路径，然后点击「检测数据」。</div>';
+  }
+}
+
+async function resetSource() {
+  const resultEl = document.getElementById('detect-result');
+  resultEl.hidden = false;
+  resultEl.innerHTML = '<div class="muted">正在重置数据源…</div>';
+  try {
+    const r = await fetch('/api/datasource/use', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'reset' }),
+    });
+    await r.json();
+    setTimeout(() => location.href = '/', 600);
+  } catch (e) {
+    showDetectResult('<span class="err">请求失败：' + e + '</span>');
+  }
+}
+
+// 初始刷新数据源状态
+refreshDsStatus();
+
+async function startIngest() {
+  const btn = document.getElementById('scan-btn');
+  const statusEl = document.getElementById('ingest-status');
+  btn.disabled = true;
+  btn.textContent = '拉取中…';
+  statusEl.textContent = '正在连接 TM1 并拉取元数据，请稍候（可关闭页面，后台继续）…';
+  statusEl.className = 'status-inline muted';
+
+  const creds = {
+    tm1_address: document.getElementById('tm1_address').value,
+    tm1_port: document.getElementById('tm1_port').value,
+    tm1_user: document.getElementById('tm1_user').value,
+    tm1_password: document.getElementById('tm1_password').value,
+    tm1_namespace: document.getElementById('tm1_namespace').value,
+    tm1_ssl: document.getElementById('tm1_ssl').checked,
+  };
+
+  try {
+    const r = await fetch('/api/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const j = await r.json();
+    if (!r.ok) { statusEl.textContent = '启动失败：' + (j.error || r.status); statusEl.className='status-inline err'; btn.disabled = false; btn.textContent = '开始拉取'; return; }
+    poll();
+  } catch (e) {
+    statusEl.textContent = '请求失败：' + e;
+    statusEl.className = 'status-inline err';
+    btn.disabled = false;
+    btn.textContent = '开始拉取';
+  }
+}
+
+async function poll() {
+  const statusEl = document.getElementById('ingest-status');
+  const btn = document.getElementById('scan-btn');
+  while (true) {
+    await new Promise(res => setTimeout(res, 2000));
+    let j;
+    try { j = await (await fetch('/api/ingest/status')).json(); }
+    catch (e) { continue; }
+    if (j.error) { statusEl.textContent = '拉取失败：' + j.error; statusEl.className='status-inline err'; break; }
+    if (j.done) { statusEl.textContent = '拉取完成，正在刷新…'; statusEl.className='status-inline ok'; location.reload(); return; }
+  }
+  btn.disabled = false;
+  btn.textContent = '开始拉取';
+}
+
+async function scanFrontend() {
+  const statusEl = document.getElementById('ingest-status');
+  const btn = document.querySelector('button[onclick="scanFrontend()"]');
+  const wrap = document.getElementById('audit-progress');
+  const fill = document.getElementById('audit-progress-fill');
+  const ptext = document.getElementById('audit-progress-text');
+  const ppct = document.getElementById('audit-progress-pct');
+  if (btn) btn.disabled = true;
+  statusEl.textContent = '正在启动扫描（后台执行，可关闭页面）…';
+  statusEl.className = 'status-inline muted';
+  try {
+    const r = await fetch('/api/audit', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '扫描失败：' + (j.error || r.status);
+      statusEl.className = 'status-inline err';
+      if (btn) btn.disabled = false;
+      return;
+    }
+    wrap.classList.add('visible');
+    pollAudit();
+  } catch (e) {
+    statusEl.textContent = '请求失败：' + e;
+    statusEl.className = 'status-inline err';
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function pollAudit() {
+  const statusEl = document.getElementById('ingest-status');
+  const fill = document.getElementById('audit-progress-fill');
+  const ptext = document.getElementById('audit-progress-text');
+  const ppct = document.getElementById('audit-progress-pct');
+  while (true) {
+    await new Promise(res => setTimeout(res, 1500));
+    let j;
+    try { j = await (await fetch('/api/audit/status')).json(); }
+    catch (e) { continue; }
+    if (j.running && j.progress) {
+      const p = j.progress;
+      const pct = p.total ? Math.round(p.done / p.total * 100) : 0;
+      fill.style.width = pct + '%';
+      ptext.textContent = `正在扫描前端资产… ${p.done}/${p.total}`;
+      ppct.textContent = pct + '%';
+      statusEl.textContent = p.phase || '扫描中';
+      statusEl.className = 'status-inline muted';
+      continue;
+    }
+    if (j.done) {
+      if (j.error) {
+        statusEl.textContent = '扫描失败：' + j.error;
+        statusEl.className = 'status-inline err';
+      } else {
+        fill.style.width = '100%';
+        ppct.textContent = '100%';
+        ptext.textContent = '扫描完成';
+        const s = j.stats || {};
+        statusEl.textContent = `扫描完成：${s.excel_assets || 0} 个资产、${s.front_backend_mapping || 0} 条映射，正在刷新…`;
+        statusEl.className = 'status-inline ok';
+        setTimeout(() => location.reload(), 800);
+      }
+      return;
+    }
+  }
+}
+</script>
+{% endblock %}

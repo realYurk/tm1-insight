@@ -10,21 +10,21 @@
 
 **TM1 Insight**
 
-Former repository/project name:
+Former repository/project name (now fully renamed to `tm1-insight` / `tm1_insight`):
 
 ```
-tm1-suite
+tm1-suite  →  tm1-insight (repository / CLI / pip package)
 ```
 
 The project is evolving from a TM1 utility collection into a professional **TM1 Model Intelligence & Engineering Platform**.
 
-Suggested repository name:
+Repository name:
 
 ```
 tm1-insight
 ```
 
-Do not rename the repository or perform large-scale branding changes unless explicitly instructed by the project owner.
+The repository and package have been renamed from `tm1-suite` to `tm1-insight`; do not rename back.
 
 # 2. Product Definition
 

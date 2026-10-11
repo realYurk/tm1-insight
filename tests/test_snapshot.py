@@ -20,7 +20,7 @@ import json
 
 import pytest
 
-from tm1_suite.snapshot import (
+from tm1_insight.snapshot import (
     SnapshotLoadError,
     SnapshotRecord,
     SnapshotStore,
@@ -232,7 +232,7 @@ def test_store_isolated_from_production(tmp_path):
 
 def test_snapshot_module_has_no_duckdb_dependency():
     import ast
-    import tm1_suite.snapshot.store as ss
+    import tm1_insight.snapshot.store as ss
 
     with open(ss.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
@@ -245,5 +245,5 @@ def test_snapshot_module_has_no_duckdb_dependency():
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             assert mod.split(".")[0] not in forbidden
-            assert not mod.startswith("tm1_suite.domain"), "snapshot store 不应依赖 domain"
-            assert not mod.startswith("tm1_suite.api"), "snapshot store 不应依赖 api"
+            assert not mod.startswith("tm1_insight.domain"), "snapshot store 不应依赖 domain"
+            assert not mod.startswith("tm1_insight.api"), "snapshot store 不应依赖 api"

@@ -17,9 +17,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import tm1_suite.config as config  # noqa: E402
-import tm1_suite.datasource as ds  # noqa: E402
-from tm1_suite.config import set_data_dir, get_settings  # noqa: E402
+import tm1_insight.config as config  # noqa: E402
+import tm1_insight.datasource as ds  # noqa: E402
+from tm1_insight.config import set_data_dir, get_settings  # noqa: E402
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def client(tmp_path, monkeypatch):
     get_settings.cache_clear()
 
     from fastapi.testclient import TestClient
-    from tm1_suite.api.app import app
+    from tm1_insight.api.app import app
 
     return TestClient(app)
 

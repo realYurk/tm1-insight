@@ -25,12 +25,12 @@ Dependency 方向：source depends_on target（A → B 表示 A 依赖 B）。
 """
 from __future__ import annotations
 
-from tm1_suite.change_intelligence import (
+from tm1_insight.change_intelligence import (
     ChangeIntelligenceEngine,
     ChangeIntelligenceResult,
     analyze_changes,
 )
-from tm1_suite.domain.model import Dependency, DependencyKind, ImpactKind
+from tm1_insight.domain.model import Dependency, DependencyKind, ImpactKind
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +311,7 @@ def test_changed_not_self_affected():
 # ---------------------------------------------------------------------------
 def test_change_intelligence_module_has_no_forbidden_dependency():
     import ast
-    import tm1_suite.change_intelligence.engine as ce
+    import tm1_insight.change_intelligence.engine as ce
 
     with open(ce.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
@@ -327,8 +327,8 @@ def test_change_intelligence_module_has_no_forbidden_dependency():
             mod = node.module or ""
             assert mod.split(".")[0] not in forbidden
             # 不重新实现 parser/resolver/dependency/impact/lineage 核心
-            assert not mod.startswith("tm1_suite.parser"), "change_intelligence 不应重写 parser"
-            assert not mod.startswith("tm1_suite.resolver"), "change_intelligence 不应重写 resolver"
+            assert not mod.startswith("tm1_insight.parser"), "change_intelligence 不应重写 parser"
+            assert not mod.startswith("tm1_insight.resolver"), "change_intelligence 不应重写 resolver"
 
 
 # ---------------------------------------------------------------------------

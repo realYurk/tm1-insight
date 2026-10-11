@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  tm1-suite one-click launcher
+REM  TM1 Insight one-click launcher
 REM  Double-click to start the Web UI. No manual commands needed.
 REM  First run auto-installs dependencies (1-2 min, needs internet).
 REM ============================================================
@@ -10,7 +10,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo.
-echo  [tm1-suite] Checking Python environment...
+echo  [TM1 Insight] Checking Python environment...
 
 REM ---- 1. Locate a REAL Python interpreter ----
 REM Priority: known installs first (most reliable), then PATH, then py launcher.
@@ -51,7 +51,7 @@ if not defined PY (
     exit /b 1
 )
 
-echo  [tm1-suite] Using Python: %PY%
+echo  [TM1 Insight] Using Python: %PY%
 
 REM ---- 2. Check dependencies ----
 REM NOTE: the package is named TM1py (capital T). Importing lowercase tm1py
@@ -62,15 +62,15 @@ goto start_web
 
 :install_deps
 echo.
-echo  [tm1-suite] First run: installing dependencies (may take 2-5 min)...
-echo  [tm1-suite] Trying aliyun mirror first, falling back to tsinghua mirror.
+echo  [TM1 Insight] First run: installing dependencies (may take 2-5 min)...
+echo  [TM1 Insight] Trying aliyun mirror first, falling back to tsinghua mirror.
 echo.
 %PY% -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple --timeout 60
 if errorlevel 1 goto install_deps_tsinghua
 goto start_web
 
 :install_deps_tsinghua
-echo  [tm1-suite] Aliyun mirror failed, retrying tsinghua mirror...
+echo  [TM1 Insight] Aliyun mirror failed, retrying tsinghua mirror...
 %PY% -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 60
 if errorlevel 1 goto install_deps_fail
 goto start_web
@@ -90,15 +90,15 @@ exit /b 1
 :start_web
 REM ---- 3. Start Web UI (auto-open browser) ----
 echo.
-echo  [tm1-suite] Starting Web UI. Browser will open http://localhost:8000
-echo  [tm1-suite] Close this window to stop the service.
+echo  [TM1 Insight] Starting Web UI. Browser will open http://localhost:8000
+echo  [TM1 Insight] Close this window to stop the service.
 echo.
 
 start "" http://localhost:8000
 
-REM Point PYTHONPATH at src (tm1_suite lives under src, no pip install -e needed)
+REM Point PYTHONPATH at src (tm1_insight lives under src, no pip install -e needed)
 set "PYTHONPATH=%~dp0src;%PYTHONPATH%"
-%PY% -m tm1_suite.cli web
+%PY% -m tm1_insight.cli web
 
 REM If we reach here the web command exited unexpectedly; keep window open.
 echo.

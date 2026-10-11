@@ -20,11 +20,11 @@ import sys
 
 import uvicorn
 
-from tm1_suite.cli import app as cli_app
-from tm1_suite.config import get_settings
-from tm1_suite.portable import pick_port, start_browser_thread
+from tm1_insight.cli import app as cli_app
+from tm1_insight.config import get_settings
+from tm1_insight.portable import pick_port, start_browser_thread
 
-logger = logging.getLogger("tm1-suite.launcher")
+logger = logging.getLogger("tm1-insight.launcher")
 
 
 def _setup_file_logging(settings) -> None:
@@ -60,7 +60,7 @@ def _run_web() -> None:
 
     try:
         uvicorn.run(
-            "tm1_suite.api.app:app",
+            "tm1_insight.api.app:app",
             host=settings.web_host,
             port=port,
             log_level="info",

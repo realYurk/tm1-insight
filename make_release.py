@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tm1-suite 发布打包脚本：把项目拆成「程序体」和「数据体」两个 ZIP。
+"""TM1 Insight 发布打包脚本：把项目拆成「程序体」和「数据体」两个 ZIP。
 
 用法（在项目根目录运行）:
     python make_release.py            # 同时生成程序体 + 数据体
@@ -7,8 +7,8 @@
     python make_release.py --data-only# 只生成数据体
 
 产物输出到 dist/ 目录:
-    tm1-suite-app-<version>.zip    程序体（约 50M，源码 + 启动器 + 依赖清单，更新低频）
-    tm1-suite-data-<version>.zip   数据体（约 2G，duckdb + inputs，随 TM1 更新）
+    tm1-insight-app-<version>.zip    程序体（约 50M，源码 + 启动器 + 依赖清单，更新低频）
+    tm1-insight-data-<version>.zip   数据体（约 2G，duckdb + inputs，随 TM1 更新）
 
 设计原则:
   - 程序体与数据体分离，更新数据不用重发程序，反之亦然。
@@ -22,7 +22,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from tm1_suite import __version__
+from tm1_insight import __version__
 
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
@@ -53,7 +53,7 @@ def _zip_dir(zf: zipfile.ZipFile, src: Path, arc_prefix: str = "") -> None:
 
 
 def build_app(version: str) -> Path:
-    out = DIST / f"tm1-suite-app-{version}.zip"
+    out = DIST / f"tm1-insight-app-{version}.zip"
     DIST.mkdir(exist_ok=True)
     print(f"[app] 打包程序体 -> {out.name}")
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -72,7 +72,7 @@ def build_app(version: str) -> Path:
 
 
 def build_data(version: str, no_parquet: bool = False) -> Path:
-    out = DIST / f"tm1-suite-data-{version}.zip"
+    out = DIST / f"tm1-insight-data-{version}.zip"
     DIST.mkdir(exist_ok=True)
     data_dir = ROOT / "data"
     print(f"[data] 打包数据体 -> {out.name}（裁掉 raw 中间产物）")
@@ -92,7 +92,7 @@ def build_data(version: str, no_parquet: bool = False) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="tm1-suite 发布打包")
+    parser = argparse.ArgumentParser(description="TM1 Insight 发布打包")
     parser.add_argument("--app-only", action="store_true", help="只打程序体")
     parser.add_argument("--data-only", action="store_true", help="只打数据体")
     parser.add_argument("--no-parquet", action="store_true", help="数据体不含 parquet/")

@@ -28,13 +28,13 @@
 """
 from __future__ import annotations
 
-from tm1_suite.compare import (
+from tm1_insight.compare import (
     CompareEngine,
     CompareError,
     compare_payloads,
     compare_snapshots,
 )
-from tm1_suite.domain.model import ChangeKind
+from tm1_insight.domain.model import ChangeKind
 
 
 def _proc(name, data="CellPutN(1, 'Cube_A', 'd', 'm');"):
@@ -298,7 +298,7 @@ def test_schema_version_mismatch_reversed_input():
 
 def test_schema_version_record_object():
     # 携带 .schema_version 属性的对象（如 SnapshotRecord）也能校验
-    from tm1_suite.snapshot import SnapshotRecord
+    from tm1_insight.snapshot import SnapshotRecord
 
     before_rec = SnapshotRecord(
         snapshot_id="s1", instance_id="DEV", model_name="M", schema_version=1
@@ -383,15 +383,15 @@ def test_no_snapshot_mutation():
 # ---------------------------------------------------------------------------
 def test_compare_module_has_no_forbidden_dependency():
     import ast
-    import tm1_suite.compare.engine as ce
+    import tm1_insight.compare.engine as ce
 
     with open(ce.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
 
     forbidden = {"duckdb", "fastapi", "sqlalchemy", "networkx", "neo4j"}
-    forbidden_modules = {"tm1_suite.ingest", "tm1_suite.store", "tm1_suite.api",
-                         "tm1_suite.parser", "tm1_suite.resolver", "tm1_suite.dependency",
-                         "tm1_suite.lineage", "tm1_suite.impact", "tm1_suite.health"}
+    forbidden_modules = {"tm1_insight.ingest", "tm1_insight.store", "tm1_insight.api",
+                         "tm1_insight.parser", "tm1_insight.resolver", "tm1_insight.dependency",
+                         "tm1_insight.lineage", "tm1_insight.impact", "tm1_insight.health"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -399,8 +399,8 @@ def test_compare_module_has_no_forbidden_dependency():
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
             assert mod.split(".")[0] not in forbidden
-            assert not mod.startswith("tm1_suite.ingest"), "compare 不应依赖 ingest"
-            assert not mod.startswith("tm1_suite.dependency"), "compare 不应依赖 dependency"
+            assert not mod.startswith("tm1_insight.ingest"), "compare 不应依赖 ingest"
+            assert not mod.startswith("tm1_insight.dependency"), "compare 不应依赖 dependency"
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +408,7 @@ def test_compare_module_has_no_forbidden_dependency():
 # ---------------------------------------------------------------------------
 def test_compare_module_has_no_ai_dependency():
     import ast
-    import tm1_suite.compare.engine as ce
+    import tm1_insight.compare.engine as ce
 
     with open(ce.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
@@ -429,7 +429,7 @@ def test_compare_module_has_no_ai_dependency():
 # ---------------------------------------------------------------------------
 def test_compare_no_ti_reparsing():
     import ast
-    import tm1_suite.compare.engine as ce
+    import tm1_insight.compare.engine as ce
 
     with open(ce.__file__, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
@@ -437,8 +437,8 @@ def test_compare_no_ti_reparsing():
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             mod = node.module or ""
-            assert not mod.startswith("tm1_suite.parser"), "compare 不应重新解析 TI"
-            assert not mod.startswith("tm1_suite.resolver"), "compare 不应重新 resolve"
+            assert not mod.startswith("tm1_insight.parser"), "compare 不应重新解析 TI"
+            assert not mod.startswith("tm1_insight.resolver"), "compare 不应重新 resolve"
 
 
 # ---------------------------------------------------------------------------
