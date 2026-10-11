@@ -29,14 +29,72 @@ TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层�
 
 ---
 
-## 快速开始（3 步）
+## 界面预览
+
+**首页**——全局搜索 + MDX 反查（粘贴一段 MDX，直接找出最可能写入这个交叉点的 TI）+ 数据规模一览：
+
+![首页](images/img-home.png)
+
+**Cube 浏览**——维度结构单行展示、数据流向图（源头 Cube → 搬运 TI → 本 Cube）、逐写入点拆解：
+
+![Cube 浏览](images/img-cubeview.png)
+
+**TI 进程**——参数/变量/Prolog/Metadata/Data/Epilog 分 Tab 浏览，代码高亮 + 行号，右侧栏跨 Tab 搜索代码、数据源头与调用关系：
+
+![TI 进程](images/img-TIview.png)
+
+**知识图谱**——以 TI 为中心，看它往哪个 Cube 的哪个切面写数据：每个写入点的维度、来源变量、取值与写入前提：
+
+![知识图谱](images/img-TIsummary.png)
+
+**前端资产**——扫描前端 Excel，自动建立"前端页面 → 后端 Cube"映射，标出含 TM1 公式与断链风险：
+
+![前端资产](images/img-frontview.png)
+
+**连接设置**——配置 TM1 连接、一键拉取元数据、重新扫描前端资产：
+
+![连接设置](images/img-settings.png)
+
+---
+
+## 快速开始
 
 ### 前置条件
 
-- Python **3.9+**（推荐 3.11）——仅源码模式需要；**便携版 exe 无需 Python**
-- 能连 TM1 的网络（仅首次拉数据需要；之后离线用）
+- **方式 A（便携版 exe）**：无需任何前置条件，Windows 直接双击即用
+- **方式 B/C（源码）**：需要 Python **3.9+**（推荐 3.11）
+- 能连 TM1 的网络（**仅拉取真实数据时需要**；看演示数据、离线浏览都不需要）
 
-### 第 1 步 · 安装
+---
+
+### 方式 A · 便携版 exe（免安装，双击即用，强烈推荐）
+
+下载 `TM1 Insight` 便携目录（GitHub Releases 的 zip），解压后双击 `TM1 Insight.exe`：
+
+1. 首次打开自动进入 **Demo 模式**（无需连 TM1、无需装 Python、无需装任何依赖）
+2. 自动打开浏览器 `http://127.0.0.1:8000`（端口被占用时自动递增）
+3. 数据保存在 `%LOCALAPPDATA%\TM1 Insight\`，升级替换文件夹不丢数据
+4. 可在「设置 / 数据源管理」上传 `.duckdb` / `.zip` 数据包切换真实数据
+
+> **适合人群**：只想看效果、不想折腾环境的用户。便携目录内含 Python 运行时 + 全部依赖，真正的零安装。
+
+---
+
+### 方式 B · Windows 一键启动（源码，零配置看效果）
+
+直接双击项目根目录的 **`start.bat`**，它会自动完成：
+
+1. 检查并安装依赖（首次约 2-5 分钟，自动镜像加速 + 失败回退）
+2. 启动 Web UI 并自动打开浏览器 `http://localhost:8000`
+3. **本地没有数据时，自动进入 Demo 模式**（无需连 TM1）
+
+> **演示数据 vs 真实数据**：Demo 模式是一套虚构的「销售 → 成本 → 利润」模型，
+> 用于让你先看完整界面和功能长什么样。要看你自己 TM1 环境的真实数据，请按下方
+> 「方式 C」配置连接后运行 `tm1-suite ingest`。
+
+---
+
+### 方式 C · 命令行安装（拉真实数据）
 
 ```bash
 git clone https://github.com/realYurk/tm1-suite.git
@@ -49,7 +107,7 @@ pip install -e .
 > 内网环境可用阿里云镜像加速：
 > `pip install -r requirements.txt -i http://mirrors.aliyun.com/pypi/simple --trusted-host mirrors.aliyun.com`
 
-### 第 2 步 · 配置连接（首次拉数据）
+#### 配置连接（首次拉数据）
 
 ```bash
 cp .env.example .env
@@ -74,7 +132,7 @@ tm1-suite check
 
 看到"连接成功"和对象数量，就说明连上了。
 
-### 第 3 步 · 拉取数据 + 启动
+#### 拉取数据 + 启动
 
 ```bash
 # 拉取全部元数据并入库（首次约 10-20 分钟）
@@ -86,7 +144,15 @@ tm1-suite web
 
 浏览器打开 **http://localhost:8000** 即可。
 
-> **Windows 一键启动**：也可以直接双击 `start.bat`，它会自动装依赖、自动开浏览器，全程不用敲命令。
+---
+
+### 方式 D · Docker
+
+```bash
+docker compose up -d
+# 首次需手动入库：
+docker compose run --rm tm1-suite ingest
+```
 
 ---
 
@@ -223,13 +289,8 @@ tm1-suite ingest       # 拉数据
 tm1-suite web          # 启动
 ```
 
-**场景 C：Docker**
-
-```bash
-docker compose up -d
-# 首次需手动入库：
-docker compose run --rm tm1-suite ingest
-```
+> 说明：以上两种场景也可以用 `start.bat` 替代，它会在无数据时自动生成演示数据，
+> 有 `data/` 时直接启动。
 
 ---
 
@@ -283,7 +344,7 @@ build_portable.bat          # 生成 release\TM1 Insight\ 便携目录
 
 详见便携版说明 `PORTABLE_README.txt`（打包时复制为 release 内的 `README.txt`）。
 
-### 源码版（make_release.py）
+### 程序体 / 数据体分离（源码分发）
 
 项目内置 `make_release.py`，把发布拆成"程序体"和"数据体"：
 
@@ -302,7 +363,22 @@ python make_release.py --data-only    # 只打数据体（duckdb + inputs，随 
 ## 常见问题
 
 **Q：离线能用吗？**
-A：能。只要本地有 `data/`（之前拉过数据），所有分析都在本地跑，不连 TM1。
+A：能。只要本地有 `data/`（之前拉过数据，或 start.bat 自动生成的演示数据），
+所有分析都在本地跑，不连 TM1。
+
+**Q：双击 start.bat 提示「依赖安装失败」怎么办？**
+A：常见原因与对策：
+
+| 现象 | 原因 | 对策 |
+|---|---|---|
+| 一直卡在安装 | 首次装依赖需 2-5 分钟 | 耐心等待，别关窗口 |
+| 报超时/连接失败 | 内网无法访问阿里云镜像 | 脚本已自动回退清华镜像；仍失败则手动 `pip install -r requirements.txt -i https://pypi.org/simple` |
+| 报「No module named tm1py」 | 依赖没装全（网络中断） | 打开命令行，进目录后跑 `pip install -r requirements.txt` 看真实报错 |
+| Python 未找到 | 没装 Python 或没勾 Add to PATH | 装 Python 3.9+ 并勾选「Add to PATH」 |
+
+**Q：打开页面是空的？**
+A：说明本地还没有数据。直接双击 `start.bat` 会自动生成一套演示数据；
+要看真实数据则需配置 `.env` 连接 TM1 后运行 `tm1-suite ingest`。
 
 **Q：新电脑没有数据，打开是空壳吗？**
 A：不会。首次启动若检测不到本地数据，会自动进入 **Demo 模式**，加载内置小型模型，让你先看到完整能力；之后可导入真实数据包切换。
