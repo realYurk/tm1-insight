@@ -7,19 +7,84 @@
 """
 from __future__ import annotations
 
+import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# 项目根目录（tm1-suite/），与 .env 所在位置一致
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+def _app_root() -> Path:
+    """程序目录（Application Directory，只读，不含用户数据）。
+
+    源码运行：tm1-suite/ 根目录。
+    PyInstaller 打包（sys.frozen）：exe 所在目录。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+def _user_data_root() -> Path:
+    """用户数据目录（User Data Directory，可写）。
+
+    Portable 产品原则：软件与数据彻底分离。
+
+    优先顺序：
+      1. 环境变量 TM1_INSIGHT_HOME（用户显式指定）
+      2. 源码开发模式 -> 项目根目录（保持历史行为，data/.env 在项目下）
+      3. Portable 打包模式（sys.frozen）-> %LOCALAPPDATA%\\TM1 Insight\\
+
+    这样 Portable 版即使放在 C:\\Program Files\\ 或只读 U 盘也能运行：
+    config / data / logs 全部写到用户自己的 LOCALAPPDATA，无需管理员权限。
+    """
+    env_home = os.environ.get("TM1_INSIGHT_HOME")
+    if env_home:
+        return Path(env_home).resolve()
+
+    if not getattr(sys, "frozen", False):
+        # 源码开发：沿用项目根目录，保持现有测试/开发行为不变
+        return _app_root()
+
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if localappdata:
+        return Path(localappdata) / "TM1 Insight"
+    # LOCALAPPDATA 不可用时退化为用户主目录
+    return Path.home() / ".tm1-insight"
+
+
+# 程序目录（只读，代码/资源/默认配置所在）
+_PROJECT_ROOT = _app_root()
+
+# 用户数据目录（可写，.env / data / logs 所在）
+_USER_DATA_ROOT = _user_data_root()
+
+# 数据目录覆盖（Task 19：Import Local Data 用）。
+# 用户通过 UI 选择本地数据目录后，这里记录绝对路径；Store 连接时优先使用它。
+# 用环境变量 TM1_INSIGHT_DATA_DIR 或 set_data_dir() 设置。
+_DATA_DIR_OVERRIDE: Path | None = None
+
+
+def set_data_dir(path: str | Path | None) -> None:
+    """设置数据目录覆盖（切换数据源）。None 表示清除覆盖、回到默认。"""
+    global _DATA_DIR_OVERRIDE
+    if path is None or path == "":
+        _DATA_DIR_OVERRIDE = None
+    else:
+        _DATA_DIR_OVERRIDE = Path(path).resolve()
+    get_settings.cache_clear()
+
+
+def get_data_dir_override() -> Path | None:
+    """返回当前数据目录覆盖（无覆盖时为 None）。"""
+    return _DATA_DIR_OVERRIDE
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(_PROJECT_ROOT / ".env"),
+        env_file=str(_USER_DATA_ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -51,7 +116,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _resolve_paths(self) -> "Settings":
-        """把相对路径解析为基于项目根目录的绝对路径。"""
+        """把相对路径解析为基于「用户数据目录」的绝对路径。
+
+        源码开发：用户数据目录 == 项目根，行为不变。
+        Portable：用户数据目录 == %LOCALAPPDATA%\\TM1 Insight\\，与程序目录分离。
+
+        数据目录覆盖（Task 19 Import Local Data）：若用户通过 UI 选择了
+        本地数据目录（set_data_dir），data_dir 优先指向它，其余 input_* 仍
+        跟随默认用户数据目录。
+        """
+        # 数据目录覆盖优先级最高（用户主动选择的数据目录）
+        if _DATA_DIR_OVERRIDE is not None:
+            self.data_dir = _DATA_DIR_OVERRIDE
+
         for name in (
             "data_dir",
             "input_applications_dir",
@@ -61,7 +138,7 @@ class Settings(BaseSettings):
         ):
             p = Path(getattr(self, name))
             if not p.is_absolute():
-                setattr(self, name, (_PROJECT_ROOT / p).resolve())
+                setattr(self, name, (_USER_DATA_ROOT / p).resolve())
         return self
 
     # ---- 派生路径 ----
@@ -84,6 +161,16 @@ class Settings(BaseSettings):
     @property
     def project_root(self) -> Path:
         return _PROJECT_ROOT
+
+    @property
+    def user_data_root(self) -> Path:
+        """用户数据目录（config / data / logs 根）。"""
+        return _USER_DATA_ROOT
+
+    @property
+    def logs_dir(self) -> Path:
+        """日志目录（用户数据目录下）。"""
+        return _USER_DATA_ROOT / "logs"
 
     def ensure_dirs(self) -> None:
         for d in (

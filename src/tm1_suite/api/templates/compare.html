@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}快照对比 · tm1-suite{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">首页</a><span class="sep">/</span><span class="current">快照对比</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">快照对比</h1>
+    <p class="page-sub">对象级 Snapshot Compare + Change Intelligence：哪些对象变了，影响哪些对象</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="list-toolbar">
+    <h2>对比概览</h2>
+    <span class="muted small">Before：空快照 → After：当前入库数据（尚未接入多快照历史，见说明）</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="num">{{ compare.statistics.added_count }}</div><div class="lbl">Added</div></div>
+    <div class="stat"><div class="num">{{ compare.statistics.removed_count }}</div><div class="lbl">Removed</div></div>
+    <div class="stat violet"><div class="num">{{ compare.statistics.modified_count }}</div><div class="lbl">Modified</div></div>
+    <div class="stat"><div class="num">{{ compare.statistics.unchanged_count }}</div><div class="lbl">Unchanged</div></div>
+  </div>
+</div>
+
+<!-- ============ Changed Objects ============ -->
+<div class="card">
+  <h2>Changed Objects <span class="tag">{{ compare.changes|length }}</span></h2>
+  {% if compare.changes %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>类型</th>
+        <th>对象</th>
+        <th>变化</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in compare.changes[:200] %}
+      <tr>
+        <td><span class="tag">{{ c.object_type }}</span></td>
+        <td><code>{{ c.object_name }}</code></td>
+        <td>
+          {% if c.change_type == 'added' %}<span class="tag added">ADDED</span>
+          {% elif c.change_type == 'removed' %}<span class="tag removed">REMOVED</span>
+          {% else %}<span class="tag modified">MODIFIED</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if compare.changes|length > 200 %}
+  <p class="muted small">仅显示前 200 项（共 {{ compare.changes|length }} 项）。</p>
+  {% endif %}
+  {% else %}
+  <p class="muted small">无变化。</p>
+  {% endif %}
+</div>
+
+<!-- ============ Affected Objects（Change Intelligence） ============ -->
+<div class="card">
+  <h2>Affected Objects <span class="tag">{{ ci.statistics.affected_count }}</span></h2>
+  <p class="muted small">基于变更对象，复用 Lineage / Impact 引擎推导出的受影响对象（依赖变更源的对象）。</p>
+  {% if sampled %}
+  <div class="sample-banner">
+    <strong>Preview / 采样结果</strong>
+    <span>已分析 50 个「会被依赖的 Cube」（共 {{ sampled_total }} 个），完整分析将由后台/索引引擎执行。</span>
+  </div>
+  {% endif %}
+  {% if ci.affected_objects %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>受影响对象</th>
+        <th>变化源</th>
+        <th>影响</th>
+        <th>路径</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in ci.affected_objects[:200] %}
+      <tr>
+        <td><a href="/impact?source={{ a.target|urlencode }}">{{ a.target }}</a></td>
+        <td><code>{{ a.source }}</code></td>
+        <td><span class="tag">{{ a.kind.value }}</span></td>
+        <td class="muted small">{{ a.path|join(' → ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if ci.affected_objects|length > 200 %}
+  <p class="muted small">仅显示前 200 项（共 {{ ci.affected_objects|length }} 项）。</p>
+  {% endif %}
+  {% else %}
+  <p class="muted small">无受影响对象。</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}影响分析 · tm1-suite{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">首页</a><span class="sep">/</span><span class="current">影响分析</span>
+  {% if source %}<span class="sep">/</span><span class="current">{{ source }}</span>{% endif %}
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">影响分析</h1>
+    <p class="page-sub">给定一个对象，展示它依赖什么（下游）与它被谁依赖（上游），复用 Dependency → Lineage → Impact 引擎</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="list-toolbar">
+    <h2>选择分析对象 <span class="tag">{{ dependency_count }} 条依赖</span></h2>
+  </div>
+  <form class="impact-form" method="get" action="/impact">
+    <input type="text" name="source" list="impact-objects" value="{{ source or '' }}"
+           placeholder="输入 Process 或 Cube 名，如 Cub.Actual Data" autocomplete="off">
+    <datalist id="impact-objects">
+      {% for p in all_processes %}<option value="{{ p }}">{% endfor %}
+      {% for c in all_cubes %}<option value="{{ c }}">{% endfor %}
+    </datalist>
+    <button type="submit" class="btn primary">分析</button>
+  </form>
+</div>
+
+{% if not result %}
+<div class="card empty-state">
+  <div class="empty-icon">{% include "icons/graph.svg" %}</div>
+  <div class="empty-title">输入一个对象名</div>
+  <div class="empty-desc">查看它依赖的对象（Dependencies / 下游）、依赖它的对象（Affected / 上游），以及沿依赖链传递的完整影响路径（path + depth）。</div>
+</div>
+{% else %}
+
+<!-- ============ 依赖（下游：它依赖谁） ============ -->
+<div class="card">
+  <h2>依赖对象（Downstream）<span class="tag">{{ result.downstream|length }}</span></h2>
+  {% if result.downstream %}
+  <ul class="list">
+    {% for lin in result.downstream %}
+    <li>
+      <a href="/impact?source={{ lin.target|urlencode }}">{{ lin.target }}</a>
+      <span class="tag">{{ 'direct' if lin.depth == 1 else 'indirect' }}</span>
+      <span class="tag">depth {{ lin.depth }}</span>
+      <span class="muted small">path: {{ lin.path|join(' → ') }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted small">该对象不依赖任何已确认的对象（无下游依赖）。</p>
+  {% endif %}
+</div>
+
+<!-- ============ 受影响（上游：谁依赖它） ============ -->
+<div class="card">
+  <h2>受影响对象（Affected / Impact）<span class="tag">{{ result.impacts|length }}</span></h2>
+  {% if result.impacts %}
+  <ul class="list">
+    {% for imp in result.impacts %}
+    <li>
+      <a href="/impact?source={{ imp.target|urlencode }}">{{ imp.target }}</a>
+      <span class="tag">{{ imp.kind.value }}</span>
+      <span class="tag">depth {{ imp.depth }}</span>
+      <span class="muted small">path: {{ imp.path|join(' → ') }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted small">没有对象依赖它（无上游依赖者）。</p>
+  {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}

@@ -45,9 +45,18 @@
         <a href="/processes" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') or path.startswith('/explorer/chore') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/process.svg" %}</span><span>TI 进程</span>
         </a>
+        <a href="/dimensions" class="nav-link {% if path.startswith('/dimensions') %}active{% endif %}">
+          <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>维度</span>
+        </a>
         <div class="nav-group-label">分析</div>
         <a href="/graph" class="nav-link {% if path.startswith('/graph') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/graph.svg" %}</span><span>知识图谱</span>
+        </a>
+        <a href="/impact" class="nav-link {% if path.startswith('/impact') %}active{% endif %}">
+          <span class="nav-icon">{% include "icons/graph.svg" %}</span><span>影响分析</span>
+        </a>
+        <a href="/compare" class="nav-link {% if path.startswith('/compare') %}active{% endif %}">
+          <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>快照对比</span>
         </a>
         <a href="/codegen" class="nav-link {% if path.startswith('/codegen') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/codegen.svg" %}</span><span>代码生成</span>
@@ -62,6 +71,9 @@
       </nav>
 
       <div class="sidebar-foot">
+        <div class="datasource-indicator" id="datasource-indicator" title="当前数据源">
+          <span class="ds-dot"></span><span class="ds-label">检测中…</span>
+        </div>
         <div class="sidebar-foot-note">本地元数据仓库<br>DuckDB + Parquet · 离线可用</div>
       </div>
     </aside>
@@ -87,6 +99,30 @@
           try { localStorage.setItem('tm1-theme', 'dark'); } catch (e) {}
         }
       });
+    })();
+
+    // 数据源指示器：始终显示当前使用什么数据（Local / Demo / TM1 Server）
+    (function () {
+      var el = document.getElementById('datasource-indicator');
+      if (!el) return;
+      var dot = el.querySelector('.ds-dot');
+      var label = el.querySelector('.ds-label');
+      var labelMap = {
+        'real_local': 'Local Data',
+        'demo': 'Demo Mode',
+        'tm1_server': 'TM1 Server',
+        'empty': 'No Data'
+      };
+      fetch('/api/datasource/status')
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          label.textContent = labelMap[j.type] || j.label || 'Data';
+          el.setAttribute('data-type', j.type);
+          el.title = j.location || '数据源';
+        })
+        .catch(function () {
+          label.textContent = '—';
+        });
     })();
   </script>
   {% block scripts %}{% endblock %}

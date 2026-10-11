@@ -19,9 +19,18 @@ from tm1_suite.store.queries import cube_summary
 
 
 def _setup_logging() -> None:
-    """配置日志：控制台 + 滚动文件（logs/tm1-suite.log），方便商用排查问题。"""
-    log_dir = Path(__file__).resolve().parents[2] / "logs"
-    log_dir.mkdir(exist_ok=True)
+    """配置日志：控制台 + 滚动文件（用户数据目录 logs/tm1-suite.log）。
+
+    日志写到用户数据目录（Portable 为 %LOCALAPPDATA%\\TM1 Insight\\logs），
+    而非程序目录，保证程序放在只读位置也能记录日志。
+    """
+    from tm1_suite.config import get_settings
+
+    try:
+        log_dir = get_settings().logs_dir
+    except Exception:  # noqa: BLE001  # 配置加载失败时退化为程序目录
+        log_dir = Path(__file__).resolve().parents[2] / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
     fmt = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
     handlers: list[logging.Handler] = [logging.StreamHandler()]
 
@@ -149,13 +158,26 @@ def audit() -> None:
 
 
 @app.command()
-def web() -> None:
-    """启动 Web UI（FastAPI）。"""
+def web(
+    no_browser: bool = typer.Option(False, "--no-browser", help="不自动打开浏览器"),
+) -> None:
+    """启动 Web UI（FastAPI），端口被占用时自动递增，自动打开浏览器。"""
     import uvicorn
 
+    from tm1_suite.portable import pick_port, start_browser_thread
+
     settings = get_settings()
-    typer.echo(f"启动 Web UI: http://{settings.web_host}:{settings.web_port}")
-    uvicorn.run("tm1_suite.api.app:app", host=settings.web_host, port=settings.web_port)
+    settings.ensure_dirs()
+
+    port = pick_port(settings.web_host, settings.web_port)
+    if port != settings.web_port:
+        typer.echo(f"端口 {settings.web_port} 被占用，改用 {port}")
+
+    typer.echo(f"启动 Web UI: http://127.0.0.1:{port}")
+    if not no_browser:
+        start_browser_thread(port)
+
+    uvicorn.run("tm1_suite.api.app:app", host=settings.web_host, port=port)
 
 
 def main() -> None:

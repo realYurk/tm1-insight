@@ -24,6 +24,10 @@ DEBUG_KEYWORDS = [
     "cLogLoc", "sLogLoc",
 ]
 
+# ELSE 分支条件的取反标记前缀：Else 后栈顶条件被改写为 "NOT(<cond>)"，
+# 用于区分「IF 分支条件」与「ELSE 分支条件」，避免 ELSE 错误继承 IF 条件。
+_ELSE_NOT_PREFIX = "NOT("
+
 
 def is_debug_condition(cond):
     for kw in DEBUG_KEYWORDS:
@@ -148,7 +152,17 @@ def extract_if_condition(stmt):
 
 
 def scan_statements_with_conditions(code):
-    """逐语句扫描, 维护 IF 栈。返回 [(line_no, 语句, 条件栈), ...]"""
+    """逐语句扫描, 维护 IF 栈。返回 [(line_no, 语句, 条件栈), ...]
+
+    IF / ELSE / ENDIF 处理：
+    - ``If(...)`` 压入条件（debug 条件跳过）。
+    - ``Else`` 将栈顶条件切换为取反语义 ``NOT(<cond>)``，使 ELSE 分支
+      不再错误继承 IF 分支的原始条件。
+    - ``EndIF`` 弹出栈顶，之后语句不再继承任何条件。
+
+    取反用 ``NOT(...)`` 字符串标记表达（不引入独立 condition AST），
+    保持条件栈仍是一维字符串列表，兼容现有 consumers（如 dependency engine）。
+    """
     stmts = split_statements(code)
     result = []
     if_stack = []
@@ -164,6 +178,8 @@ def scan_statements_with_conditions(code):
             continue
 
         if re.match(r'^Else\s*;?\s*$', s, re.IGNORECASE):
+            if if_stack and not if_stack[-1].startswith(_ELSE_NOT_PREFIX):
+                if_stack[-1] = f"{_ELSE_NOT_PREFIX}{if_stack[-1]})"
             continue
 
         if re.match(r'^(?:If|IF)\s*\(', s, re.IGNORECASE):
@@ -463,8 +479,20 @@ def extract_bedrock_filters(calls, code, assignments):
                 break
         if not op:
             continue
-        target_cube = call["params"].get("pCube", {}).get("value", "")
-        if is_log_cube(target_cube):
+        pcube = call["params"].get("pCube", {}).get("value", "")
+        psrc = call["params"].get("pSrcCube", {}).get("value", "")
+        ptgt = call["params"].get("pTgtCube", {}).get("value", "")
+
+        # }bedrock.cube.data.copy 用 pSrcCube/pTgtCube 表达「从源 cube 拷到目标 cube」；
+        # clear / zeroout / view.create 用 pCube 表达单一目标 cube。
+        if op == "copy":
+            source_cube = psrc
+            target_cube = ptgt
+        else:
+            source_cube = ""
+            target_cube = pcube
+
+        if is_log_cube(target_cube) or is_log_cube(source_cube):
             continue
         pfilter_expr = call["params"].get("pFilter", {}).get("expr", "")
         pfilter_value = call["params"].get("pFilter", {}).get("value", "")
@@ -475,6 +503,7 @@ def extract_bedrock_filters(calls, code, assignments):
             filters = parse_filter_string(pfilter_value)
         results.append({
             "bedrock_op": op,
+            "source_cube": source_cube,
             "target_cube": target_cube,
             "filters": filters,
         })
@@ -502,7 +531,7 @@ def _bedrock_cube_points(bedrock_calls):
     """把 bedrock 调用的 cube 转成读写点，补进血缘。
 
     bedrock 语义（用户定义）：
-    - copy：pCube 既是读也是写（版本间拷贝，同一 cube 内部搬数据）
+    - copy：从 pSrcCube 读、写入 pTgtCube（两个独立 cube）
     - clear / zeroout：pCube 是写（清空）
     - view.create：pCube 是读（建视图读取数据）
     - view.delete：清理临时视图，不涉及业务数据流，跳过
@@ -510,26 +539,33 @@ def _bedrock_cube_points(bedrock_calls):
     writes = []
     reads = []
     for b in bedrock_calls:
-        cube = b.get("target_cube", "")
+        op = b.get("bedrock_op", "")
+        source_cube = b.get("source_cube", "")
+        target_cube = b.get("target_cube", "")
+
+        if op == "copy":
+            if source_cube and not source_cube.startswith("<") and not is_log_cube(source_cube):
+                reads.append({
+                    "operation": "BedrockCopy",
+                    "source_cube_expr": source_cube,
+                    "source_cube": source_cube,
+                    "dim_args": [],
+                })
+            if target_cube and not target_cube.startswith("<") and not is_log_cube(target_cube):
+                writes.append({
+                    "operation": "BedrockCopy",
+                    "target_cube_expr": target_cube,
+                    "target_cube": target_cube,
+                    "dim_args": [],
+                    "line": 0,
+                    "conditions": [],
+                })
+            continue
+
+        cube = target_cube
         if not cube or cube.startswith("<") or is_log_cube(cube):
             continue
-        op = b.get("bedrock_op", "")
-        if op in ("copy",):
-            writes.append({
-                "operation": "BedrockCopy",
-                "target_cube_expr": cube,
-                "target_cube": cube,
-                "dim_args": [],
-                "line": 0,
-                "conditions": [],
-            })
-            reads.append({
-                "operation": "BedrockCopy",
-                "source_cube_expr": cube,
-                "source_cube": cube,
-                "dim_args": [],
-            })
-        elif op in ("clear", "zeroout"):
+        if op in ("clear", "zeroout"):
             writes.append({
                 "operation": "BedrockClear",
                 "target_cube_expr": cube,

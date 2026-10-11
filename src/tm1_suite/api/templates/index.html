@@ -4,8 +4,8 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">TM1 元数据工作台</h1>
-    <p class="page-sub">离线浏览、分析 TM1 模型：查血缘、查对象、写代码</p>
+    <h1 class="page-title">TM1 Insight</h1>
+    <p class="page-sub">Understand. Trace. Analyze. Govern. Evolve.</p>
   </div>
 </div>
 
@@ -22,8 +22,10 @@
     </div>
     <div class="onboard-option">
       <div class="onboard-title">② 导入数据包</div>
-      <p class="muted small">如果同事给过你 <code>data/</code> 数据包，直接覆盖到项目目录即可，无需联网。</p>
-      <span class="btn ghost" onclick="location.reload()">检测数据</span>
+      <p class="muted small">如果同事给过你 <code>tm1_suite.duckdb</code> 数据包（或打包成 <code>.zip</code>），直接上传即可，无需联网、无需重新拉取。</p>
+      <input type="file" id="import-file" accept=".duckdb,.zip" style="display:none" onchange="importDataPackage(this)">
+      <button type="button" class="btn ghost" id="import-btn" onclick="document.getElementById('import-file').click()">选择数据包导入</button>
+      <span id="import-status" class="status-inline muted"></span>
     </div>
   </div>
 </div>
@@ -55,17 +57,26 @@
   </a>
 </div>
 
-<!-- ============ 数据快照状态 ============ -->
+<!-- ============ 数据源状态（贯穿全站） ============ -->
+{% if has_data %}
 <div class="card status-card">
   <div class="status-left">
     <span class="dot"></span>
     <div>
-      <div class="status-title">本地数据就绪</div>
+      {% if is_demo %}
+      <div class="status-title">Demo Mode <span class="tag violet">示例数据</span></div>
+      <div class="muted small">当前展示内置示例 TM1 模型，可完整体验所有功能。可导入真实本地数据或连接 TM1 Server。</div>
+      {% else %}
+      <div class="status-title">{{ data_source.label }} <span class="tag ok">Ready</span></div>
       <div class="muted small">快照时间：{{ snapshot_time or '未知' }} · {{ counts.get('cubes', 0) }} Cube / {{ counts.get('processes', 0) }} TI / {{ counts.get('dimensions', 0) }} 维度</div>
+      {% endif %}
     </div>
   </div>
-  <a class="btn ghost" href="/settings">更新数据</a>
+  <div class="status-actions">
+    <a class="btn ghost" href="/settings">数据源</a>
+  </div>
 </div>
+{% endif %}
 {% endif %}
 
 <!-- ============ 全局搜索（Cube + TI 混合联想） ============ -->
@@ -104,17 +115,63 @@
   <div class="stats">
     <div class="stat accent"><div class="num">{{ counts.get('cubes', 0) }}</div><div class="lbl">Cubes</div></div>
     <div class="stat"><div class="num">{{ counts.get('dimensions', 0) }}</div><div class="lbl">Dimensions</div></div>
-    <div class="stat violet"><div class="num">{{ counts.get('processes', 0) }}</div><div class="lbl">TI 进程</div></div>
+    <div class="stat violet"><div class="num">{{ counts.get('processes', 0) }}</div><div class="lbl">Processes</div></div>
     <div class="stat"><div class="num">{{ counts.get('chores', 0) }}</div><div class="lbl">Chores</div></div>
-    <div class="stat green"><div class="num">{{ counts.get('ti_flows', 0) }}</div><div class="lbl">血缘流</div></div>
-    <div class="stat"><div class="num">{{ counts.get('front_backend_mapping', 0) }}</div><div class="lbl">前端映射</div></div>
+    <div class="stat green"><div class="num">{{ counts.get('rules', 0) }}</div><div class="lbl">Rules</div></div>
+    <div class="stat">
+      {% if snapshots_count > 0 %}
+      <div class="num">{{ snapshots_count }}</div><div class="lbl">Snapshots</div>
+      {% else %}
+      <div class="num muted-num">—</div><div class="lbl">Snapshots</div>
+      <div class="stat-note">暂无快照</div>
+      {% endif %}
+    </div>
   </div>
+  {% if snapshots_count == 0 %}
+  <p class="muted small" style="margin-top:10px">当前模型可直接作为「Current Model」浏览，尚未创建历史快照。<a href="/settings">前往设置</a>了解快照对比。</p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
+// ============ 导入数据包 ============
+async function importDataPackage(input) {
+  const statusEl = document.getElementById('import-status');
+  const btn = document.getElementById('import-btn');
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  btn.disabled = true;
+  btn.textContent = '导入中…';
+  statusEl.textContent = '正在导入「' + file.name + '」，请稍候…';
+  statusEl.className = 'status-inline muted';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const r = await fetch('/api/import', { method: 'POST', body: formData });
+    const j = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '导入失败：' + (j.error || r.status);
+      statusEl.className = 'status-inline err';
+      btn.disabled = false;
+      btn.textContent = '选择数据包导入';
+      return;
+    }
+    statusEl.textContent = '导入成功，正在刷新…';
+    statusEl.className = 'status-inline ok';
+    setTimeout(() => location.reload(), 600);
+  } catch (e) {
+    statusEl.textContent = '导入失败：' + e;
+    statusEl.className = 'status-inline err';
+    btn.disabled = false;
+    btn.textContent = '选择数据包导入';
+  }
+}
+
 // ============ 全局搜索（Cube + TI 混合联想） ============
 let searchTimer = null;
 const searchInput = document.getElementById('global-search');

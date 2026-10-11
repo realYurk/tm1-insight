@@ -1,10 +1,12 @@
 # tm1-suite
 
-> IBM Planning Analytics / TM1 的元数据工作台：**离线浏览 · 血缘追踪 · 代码生成 · 前端资产审计**，一站式。
+> IBM Planning Analytics / TM1 的元数据工作台：**离线浏览 · 血缘追踪 · 影响分析 · 健康巡检 · 代码生成 · 前端资产审计**，一站式。
 
-把 TM1 模型里那些"藏在代码里的关系"挖出来，用可视化界面讲清楚：**这个数是谁算出来的、数据从哪个 Cube 搬过来、哪个 TI 在写、哪个前端页面在展示**。
+把 TM1 模型里那些"藏在代码里的关系"挖出来，用可视化界面讲清楚：**这个数是谁算出来的、数据从哪个 Cube 搬过来、哪个 TI 在写、改一个维度会波及多少下游、哪个前端页面在展示**。
 
 ---
+
+> 🚀 **Windows 用户无需装 Python**：项目已提供便携版 exe（`TM1 Insight.exe`），解压双击即用，见 [便携版（exe）](#便携版exewindows-免安装)。
 
 ## 这是什么
 
@@ -15,10 +17,15 @@ TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层�
 | 🔍 **语句级血缘** | 反查"某个值是谁写的"：解析 TI 里 `CellPut*` / `CellGet*` 的每一句，追到具体维度切面、来源变量、写入前提 |
 | 📊 **MDX 反查** | 粘贴一段 MDX，自动解析目标 Cube + 筛选条件，按相似度找出最可能写入的 TI |
 | 🕸️ **知识图谱** | 以 TI 为中心，看它往哪个 Cube 的哪个切面写数据，上下游调用链一目了然 |
+| 🎯 **影响分析** | 改一个维度 / Cube / TI，递归算出会波及哪些下游对象，量化影响面 |
+| 🩺 **健康巡检** | 对模型做体检：断链、循环依赖、空 Cube、未使用对象等风险项 |
+| 🔁 **变更情报** | 快照对比，自动定位模型"哪些地方变了"，聚焦变更点而非全量 diff |
 | ⌨️ **代码生成** | 生成标准 TI 框架代码（数据传输 / 数据导出 / 维度维护 / 环境初始化） |
 | 📄 **前端资产审计** | 扫描前端 Excel，自动建立"前端页面 → 后端 Cube"映射，标出断链 / 含 TM1 公式的资产 |
 
 **离线优先**：数据抽到本地后，所有分析都在本地跑，**不需要连 TM1 服务器**。
+
+**数据源管理**：支持真实本地数据、内置 Demo 模型、数据包导入三套数据源，本地数据优先、Demo 兜底——新机器没有任何数据也能第一次打开就看到完整能力。
 
 ---
 
@@ -26,7 +33,7 @@ TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层�
 
 ### 前置条件
 
-- Python **3.9+**（推荐 3.11）
+- Python **3.9+**（推荐 3.11）——仅源码模式需要；**便携版 exe 无需 Python**
 - 能连 TM1 的网络（仅首次拉数据需要；之后离线用）
 
 ### 第 1 步 · 安装
@@ -130,6 +137,29 @@ tm1-suite web
 
 生成的是 **Cubewise APLIQODE 框架**风格的标准代码，可直接复制到 TM1 使用。
 
+### 影响分析（`/impact`）
+
+选择任意对象（维度 / Cube / TI 进程），递归追踪它的下游影响面：
+
+- **影响范围**：改了这个对象，会波及哪些 Cube、TI、Chore，按依赖深度分层展示。
+- **传播路径**：从源头到每个受影响对象的完整链路。
+
+### 健康巡检（`/health`）
+
+对模型做自动化体检，输出风险清单：
+
+- **断链检测**：引用了不存在的 Cube / 维度 / TI。
+- **循环依赖**：TI 调用链成环。
+- **空 / 未使用对象**：无数据的 Cube、从未被调用的 TI。
+- **规则风险**：Rule 引用缺失、Feeders 缺失等。
+
+### 模型对比（`/compare`）
+
+对比两个模型快照或两次拉取的差异：
+
+- **对象级 diff**：新增 / 删除 / 修改的 Cube、维度、TI、Chore。
+- **变更情报**：自动定位"哪些地方变了"，聚焦变更点，而非全量 diff。
+
 ### 前端资产（`/audit`）
 
 扫描本地前端 Excel（`applications/` 与 `externals/` 目录），产出：
@@ -138,9 +168,15 @@ tm1-suite web
 - **前端 → 后端映射表**：每个菜单/文件对应哪些后端 Cube。
 - **资产风险表**：按风险等级 / 是否含 TM1 / 是否断链筛选。
 
-### 连接设置（`/settings`）
+### 数据源管理（`/settings`）
 
-配置 TM1 连接、重新拉取元数据、重新扫描前端资产。
+统一管理"数据从哪来"，本地数据优先、Demo 兜底：
+
+- **数据源指示器**：侧边栏实时显示当前数据源（Local TM1 Data / Demo Mode）。
+- **导入数据包**：上传 `.duckdb` 或 `.zip` 数据包，一键切换本地数据。
+- **选择本地目录**：指向已有 `data/` 目录（含 `db/tm1_suite.duckdb`）。
+- **Demo 模式**：无任何本地数据时自动生成内置小型模型，保证首开即有内容。
+- **TM1 连接配置**：连接 TM1 Server、重新拉取元数据、重新扫描前端资产。
 
 ---
 
@@ -153,7 +189,7 @@ tm1-suite audit             # 重扫前端 Excel 资产（离线可用）
 tm1-suite ingest            # 拉取 + 入库（需要连 TM1）
 tm1-suite ingest --no-export  # 不重新拉取，仅用已有 raw 数据入库
 tm1-suite check             # 测试 TM1 连接
-tm1-suite web               # 启动 Web UI
+tm1-suite web               # 启动 Web UI（--no-browser 不自动开浏览器）
 ```
 
 ---
@@ -202,15 +238,27 @@ docker compose run --rm tm1-suite ingest
 ```
 tm1-suite/
 ├── src/tm1_suite/
-│   ├── api/            # FastAPI Web UI（路由 + Jinja2 模板 + 静态资源）
-│   ├── cli.py          # CLI 入口（typer）
-│   ├── config.py       # 配置（.env 加载）
-│   ├── ingest/         # 数据抽取（exporter/loader/lineage/audit）
-│   ├── store/          # DuckDB 存储 + 查询 + 代码生成
-│   └── tm1/            # TM1py 客户端封装
-├── data/               # 本地数据仓库（不入库，见 .gitignore）
-├── start.bat           # Windows 一键启动
-├── make_release.py     # 打包脚本（程序体 / 数据体分离）
+│   ├── api/                 # FastAPI Web UI（路由 + Jinja2 模板 + 静态资源）
+│   ├── cli.py               # CLI 入口（typer）
+│   ├── config.py            # 配置（.env 加载 + 数据目录覆盖）
+│   ├── datasource.py        # 数据源管理（本地 / Demo / TM1 Server / 空）
+│   ├── portable.py          # 便携版运行时（端口探测 + 自动开浏览器）
+│   ├── ingest/              # 数据抽取（exporter/loader/audit）
+│   ├── store/               # DuckDB 存储 + 查询 + 代码生成
+│   ├── lineage/             # 语句级血缘引擎
+│   ├── impact/              # 影响分析引擎
+│   ├── health/              # 健康巡检引擎
+│   ├── compare/             # 模型对比引擎
+│   ├── change_intelligence/ # 变更情报引擎
+│   ├── dependency/          # 依赖图引擎
+│   ├── analysis/            # 通用分析
+│   └── tm1/                 # TM1py 客户端封装
+├── data/                    # 本地数据仓库（不入库，见 .gitignore）
+├── start.bat                # Windows 一键启动（源码模式）
+├── launcher.py              # 便携版 exe 启动入口
+├── build_portable.bat       # 便携版打包脚本（生成 TM1 Insight.exe）
+├── tm1_suite.spec           # PyInstaller 打包配置
+├── make_release.py          # 打包脚本（程序体 / 数据体分离）
 ├── Dockerfile / docker-compose.yml
 ├── requirements.txt / pyproject.toml
 └── README.md
@@ -219,6 +267,23 @@ tm1-suite/
 ---
 
 ## 打包分发
+
+### 便携版（exe，Windows 免安装）
+
+新电脑**无需安装 Python**，解压双击 `TM1 Insight.exe` 即可使用：
+
+```bash
+build_portable.bat          # 生成 release\TM1 Insight\ 便携目录
+```
+
+- **产物**：`release\TM1 Insight\TM1 Insight.exe`（PyInstaller onedir）。
+- **软件与数据分离**：程序文件放解压目录，数据（配置 + 模型数据 + 日志）放 `%LOCALAPPDATA%\TM1 Insight\`，升级替换文件夹不丢数据。
+- **端口自动递增**：8000 被占用时自动改用 8001、8002…… 并自动开浏览器。
+- **导入数据包**：首次打开进入 Demo 模式，可在「设置」里上传 `.duckdb` / `.zip` 数据包或选择本地 `data/` 目录切换真实数据。
+
+详见便携版说明 `PORTABLE_README.txt`（打包时复制为 release 内的 `README.txt`）。
+
+### 源码版（make_release.py）
 
 项目内置 `make_release.py`，把发布拆成"程序体"和"数据体"：
 
@@ -239,8 +304,17 @@ python make_release.py --data-only    # 只打数据体（duckdb + inputs，随 
 **Q：离线能用吗？**
 A：能。只要本地有 `data/`（之前拉过数据），所有分析都在本地跑，不连 TM1。
 
+**Q：新电脑没有数据，打开是空壳吗？**
+A：不会。首次启动若检测不到本地数据，会自动进入 **Demo 模式**，加载内置小型模型，让你先看到完整能力；之后可导入真实数据包切换。
+
+**Q：怎么导入别人打包的数据包？**
+A：在「设置 / 数据源管理」上传 `.duckdb` 文件或 `.zip` 数据包，或选择本地 `data/` 目录（含 `db/tm1_suite.duckdb`），一键切换。
+
 **Q：`tm1-suite` 命令找不到？**
 A：确认 `pip install -e .` 成功；或改用 `python -m tm1_suite.cli <命令>`。
+
+**Q：Windows 上不想装 Python？**
+A：直接用便携版 `TM1 Insight.exe`，解压双击即可，无需任何开发环境。
 
 **Q：Chore 步骤为空？**
 A：Chore 步骤数据需在拉取元数据时展开。重新 `tm1-suite ingest` 即可填充。

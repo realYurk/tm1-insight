@@ -9,6 +9,7 @@ __pycache__/
 venv/
 build/
 dist/
+release/
 
 # 数据产物（体积大，不入库）
 data/raw/
@@ -42,9 +43,6 @@ resources/original-tools/
 
 # 样例输出数据（含真实业务文件路径，不入库）
 resources/reference-outputs/
-
-# 本地数据仓库（整体排除）
-data/
 
 # 本地数据仓库（整体排除）
 data/

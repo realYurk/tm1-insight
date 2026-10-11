@@ -5,11 +5,14 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, Request
+import shutil
+
+from fastapi import Body, FastAPI, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,10 +22,22 @@ from tm1_suite import __version__
 from tm1_suite.config import Settings, get_settings
 from tm1_suite.store.db import Store
 from tm1_suite.store import queries
+from tm1_suite.store.graph_adapter import dependencies_from_store
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).parent
+def _resource_dir() -> Path:
+    """templates/static 所在目录。
+
+    源码运行：src/tm1_suite/api/。
+    PyInstaller onedir/onefile：解压目录 _MEIPASS 下的 tm1_suite/api/。
+    """
+    if getattr(sys, "_MEIPASS", None):
+        return Path(sys._MEIPASS) / "tm1_suite" / "api"
+    return Path(__file__).parent
+
+
+BASE_DIR = _resource_dir()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
@@ -79,6 +94,17 @@ _audit_state: dict = {"running": False, "done": False, "error": None, "stats": N
 _audit_lock = threading.Lock()
 
 
+def _ensure_demo_available() -> None:
+    """惰性 Demo 兜底：访问任意数据页面时，若无本地数据则写入 Demo。
+
+    ensure_demo_if_empty 本身幂等且快速：有数据时只做一次轻量检测直接返回，
+    无数据时才写一次 Demo 目录。因此无需额外标志缓存，直接每次调用即可，
+    避免「测试/多请求间状态泄漏」。
+    """
+    from tm1_suite.datasource import ensure_demo_if_empty
+    ensure_demo_if_empty()
+
+
 def _run_audit() -> None:
     global _audit_state
     try:
@@ -121,18 +147,56 @@ def _settings_with_creds(creds: dict | None) -> Settings:
 
 
 def _store() -> Store:
+    # 惰性 Demo 兜底：无本地数据时自动进入 Demo（产品底线：不打开空壳）
+    _ensure_demo_available()
     return Store(get_settings())
+
+
+# ===========================================================================
+# 数据源状态（Task 19：本地数据优先 / Demo 兜底 / Import Local Data）
+# ===========================================================================
+
+def _data_source_status() -> dict:
+    """返回当前数据源状态（供首页 / Header / Settings 复用）。"""
+    from tm1_suite.datasource import detect_current_source
+
+    status = detect_current_source()
+    return {
+        "type": status.type.value,
+        "label": status.type.label,
+        "ready": status.ready,
+        "location": status.location,
+        "counts": status.counts,
+        "db_path": status.db_path,
+        "db_size": status.db_size,
+        "has_data": status.has_data,
+        "error": status.error,
+    }
 
 
 # ---- 页面：首页 ----
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    # _store() 内部已做惰性 Demo 兜底（无本地数据时自动进入 Demo）
     store = _store()
     try:
         counts = store.all_rows()
         has_data = counts.get("cubes", 0) > 0
     except Exception:  # noqa: BLE001
         counts, has_data = {}, False
+
+    # 数据源状态（供 Header / 首页展示）
+    data_source = _data_source_status()
+
+    # Snapshots 计数：优先读 SnapshotStore（若已建立快照目录），否则为 0
+    snapshots_count = 0
+    try:
+        from tm1_suite.snapshot import SnapshotStore
+        snap_root = get_settings().data_dir / "snapshots"
+        if snap_root.exists():
+            snapshots_count = len(SnapshotStore(snap_root).list_snapshots())
+    except Exception:  # noqa: BLE001
+        snapshots_count = 0
 
     # 数据快照时间：取 duckdb 文件 mtime（无单独元数据表，用它近似「上次拉取」时间）
     snapshot_time = None
@@ -149,6 +213,9 @@ def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {
         "counts": counts,
         "has_data": has_data,
+        "data_source": data_source,
+        "is_demo": data_source.get("type") == "demo",
+        "snapshots_count": snapshots_count,
         "snapshot_time": snapshot_time,
         "tm1_address": settings.tm1_address,
         "tm1_port": settings.tm1_port,
@@ -172,6 +239,7 @@ def settings_page(request: Request):
         counts, has_data = {}, False
     return templates.TemplateResponse(request, "settings.html", {
         "has_data": has_data,
+        "data_source": _data_source_status(),
         "tm1_address": settings.tm1_address,
         "tm1_port": settings.tm1_port,
         "tm1_user": settings.tm1_user,
@@ -231,6 +299,40 @@ def processes_page(request: Request, q: str = "", page: int = 1):
     return templates.TemplateResponse(request, "processes.html", {
         "processes": processes,
         "chores": chores,
+        "total": total,
+        "q": q,
+        "page": page,
+        "total_pages": total_pages,
+    })
+
+
+@app.get("/dimensions", response_class=HTMLResponse)
+def dimensions_page(request: Request, q: str = "", page: int = 1):
+    store = _store()
+    con = store.connect(read_only=True)
+    try:
+        per_page = 100
+        offset = max(0, (page - 1)) * per_page
+        if q.strip():
+            like = f"%{q.strip()}%"
+            total = con.execute(
+                "SELECT count(*) FROM dimensions WHERE name ILIKE ?", [like]
+            ).fetchone()[0]
+            dims = [r[0] for r in con.execute(
+                "SELECT name FROM dimensions WHERE name ILIKE ? ORDER BY name LIMIT ? OFFSET ?",
+                [like, per_page, offset],
+            ).fetchall()]
+        else:
+            total = con.execute("SELECT count(*) FROM dimensions").fetchone()[0]
+            dims = [r[0] for r in con.execute(
+                "SELECT name FROM dimensions ORDER BY name LIMIT ? OFFSET ?",
+                [per_page, offset],
+            ).fetchall()]
+    finally:
+        con.close()
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    return templates.TemplateResponse(request, "dimensions.html", {
+        "dimensions": dims,
         "total": total,
         "q": q,
         "page": page,
@@ -299,6 +401,84 @@ def graph(request: Request, ti: Optional[str] = None):
         con.close()
     return templates.TemplateResponse(request, "graph.html", {
         "ti": ti, "graph": graph_data, "slices": slices,
+    })
+
+
+# ---- 页面：Impact（依赖 / 影响分析，复用 impact 引擎） ----
+@app.get("/impact", response_class=HTMLResponse)
+def impact_page(request: Request, source: Optional[str] = None):
+    store = _store()
+    con = store.connect(read_only=True)
+    try:
+        all_processes = [r[0] for r in con.execute(
+            "SELECT name FROM processes ORDER BY name").fetchall()]
+        all_cubes = [r[0] for r in con.execute(
+            "SELECT name FROM cubes ORDER BY name").fetchall()]
+        dependencies = dependencies_from_store(con)
+    finally:
+        con.close()
+
+    result = None
+    if source:
+        from tm1_suite.impact import analyze_impact
+        from tm1_suite.lineage import get_upstream, get_downstream
+
+        impacts = analyze_impact(dependencies, source)
+        upstream = get_upstream(dependencies, source)
+        downstream = get_downstream(dependencies, source)
+        result = {
+            "source": source,
+            "impacts": impacts,
+            "upstream": upstream,
+            "downstream": downstream,
+        }
+
+    return templates.TemplateResponse(request, "impact.html", {
+        "source": source,
+        "result": result,
+        "all_processes": all_processes,
+        "all_cubes": all_cubes,
+        "dependency_count": len(dependencies),
+    })
+
+
+# ---- 页面：Compare（Snapshot Compare + Change Intelligence） ----
+@app.get("/compare", response_class=HTMLResponse)
+def compare_page(request: Request):
+    store = _store()
+    con = store.connect(read_only=True)
+    try:
+        from tm1_suite.store.graph_adapter import snapshot_payload_from_store
+        payload = snapshot_payload_from_store(con)
+        dependencies = dependencies_from_store(con)
+    finally:
+        con.close()
+
+    # 当前只有一份数据（单快照），Compare 需要 before/after。
+    # 这里用「空快照 vs 当前入库数据」演示对象级 Compare + Change Intelligence
+    # 能力链；未来接入多快照历史后再提供真实 before/after 选择。
+    from tm1_suite.compare import compare_snapshots
+    from tm1_suite.change_intelligence import analyze_changes
+
+    empty = {"processes": [], "rules": [], "cubes": [], "dimensions": []}
+    compare_result = compare_snapshots(empty, payload)
+
+    # Change Intelligence 做「有界采样」：只对「有入边（会被依赖）」的 cube 中
+    # 前 50 个做影响分析，避免对全部 19763 个对象做 upstream 遍历导致页面超时。
+    # 这是 Web MVP 的体验取舍，真实多快照 Compare 需接入快照数据 + 引擎性能优化。
+    indegree: dict[str, int] = {}
+    for d in dependencies:
+        indegree[d.target] = indegree.get(d.target, 0) + 1
+    sampled_cubes = [c for c in payload["cubes"] if c["name"] in indegree][:50]
+    sampled_payload = {"processes": [], "rules": [], "cubes": sampled_cubes, "dimensions": []}
+    ci_result = analyze_changes(empty, sampled_payload, dependencies)
+
+    return templates.TemplateResponse(request, "compare.html", {
+        "compare": compare_result,
+        "ci": ci_result,
+        "sampled": True,
+        "sampled_total": len(payload["cubes"]),
+        "sampled_note": "影响分析对「会被依赖的 Cube」采样前 50 个做预览演示；完整分析需接入多快照历史或后台索引引擎。",
     })
 
 
@@ -483,6 +663,151 @@ def status() -> dict:
         return {"db_path": store.db_path, "tables": store.all_rows()}
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ---- 数据源 API（Task 19） ----
+
+@app.get("/api/datasource/status")
+def api_datasource_status() -> dict:
+    """返回当前数据源状态（Local / Demo / Empty）。"""
+    return _data_source_status()
+
+
+@app.post("/api/datasource/detect")
+def api_datasource_detect(body: dict = Body(...)) -> dict:
+    """检测用户选择的数据目录，返回结构化的检测结果（有实时反馈）。"""
+    from tm1_suite.datasource import detect_directory
+
+    path = (body.get("path") or "").strip()
+    if not path:
+        return JSONResponse({"error": "请提供一个目录路径。"}, status_code=400)
+
+    result = detect_directory(path)
+    return {
+        "path": result.path,
+        "valid": result.valid,
+        "error": result.error,
+        "has_duckdb": result.has_duckdb,
+        "has_parquet": result.has_parquet,
+        "has_raw": result.has_raw,
+        "counts": result.counts,
+        "db_size": result.db_size,
+        "partial": result.partial,
+    }
+
+
+@app.post("/api/datasource/use")
+def api_datasource_use(body: dict = Body(...)) -> dict:
+    """切换数据源。
+
+    支持：
+      - {"source": "demo"}               → 切换到内置 Demo 数据
+      - {"source": "local", "path": ...} → 切换到用户选择的数据目录
+      - {"source": "reset"}              → 清除覆盖，回到默认用户数据目录
+
+    切换后清空配置缓存，前端刷新即可看到新数据。绝不复制数据（方案 A）。
+    """
+    from tm1_suite import datasource as ds
+    from tm1_suite.config import set_data_dir
+
+    source = (body.get("source") or "").strip().lower()
+
+    if source == "demo":
+        # load_demo_data 内部已 set_data_dir(demo_dir)，无需再次设置
+        ds.load_demo_data()
+        return {"ok": True, "status": _data_source_status()}
+
+    if source == "local":
+        path = (body.get("path") or "").strip()
+        if not path:
+            return JSONResponse({"error": "请提供一个数据目录路径。"}, status_code=400)
+        det = ds.detect_directory(path)
+        if not det.valid:
+            return JSONResponse(
+                {"error": det.error or "数据目录无效。"},
+                status_code=400,
+            )
+        # 记录覆盖目录（不复制数据）。若给的是 .duckdb 文件，取其父目录。
+        from pathlib import Path as _P
+        _pp = _P(path)
+        data_dir = str(_pp.parent) if _pp.is_file() else path
+        set_data_dir(data_dir)
+        # 重新检测确认
+        st = ds.detect_current_source()
+        if not st.has_data:
+            set_data_dir(None)
+            return JSONResponse({"error": "该目录未包含有效数据。"}, status_code=400)
+        return {"ok": True, "status": _data_source_status()}
+
+    if source == "reset":
+        set_data_dir(None)
+        return {"ok": True, "status": _data_source_status()}
+
+    return JSONResponse(
+        {"error": "未知的数据源类型，支持 demo / local / reset。"},
+        status_code=400,
+    )
+
+
+@app.post("/api/import")
+async def api_import(file: UploadFile = File(...)) -> dict:
+    """导入数据包：接收一个 .duckdb 文件，替换用户数据目录里的库文件。
+
+    支持：
+      - *.duckdb：直接作为 tm1_suite.duckdb 使用
+      - *.zip：解压出 data/db/tm1_suite.duckdb（或根下的 tm1_suite.duckdb）后导入
+    导入后前端刷新即可看到数据，无需联网、无需重新拉取 TM1。
+    """
+    import io
+    import zipfile
+
+    filename = (file.filename or "").lower()
+    settings = get_settings()
+    settings.ensure_dirs()
+
+    # 目标库文件路径（用户数据目录）
+    dst = settings.db_dir / "tm1_suite.duckdb"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if filename.endswith(".duckdb"):
+            # 直接写入（分块避免大文件一次性读入内存）
+            with open(dst, "wb") as out:
+                while chunk := await file.read(1024 * 1024):
+                    out.write(chunk)
+        elif filename.endswith(".zip"):
+            data = await file.read()
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                # 找 data/db/tm1_suite.duckdb 或根下 tm1_suite.duckdb
+                candidates = [
+                    n for n in zf.namelist()
+                    if n.endswith("tm1_suite.duckdb")
+                ]
+                if not candidates:
+                    return JSONResponse(
+                        {"error": "压缩包里没有找到 tm1_suite.duckdb 文件"},
+                        status_code=400,
+                    )
+                # 优先精确的 data/db/tm1_suite.duckdb
+                exact = next((n for n in candidates if n.endswith("data/db/tm1_suite.duckdb")), candidates[0])
+                with zf.open(exact) as src, open(dst, "wb") as out:
+                    shutil.copyfileobj(src, out)
+        else:
+            return JSONResponse(
+                {"error": "不支持的文件类型，请上传 .duckdb 或 .zip 文件"},
+                status_code=400,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("导入数据包失败")
+        return JSONResponse({"error": f"导入失败：{e}"}, status_code=500)
+
+    # 导入成功后清空内存缓存，避免旧连接缓存旧数据
+    try:
+        get_settings.cache_clear()
+    except Exception:  # noqa: BLE001
+        pass
+
+    return {"ok": True, "db_path": str(dst)}
 
 
 @app.get("/api/cube/{cube}")

@@ -252,6 +252,30 @@ a:hover { color: var(--accent-strong); }
   line-height: 1.5;
 }
 
+/* 数据源指示器（Header/Sidebar 底部，贯穿全站） */
+.datasource-indicator {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--side-border);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--side-text);
+  opacity: 1;
+}
+.datasource-indicator .ds-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted, #888);
+  flex-shrink: 0;
+}
+.datasource-indicator[data-type="real_local"] .ds-dot { background: var(--green, #2f9e44); }
+.datasource-indicator[data-type="demo"] .ds-dot { background: var(--accent, #7c5cff); }
+.datasource-indicator[data-type="tm1_server"] .ds-dot { background: var(--blue, #3b82f6); }
+.datasource-indicator[data-type="empty"] .ds-dot { background: var(--muted, #888); }
+
 /* 主内容区 */
 .main-area {
   flex: 1;
@@ -511,6 +535,49 @@ input[type="checkbox"] { width: auto; margin-top: 0; }
 .tag.warn { background: var(--amber-soft); color: var(--amber); }
 .tag.danger { background: var(--red-soft); color: var(--red); }
 .tag.info { background: var(--cyan-soft); color: var(--cyan); }
+.tag.ok { background: var(--green-soft); color: var(--green); }
+.tag.violet { background: var(--violet-soft); color: var(--violet); }
+.tag.added { background: var(--green-soft); color: var(--green); }
+.tag.removed { background: var(--red-soft); color: var(--red); }
+.tag.modified { background: var(--amber-soft); color: var(--amber); }
+
+.status-actions { display: flex; align-items: center; gap: 10px; }
+.muted-num { color: var(--muted); font-weight: 600; }
+.stat-note { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* 采样 / Preview 提示条 */
+.sample-banner {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--amber-soft);
+  background: var(--amber-soft);
+  border-radius: 8px;
+  color: var(--amber);
+  font-size: 13px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+/* 数据源 UI（Settings Data Sources） */
+.ds-current { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.ds-current-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.ds-current-value { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 650; }
+.ds-current-value .dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 0 4px var(--green-soft);
+}
+.ds-option-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.ds-import-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ds-import-row .input { flex: 1; min-width: 260px; }
+.ds-import-row input { margin-top: 0; }
+.ds-detect-result { margin-top: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; }
+.ds-detect-result .ok { color: var(--green); font-weight: 650; margin-bottom: 8px; }
+.ds-detect-result .err { color: var(--red); font-weight: 650; margin-bottom: 6px; }
+.ds-detect-result .warn { color: var(--amber); margin-top: 8px; }
+.ds-detect-table td { padding: 5px 0; }
+.ds-detect-table td:first-child { color: var(--muted); width: 140px; }
 
 /* ============================================================
    统计卡片
