@@ -26,12 +26,26 @@ TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层�
 
 ### 前置条件
 
-- Python **3.9+**（推荐 3.11）
+- **方式 A（exe）**：无需任何前置条件，Windows 直接双击即用
+- **方式 B/C（源码）**：需要 Python **3.9+**（推荐 3.11）
 - 能连 TM1 的网络（**仅拉取真实数据时需要**；看演示数据、离线浏览都不需要）
 
 ---
 
-### 方式 A · Windows 一键启动（推荐，零配置看效果）
+### 方式 A · 独立 exe（免安装，双击即用，强烈推荐）
+
+到 **GitHub Releases** 下载 `tm1-suite.exe`，放到任意目录，双击即可：
+
+1. 自动生成演示数据（无需连 TM1、无需装 Python、无需装任何依赖）
+2. 自动打开浏览器 `http://localhost:8000`
+3. 数据保存在 exe 同级的 `data/` 目录，可随时替换成真实数据
+
+> **适合人群**：只想看效果、不想折腾环境的用户。单个 exe 约 80MB，
+> 内含 Python 运行时 + 全部依赖，真正的零安装。
+
+---
+
+### 方式 B · Windows 一键启动（源码，零配置看效果）
 
 直接双击项目根目录的 **`start.bat`**，它会自动完成：
 
@@ -45,7 +59,7 @@ TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层�
 
 ---
 
-### 方式 B · 命令行安装（拉真实数据）
+### 方式 C · 命令行安装（拉真实数据）
 
 ```bash
 git clone https://github.com/realYurk/tm1-suite.git
@@ -97,7 +111,7 @@ tm1-suite web
 
 ---
 
-### 方式 C · Docker
+### 方式 D · Docker
 
 ```bash
 docker compose up -d
@@ -239,6 +253,20 @@ tm1-suite/
 ---
 
 ## 打包分发
+
+### 独立 exe（零安装，推荐分发方式）
+
+把整个应用打包成单个 exe，用户双击即用、免装 Python 和任何依赖：
+
+```bash
+pip install pyinstaller
+python -m PyInstaller tm1_suite.spec --noconfirm
+# 产物：dist/tm1-suite.exe（约 80MB，含 Python 运行时 + 全部依赖）
+```
+
+把 `dist/tm1-suite.exe` 上传到 GitHub Releases 即可分发。
+
+### 程序体 / 数据体分离（源码分发）
 
 项目内置 `make_release.py`，把发布拆成"程序体"和"数据体"：
 

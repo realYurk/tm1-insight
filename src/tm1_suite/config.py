@@ -7,14 +7,32 @@
 """
 from __future__ import annotations
 
+import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
+def _project_root() -> Path:
+    """项目根目录。
+
+    打包成 exe 时（sys.frozen），数据目录应放在 exe 同级（可持久化），
+    由 run_app.py 通过 DATA_DIR 环境变量传入；源码运行时用 parents[2] 定位。
+    """
+    env = os.environ.get("DATA_DIR")
+    if env:
+        return Path(env).resolve()
+    if getattr(sys, "frozen", False):
+        # 兜底：exe 同级目录
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
 # 项目根目录（tm1-suite/），与 .env 所在位置一致
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = _project_root()
 
 
 class Settings(BaseSettings):

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 from pathlib import Path
 from typing import Optional
@@ -22,7 +23,21 @@ from tm1_suite.store import queries
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).parent
+
+def _resource_dir() -> Path:
+    """模板与静态资源所在目录。
+
+    打包成 exe 后，资源被 PyInstaller 解压到 sys._MEIPASS；
+    源码运行时则相对 __file__ 定位。
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base = Path(sys._MEIPASS) / "tm1_suite" / "api"
+    else:
+        base = Path(__file__).parent
+    return base
+
+
+BASE_DIR = _resource_dir()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
