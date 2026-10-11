@@ -39,21 +39,37 @@ TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层�
 
 ![Cube 浏览](images/img-cubeview.png)
 
+**维度浏览**——维度层级结构、元素与别名，快速理解模型维度的组织方式：
+
+![维度浏览](images/img-dimview.png)
+
 **TI 进程**——参数/变量/Prolog/Metadata/Data/Epilog 分 Tab 浏览，代码高亮 + 行号，右侧栏跨 Tab 搜索代码、数据源头与调用关系：
 
-![TI 进程](images/img-TIview.png)
+![TI 进程](images/img-tiview.png)
+
+![TI 进程 · 代码视图](images/img-tiview1.png)
+
+![TI 进程 · 调用关系](images/img-tiview2.png)
 
 **知识图谱**——以 TI 为中心，看它往哪个 Cube 的哪个切面写数据：每个写入点的维度、来源变量、取值与写入前提：
 
-![知识图谱](images/img-TIsummary.png)
+![知识图谱](images/img-graphview.png)
+
+**影响分析**——选择任意对象（维度 / Cube / TI），递归追踪下游影响面，按依赖深度分层展示传播路径：
+
+![影响分析](images/img-analysis.png)
+
+**快照对比**——对象级 diff + 变更情报，自动定位"哪些地方变了"，聚焦变更点而非全量 diff：
+
+![快照对比](images/img-versionview.png)
 
 **前端资产**——扫描前端 Excel，自动建立"前端页面 → 后端 Cube"映射，标出含 TM1 公式与断链风险：
 
 ![前端资产](images/img-frontview.png)
 
-**连接设置**——配置 TM1 连接、一键拉取元数据、重新扫描前端资产：
+**连接设置**——配置 TM1 连接、一键拉取元数据、数据源管理与数据包导入：
 
-![连接设置](images/img-settings.png)
+![连接设置](images/img-connect.png)
 
 ---
 
