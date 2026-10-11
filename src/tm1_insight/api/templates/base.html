@@ -125,27 +125,96 @@
         });
     })();
 
-    // 侧边栏零延迟导航：hover / 按下瞬间预取目标页，点击时页面已在 HTTP 缓存
-    // （instant.page 同款策略：pointerenter + pointerdown 双触发，pointerdown 覆盖快速直点）
+    // =====================================================================
+    // T0 零延迟导航：整页预取到内存 + 点击时 document.write 瞬时重写
+    // 原理：
+    //   1. 页面加载后立即并行 fetch 所有侧边栏页面完整 HTML，存入 window 级
+    //      缓存对象（window 跨 document.write 存活，缓存不会因重写而丢失）；
+    //   2. 点击 nav-link 时拦截，若目标页已缓存 → document.open/write/close
+    //      瞬时渲染（脚本正常执行，零网络、零服务端等待）；document 写入是
+    //      同步的，浏览器在 close() 前不 paint，因此无白屏闪烁；
+    //   3. 事件监听挂在 window 上（document.open 会清空 document 监听器，
+    //      但 window 监听器不受影响），保证多次切换后仍持续生效。
+    // =====================================================================
     (function () {
-      if (!('fetch' in window)) return;
-      var done = new Set();
-      function prefetch(href) {
-        try {
-          var u = new URL(href, location.href);
-          if (u.origin !== location.origin || done.has(u.href)) return;
-          done.add(u.href);
-          var l = document.createElement('link');
-          l.rel = 'prefetch';
-          l.href = u.href;
-          l.as = 'document';
-          document.head.appendChild(l);
-        } catch (e) {}
+      if (!('fetch' in window) || !('history' in window)) return;
+      var nav = window.__tm1InsightNav;
+      if (!nav) {
+        nav = window.__tm1InsightNav = { cache: {}, pending: {} };
       }
-      document.querySelectorAll('a.nav-link').forEach(function (a) {
-        a.addEventListener('pointerenter', function () { prefetch(a.href); }, { passive: true });
-        a.addEventListener('pointerdown', function () { prefetch(a.href); }, { passive: true });
+
+      nav.fetchPage = function (href) {
+        var u = href.split('#')[0];
+        if (nav.cache[u]) return Promise.resolve(nav.cache[u]);
+        if (nav.pending[u]) return nav.pending[u];
+        nav.pending[u] = fetch(u, { credentials: 'same-origin', headers: { 'Accept': 'text/html' } })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+          .then(function (html) { nav.cache[u] = html; delete nav.pending[u]; return html; })
+          .catch(function (e) { delete nav.pending[u]; throw e; });
+        return nav.pending[u];
+      };
+
+      // 写入缓存 HTML（不触碰 history，由调用方决定是否 pushState）
+      nav.render = function (html) {
+        document.open();
+        document.write(html);
+        document.close();
+        try { window.scrollTo(0, 0); } catch (e) {}
+      };
+
+      nav.show = function (href, html) {
+        try { history.pushState({ __tm1Insight: true }, '', href.split('#')[0]); } catch (e) {}
+        nav.render(html);
+      };
+
+      // 仅首次安装 window 级监听（window 对象跨 document.write 存活，监听不丢）
+      if (!nav.installed) {
+        nav.installed = true;
+        window.addEventListener('click', function (e) {
+          var t = e.target;
+          var a = t && t.closest ? t.closest('a.nav-link') : null;
+          if (!a) return;
+          if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+          var href = a.getAttribute('href');
+          if (!href || href.charAt(0) !== '/') return;
+
+          var u = href.split('#')[0];
+          if (nav.cache[u]) {
+            e.preventDefault();
+            nav.show(href, nav.cache[u]);
+            return;
+          }
+          e.preventDefault();
+          nav.fetchPage(u).then(function (html) {
+            nav.show(href, html);
+          }).catch(function () {
+            location.href = href;
+          });
+        }, false);
+
+        window.addEventListener('popstate', function () {
+          // 浏览器前进/后退：内存命中则瞬时恢复（不再 pushState，避免破坏后退栈）
+          var u = location.pathname + location.search;
+          if (nav.cache[u]) { nav.render(nav.cache[u]); }
+          else { location.reload(); }
+        }, false);
+      }
+
+      // 预热：串行抓取所有导航页（避免并发打爆单进程服务端导致排队），
+      // 且不阻塞首屏渲染。抓取完成后，后续点击均为零网络瞬时切换。
+      var links = Array.prototype.slice.call(document.querySelectorAll('a.nav-link'));
+      var hrefs = [];
+      links.forEach(function (a) {
+        var href = a.getAttribute('href');
+        if (href && href.charAt(0) === '/' && hrefs.indexOf(href) === -1) hrefs.push(href);
       });
+      (function warm(i) {
+        if (i >= hrefs.length) return;
+        nav.fetchPage(hrefs[i]).catch(function () {}).then(function () {
+          // 串行下一个，间隔让出主线程，绝不与用户交互抢 CPU
+          setTimeout(function () { warm(i + 1); }, 30);
+        });
+      })(0);
     })();
   </script>
   {% block scripts %}{% endblock %}

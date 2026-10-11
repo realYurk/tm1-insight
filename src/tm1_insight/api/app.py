@@ -94,6 +94,44 @@ _audit_state: dict = {"running": False, "done": False, "error": None, "stats": N
 _audit_lock = threading.Lock()
 
 
+# ===========================================================================
+# 页面级结果缓存：重计算页面（如 /compare 需 1s 级重算）在数据未变化时
+# 直接复用上次渲染结果，把切换延迟从「秒级」压到「毫秒级」。
+# 失效依据：数据目录 + 主 db 文件 mtime。数据一变更（导入/重拉）即失效。
+# ===========================================================================
+_page_cache: dict[str, tuple[str, str]] = {}          # cache_key -> (data_fingerprint, html)
+_page_cache_lock = threading.Lock()
+
+
+def _data_fingerprint() -> str:
+    """当前数据目录下主库文件的 mtime 指纹，用于判断数据是否变化。"""
+    try:
+        settings = get_settings()
+        db = Path(settings.db_path) if settings.db_path else None
+        if db and db.exists():
+            st = db.stat()
+            return f"{db.resolve()}:{st.st_mtime_ns}:{st.st_size}"
+    except Exception:
+        pass
+    return "no-db"
+
+
+def _cached_page(key: str, renderer) -> HTMLResponse:
+    """若数据未变则返回缓存 HTML，否则调 renderer() 重新渲染并缓存。
+
+    renderer 返回 HTML 字符串。cache_key 用于区分不同页面。
+    """
+    fp = _data_fingerprint()
+    with _page_cache_lock:
+        hit = _page_cache.get(key)
+        if hit and hit[0] == fp:
+            return HTMLResponse(hit[1])
+    html = renderer()
+    with _page_cache_lock:
+        _page_cache[key] = (fp, html)
+    return HTMLResponse(html)
+
+
 def _ensure_demo_available() -> None:
     """惰性 Demo 兜底：访问任意数据页面时，若无本地数据则写入 Demo。
 
@@ -445,41 +483,46 @@ def impact_page(request: Request, source: Optional[str] = None):
 # ---- 页面：Compare（Snapshot Compare + Change Intelligence） ----
 @app.get("/compare", response_class=HTMLResponse)
 def compare_page(request: Request):
-    store = _store()
-    con = store.connect(read_only=True)
-    try:
-        from tm1_insight.store.graph_adapter import snapshot_payload_from_store
-        payload = snapshot_payload_from_store(con)
-        dependencies = dependencies_from_store(con)
-    finally:
-        con.close()
+    # 重计算页面（约 1s）：数据未变化时复用缓存结果，切换延迟压到毫秒级。
+    def _render() -> str:
+        store = _store()
+        con = store.connect(read_only=True)
+        try:
+            from tm1_insight.store.graph_adapter import snapshot_payload_from_store
+            payload = snapshot_payload_from_store(con)
+            dependencies = dependencies_from_store(con)
+        finally:
+            con.close()
 
-    # 当前只有一份数据（单快照），Compare 需要 before/after。
-    # 这里用「空快照 vs 当前入库数据」演示对象级 Compare + Change Intelligence
-    # 能力链；未来接入多快照历史后再提供真实 before/after 选择。
-    from tm1_insight.compare import compare_snapshots
-    from tm1_insight.change_intelligence import analyze_changes
+        # 当前只有一份数据（单快照），Compare 需要 before/after。
+        # 这里用「空快照 vs 当前入库数据」演示对象级 Compare + Change Intelligence
+        # 能力链；未来接入多快照历史后再提供真实 before/after 选择。
+        from tm1_insight.compare import compare_snapshots
+        from tm1_insight.change_intelligence import analyze_changes
 
-    empty = {"processes": [], "rules": [], "cubes": [], "dimensions": []}
-    compare_result = compare_snapshots(empty, payload)
+        empty = {"processes": [], "rules": [], "cubes": [], "dimensions": []}
+        compare_result = compare_snapshots(empty, payload)
 
-    # Change Intelligence 做「有界采样」：只对「有入边（会被依赖）」的 cube 中
-    # 前 50 个做影响分析，避免对全部 19763 个对象做 upstream 遍历导致页面超时。
-    # 这是 Web MVP 的体验取舍，真实多快照 Compare 需接入快照数据 + 引擎性能优化。
-    indegree: dict[str, int] = {}
-    for d in dependencies:
-        indegree[d.target] = indegree.get(d.target, 0) + 1
-    sampled_cubes = [c for c in payload["cubes"] if c["name"] in indegree][:50]
-    sampled_payload = {"processes": [], "rules": [], "cubes": sampled_cubes, "dimensions": []}
-    ci_result = analyze_changes(empty, sampled_payload, dependencies)
+        # Change Intelligence 做「有界采样」：只对「有入边（会被依赖）」的 cube 中
+        # 前 50 个做影响分析，避免对全部 19763 个对象做 upstream 遍历导致页面超时。
+        # 这是 Web MVP 的体验取舍，真实多快照 Compare 需接入快照数据 + 引擎性能优化。
+        indegree: dict[str, int] = {}
+        for d in dependencies:
+            indegree[d.target] = indegree.get(d.target, 0) + 1
+        sampled_cubes = [c for c in payload["cubes"] if c["name"] in indegree][:50]
+        sampled_payload = {"processes": [], "rules": [], "cubes": sampled_cubes, "dimensions": []}
+        ci_result = analyze_changes(empty, sampled_payload, dependencies)
 
-    return templates.TemplateResponse(request, "compare.html", {
-        "compare": compare_result,
-        "ci": ci_result,
-        "sampled": True,
-        "sampled_total": len(payload["cubes"]),
-        "sampled_note": "影响分析对「会被依赖的 Cube」采样前 50 个做预览演示；完整分析需接入多快照历史或后台索引引擎。",
-    })
+        return templates.get_template("compare.html").render({
+            "request": request,
+            "compare": compare_result,
+            "ci": ci_result,
+            "sampled": True,
+            "sampled_total": len(payload["cubes"]),
+            "sampled_note": "影响分析对「会被依赖的 Cube」采样前 50 个做预览演示；完整分析需接入多快照历史或后台索引引擎。",
+        })
+
+    return _cached_page("compare", _render)
 
 
 # ---- 页面：代码生成 ----
