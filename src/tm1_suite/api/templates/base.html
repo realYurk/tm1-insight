@@ -124,6 +124,29 @@
           label.textContent = '—';
         });
     })();
+
+    // 侧边栏零延迟导航：hover / 按下瞬间预取目标页，点击时页面已在 HTTP 缓存
+    // （instant.page 同款策略：pointerenter + pointerdown 双触发，pointerdown 覆盖快速直点）
+    (function () {
+      if (!('fetch' in window)) return;
+      var done = new Set();
+      function prefetch(href) {
+        try {
+          var u = new URL(href, location.href);
+          if (u.origin !== location.origin || done.has(u.href)) return;
+          done.add(u.href);
+          var l = document.createElement('link');
+          l.rel = 'prefetch';
+          l.href = u.href;
+          l.as = 'document';
+          document.head.appendChild(l);
+        } catch (e) {}
+      }
+      document.querySelectorAll('a.nav-link').forEach(function (a) {
+        a.addEventListener('pointerenter', function () { prefetch(a.href); }, { passive: true });
+        a.addEventListener('pointerdown', function () { prefetch(a.href); }, { passive: true });
+      });
+    })();
   </script>
   {% block scripts %}{% endblock %}
 </body>

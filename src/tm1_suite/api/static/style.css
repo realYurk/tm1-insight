@@ -641,6 +641,32 @@ input[type="checkbox"] { width: auto; margin-top: 0; }
 }
 .list-toolbar h2 { margin: 0; }
 .list-search { display: flex; align-items: center; gap: 8px; }
+
+/* 影响分析：输入框 + 分析按钮 左右结构，按钮不再换行/叠压 */
+.impact-form {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.impact-form .impact-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.impact-form input {
+  width: 100%;
+  margin-top: 0;
+}
+.impact-form .btn {
+  flex-shrink: 0;
+  margin-top: 0;
+  white-space: nowrap;
+}
+.impact-form .search-results {
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+}
 .list-search input {
   width: 260px;
   margin-top: 0;

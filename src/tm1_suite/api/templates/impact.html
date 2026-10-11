@@ -20,13 +20,12 @@
   <div class="list-toolbar">
     <h2>选择分析对象 <span class="tag">{{ dependency_count }} 条依赖</span></h2>
   </div>
-  <form class="impact-form" method="get" action="/impact">
-    <input type="text" name="source" list="impact-objects" value="{{ source or '' }}"
-           placeholder="输入 Process 或 Cube 名，如 Cub.Actual Data" autocomplete="off">
-    <datalist id="impact-objects">
-      {% for p in all_processes %}<option value="{{ p }}">{% endfor %}
-      {% for c in all_cubes %}<option value="{{ c }}">{% endfor %}
-    </datalist>
+  <form class="impact-form" method="get" action="/impact" id="impact-form">
+    <div class="impact-input-wrap">
+      <input type="text" name="source" id="impact-input" value="{{ source or '' }}"
+             placeholder="输入 Process 或 Cube 名，如 Cub.Actual Data" autocomplete="off">
+      <div class="search-results" id="impact-results" hidden></div>
+    </div>
     <button type="submit" class="btn primary">分析</button>
   </form>
 </div>
@@ -78,4 +77,54 @@
 </div>
 
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 影响分析自动联想：复用 /api/search-all（Cube + TI），与全站搜索同款下拉样式
+let impactTimer = null;
+const impactInput = document.getElementById('impact-input');
+const impactResults = document.getElementById('impact-results');
+
+impactInput.addEventListener('input', () => {
+  clearTimeout(impactTimer);
+  const q = impactInput.value.trim();
+  if (!q) { impactResults.hidden = true; return; }
+  impactTimer = setTimeout(async () => {
+    try {
+      const j = await (await fetch('/api/search-all?q=' + encodeURIComponent(q) + '&limit=15')).json();
+      renderImpactResults(j.cubes || [], j.processes || []);
+    } catch (e) { impactResults.hidden = true; }
+  }, 150);
+});
+
+function renderImpactResults(cubes, processes) {
+  const items = [];
+  cubes.forEach(c => items.push(
+    `<a class="sr-item" href="/impact?source=${encodeURIComponent(c)}"><span class="sr-badge cube">C</span>${c}</a>`));
+  processes.forEach(p => items.push(
+    `<a class="sr-item" href="/impact?source=${encodeURIComponent(p)}"><span class="sr-badge ti">T</span>${p}</a>`));
+  if (!items.length) {
+    impactResults.innerHTML = '<div class="sr-empty">无匹配对象</div>';
+  } else {
+    impactResults.innerHTML = items.join('');
+  }
+  impactResults.hidden = false;
+}
+
+impactInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const first = impactResults.querySelector('.sr-item');
+    if (first && !impactResults.hidden) {
+      e.preventDefault();
+      location.href = first.href;
+    }
+    // 无联想时走表单默认提交（用输入框原值）
+  }
+  if (e.key === 'Escape') impactResults.hidden = true;
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.impact-form')) impactResults.hidden = true;
+});
+</script>
 {% endblock %}
