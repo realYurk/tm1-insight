@@ -45,6 +45,3 @@ resources/reference-outputs/
 
 # 本地数据仓库（整体排除）
 data/
-
-# 本地数据仓库（整体排除）
-data/
