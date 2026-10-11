@@ -1,0 +1,14 @@
+services:
+  tm1-suite:
+    build: .
+    image: tm1-suite:latest
+    env_file:
+      - .env
+    volumes:
+      # 数据目录（raw / parquet / db / inputs）持久化到宿主机
+      - ./data:/app/data
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    # 单命令启动 Web UI；如需手动入库可执行：
+    #   docker compose run --rm tm1-suite ingest
+    command: web

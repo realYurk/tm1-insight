@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}知识图谱 · tm1-suite{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">概览</a><span class="sep">/</span><span class="current">知识图谱</span>
+  {% if graph %}<span class="sep">/</span><span class="current">{{ graph.root }}</span>{% endif %}
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">知识图谱</h1>
+    <p class="page-sub">以 TI 进程为中心，看它往哪个 Cube 的哪个切面写数据；上下游调用链为辅</p>
+  </div>
+</div>
+
+<!-- ============ TI 搜索（自动联想） ============ -->
+<div class="search-hero">
+  <div class="search-box">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input type="text" id="ti-search" placeholder="输入 TI 进程名，如 Cub.EXP Uncontrollable Expense.Data.Load.From.Fixed Expense…" autocomplete="off" value="{{ ti or '' }}">
+  </div>
+  <div class="search-results" id="ti-results" hidden></div>
+</div>
+
+{% if not graph %}
+<div class="card empty-state">
+  <div class="empty-icon">{% include "icons/graph.svg" %}</div>
+  <div class="empty-title">输入一个 TI 进程名</div>
+  <div class="empty-desc">查看它往哪个 Cube 的哪个切面写数据。写入切面会展示维度、来源变量、取值与写入前提；上下游调用链为辅（已自动排除 <code>}bedrock.*</code> 框架搬运与 <code>}</code> 开头的系统对象）。</div>
+</div>
+{% else %}
+
+<!-- ============ 中心 TI：写入切面（核心） ============ -->
+<div class="graph-root-card">
+  <div class="gr-head">
+    <span class="gr-badge">中心 TI</span>
+    <span class="muted small">查看代码 →</span>
+    <a class="gr-title" href="/explorer/process/{{ graph.root }}">{{ graph.root }}</a>
+  </div>
+
+  <!-- 读取的 cube（数据来源，轻量） -->
+  {% if slices and slices.reads %}
+  <div class="gr-reads">
+    <span class="gr-flow-label read">读取 {{ slices.reads|length }} 个 Cube</span>
+    <div class="gr-chip-wrap">
+      {% for c in slices.reads %}<a class="cube-chip flow-source" href="/explorer/cube/{{ c }}">{{ c }}</a>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- 写入切面（核心展示） -->
+  {% if slices and slices.writes %}
+  <div class="gr-slices">
+    <div class="gr-flow-label write">写入 {{ slices.writes|length }} 个 Cube 的切面</div>
+
+    {% for w in slices.writes %}
+    <div class="slice-cube">
+      <div class="slice-cube-head">
+        <a class="cube-chip flow-target" href="/explorer/cube/{{ w.cube }}">{{ w.cube }}</a>
+        <span class="tag">{{ w.dimension_count }} 维</span>
+        <span class="tag op">{{ w.write_points|length }} 写入点</span>
+        {% set ops = w.write_points | map(attribute='operation_human') | unique | list %}
+        {% if ops %}<span class="muted small">{{ ops | join(' · ') }}</span>{% endif %}
+      </div>
+
+      {% if w.write_points|length > 1 %}
+      <!-- 多写入点：按差异维度折叠，只显示每个切面的差异摘要 -->
+      <div class="slice-collapsed">
+        {% for wp in w.write_points %}
+        <details class="wp-item" {% if w.write_points|length <= 4 %}open{% endif %}>
+          <summary class="wp-summary">
+            <span class="tag op">{{ wp.operation_human }}</span>
+            {% if wp.summary %}<span class="wp-diff" title="与其他写入点的差异维度">{{ wp.summary }}</span>
+            {% else %}<span class="muted small">写入 {{ wp.dims|length }} 个维度</span>{% endif %}
+            {% if wp.conditions_human %}<span class="tag">有条件</span>{% endif %}
+          </summary>
+          {{ render_slice_table(wp) }}
+        </details>
+        {% endfor %}
+      </div>
+      {% else %}
+      <!-- 单写入点：直接展开切面表格 -->
+      {% set wp = w.write_points[0] %}
+      {% if wp.conditions_human %}
+      <div class="cond"><strong>写入前提：</strong>
+        {% for c in wp.conditions_human %}<span class="cond-text">{{ c }}</span>{% endfor %}
+      </div>
+      {% endif %}
+      {{ render_slice_table(wp) }}
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% elif graph.root_writes %}
+  <div class="gr-slices">
+    <div class="gr-flow-label write">写入 {{ graph.root_writes|length }} 个 Cube</div>
+    <div class="gr-chip-wrap">
+      {% for c in graph.root_writes %}<a class="cube-chip flow-target" href="/explorer/cube/{{ c }}">{{ c }}</a>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============ 上游 / 下游 调用链（辅） ============ -->
+<div class="graph-columns">
+  <div class="graph-col upstream-col">
+    <h2 class="graph-col-title">↑ 上游（谁调用它）<span class="tag">{{ graph.callers|length }}</span></h2>
+    {% if graph.callers %}
+      {% for node in graph.callers %}
+        {{ render_graph_node(node, 'caller') }}
+      {% endfor %}
+    {% else %}
+      <p class="muted small">无上游调用者（顶层 TI，通常由 Chore 或手动触发）。</p>
+    {% endif %}
+  </div>
+
+  <div class="graph-col downstream-col">
+    <h2 class="graph-col-title">↓ 下游（它调用谁）<span class="tag">{{ graph.callees|length }}</span></h2>
+    {% if graph.callees %}
+      {% for node in graph.callees %}
+        {{ render_graph_node(node, 'callee') }}
+      {% endfor %}
+    {% else %}
+      <p class="muted small">无下游调用（叶子 TI）。</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% macro render_slice_table(wp) %}
+<table class="table">
+  <thead>
+    <tr>
+      <th style="width:34px;">#</th>
+      <th style="width:22%;">写入维度</th>
+      <th style="width:18%;">来源变量</th>
+      <th>取值 / 表达式</th>
+      <th>来源</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in wp.dims %}
+    <tr>
+      <td class="dim-idx">{{ d.index + 1 }}</td>
+      <td><strong>{{ d.dim_name }}</strong></td>
+      <td><code class="var-inline">{{ d.expr or '' }}</code></td>
+      <td><code class="var-inline">{{ d.value or '' }}</code></td>
+      <td>
+        {% if d.source_cubes %}
+          {% for s in d.source_cubes %}
+          <a class="cube-chip {{ s | hash_color }}" href="/explorer/cube/{{ s }}">{{ s }}</a>
+          {% endfor %}
+          {% if d.source_inferred %}<span class="muted small" title="变量是数据源视图字段，源头为该 TI 的数据源 cube">（来自数据源）</span>{% endif %}
+        {% elif d.is_param %}
+          <span class="muted small" title="由调用方传入的参数入参">入参</span>
+        {% elif d.is_variable %}
+          <span class="muted small" title="变量在代码中赋值，未追溯到来自 cube 的取数">变量（无源头）</span>
+        {% else %}
+          <span class="muted small" title="代码里的固定值，用于筛选">固定筛选</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    {% if not wp.dims %}
+    <tr><td colspan="5" class="muted small">{{ wp.summary or '无逐维度写入' }}</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{% macro render_graph_node(node, kind) %}
+<div class="graph-node" style="margin-left: {{ (node.depth - 1) * 16 }}px;">
+  <div class="gn-head">
+    <span class="gn-kind {{ 'up' if kind == 'caller' else 'down' }}">{{ '上游' if kind == 'caller' else '下游' }}</span>
+    <a class="gn-name" href="/graph?ti={{ node.name }}" title="在知识图谱中以此 TI 为中心展开">{{ node.name }}</a>
+    <a class="gn-recenter" href="/graph?ti={{ node.name }}" title="以此为中心重新展开"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M12 15l-4-4M12 15l4-4"/></svg></a>
+  </div>
+  <div class="gn-flow">
+    {% if node.writes %}
+    <div class="gn-chip-row"><span class="gn-chip-label write">写</span>
+      {% for c in node.writes %}<a class="cube-chip flow-target" href="/explorer/cube/{{ c }}">{{ c }}</a>{% endfor %}
+    </div>
+    {% endif %}
+    {% if node.reads %}
+    <div class="gn-chip-row"><span class="gn-chip-label read">读</span>
+      {% for c in node.reads %}<a class="cube-chip flow-source" href="/explorer/cube/{{ c }}">{{ c }}</a>{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% if node.children %}
+  <div class="gn-children">
+    {% for child in node.children %}
+      {{ render_graph_node(child, kind) }}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% block scripts %}
+<script>
+// TI 自动联想（复用 /api/search 的 process 结果）
+let tiTimer = null;
+const tiInput = document.getElementById('ti-search');
+const tiResults = document.getElementById('ti-results');
+
+tiInput.addEventListener('input', () => {
+  clearTimeout(tiTimer);
+  const q = tiInput.value.trim();
+  if (!q) { tiResults.hidden = true; return; }
+  tiTimer = setTimeout(async () => {
+    try {
+      const j = await (await fetch('/api/search?q=' + encodeURIComponent(q))).json();
+      renderTiResults(j.results || []);
+    } catch (e) { tiResults.hidden = true; }
+  }, 200);
+});
+
+function renderTiResults(results) {
+  if (!results.length) {
+    tiResults.innerHTML = '<div class="sr-empty">无匹配 TI</div>';
+    tiResults.hidden = false;
+    return;
+  }
+  tiResults.innerHTML = results.map(p =>
+    `<a class="sr-item" href="/graph?ti=${encodeURIComponent(p)}"><span class="sr-badge ti">T</span>${p}</a>`
+  ).join('');
+  tiResults.hidden = false;
+}
+
+tiInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const first = tiResults.querySelector('.sr-item');
+    if (first) location.href = first.href;
+    else {
+      const q = tiInput.value.trim();
+      if (q) location.href = '/graph?ti=' + encodeURIComponent(q);
+    }
+  }
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-hero')) tiResults.hidden = true;
+});
+</script>
+{% endblock %}

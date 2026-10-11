@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block title %}首页 · tm1-suite{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">TM1 元数据工作台</h1>
+    <p class="page-sub">离线浏览、分析 TM1 模型：查血缘、查对象、写代码</p>
+  </div>
+</div>
+
+<!-- ============ 首次使用引导（无数据时） ============ -->
+{% if not has_data %}
+<div class="card onboarding">
+  <h2>欢迎使用</h2>
+  <p class="muted">当前还没有可分析的数据。请选择一种方式开始：</p>
+  <div class="onboarding-grid">
+    <div class="onboard-option">
+      <div class="onboard-title">① 连接 TM1 拉取</div>
+      <p class="muted small">填入服务器地址和账号密码，一键拉取全部元数据到本地，之后即可离线分析。</p>
+      <a class="btn primary" href="/settings">去连接</a>
+    </div>
+    <div class="onboard-option">
+      <div class="onboard-title">② 导入数据包</div>
+      <p class="muted small">如果同事给过你 <code>data/</code> 数据包，直接覆盖到项目目录即可，无需联网。</p>
+      <span class="btn ghost" onclick="location.reload()">检测数据</span>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ============ 任务入口（有数据时） ============ -->
+{% if has_data %}
+<div class="task-grid">
+  <a class="task-card" href="#mdx-card">
+    <div class="task-icon">{% include "icons/graph.svg" %}</div>
+    <div class="task-body">
+      <div class="task-title">查血缘</div>
+      <div class="task-desc">某个值是谁写的？用 MDX 反查写入的 TI，追踪上游源头 Cube</div>
+    </div>
+  </a>
+  <a class="task-card" href="/cubes">
+    <div class="task-icon">{% include "icons/cube.svg" %}</div>
+    <div class="task-body">
+      <div class="task-title">查对象</div>
+      <div class="task-desc">浏览 {{ counts.get('cubes', 0) }} 个 Cube、{{ counts.get('processes', 0) }} 个 TI 进程的代码与血缘</div>
+    </div>
+  </a>
+  <a class="task-card" href="/codegen">
+    <div class="task-icon">{% include "icons/codegen.svg" %}</div>
+    <div class="task-body">
+      <div class="task-title">写代码</div>
+      <div class="task-desc">生成标准 TI 框架代码：数据传输、数据导出、维度维护、环境初始化</div>
+    </div>
+  </a>
+</div>
+
+<!-- ============ 数据快照状态 ============ -->
+<div class="card status-card">
+  <div class="status-left">
+    <span class="dot"></span>
+    <div>
+      <div class="status-title">本地数据就绪</div>
+      <div class="muted small">快照时间：{{ snapshot_time or '未知' }} · {{ counts.get('cubes', 0) }} Cube / {{ counts.get('processes', 0) }} TI / {{ counts.get('dimensions', 0) }} 维度</div>
+    </div>
+  </div>
+  <a class="btn ghost" href="/settings">更新数据</a>
+</div>
+{% endif %}
+
+<!-- ============ 全局搜索（Cube + TI 混合联想） ============ -->
+<div class="search-hero">
+  <div class="search-box">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input type="text" id="global-search" placeholder="搜索 Cube 或 TI 进程，如 BP Management Report PnL、Cub.Actual Data…" autocomplete="off">
+  </div>
+  <div class="search-results" id="search-results" hidden></div>
+</div>
+
+<!-- ============ MDX 输入器：反查「值从哪里来」 ============ -->
+<div class="card mdx-card" id="mdx-card">
+  <div class="mdx-head">
+    <h2>MDX 反查</h2>
+    <span class="muted small">粘贴一段 TM1 MDX，自动解析 Cube + 筛选条件，按相似度找出最可能写入的 TI</span>
+  </div>
+  <div class="mdx-input-wrap">
+    <textarea id="mdx-input" rows="7" placeholder="例如：&#10;SELECT {TM1SubsetToSet([Month].[Month], &quot;Default&quot;)} ON COLUMNS&#10;FROM [EXP OOH Uncontrollable Expense Assumption]&#10;WHERE ([Scenario].[Scenario].[BG], [Version].[Version].[WIP], [Year].[Year].[2023])" spellcheck="false"></textarea>
+  </div>
+  <div class="mdx-actions">
+    <button id="mdx-btn" class="btn primary" onclick="traceMdx()">解析并反查</button>
+    <button class="btn ghost" onclick="fillExample()">填入示例</button>
+    <button class="btn ghost" onclick="clearMdx()">清空</button>
+  </div>
+  <div class="mdx-hint muted small">
+    支持 <code>FROM [Cube]</code>、<code>[维度].[元素]</code>、<code>WHERE (...)</code>；自动忽略 <code>[Dim].[All]</code>、<code>TM1SubsetToSet</code> 集合引用、<code>PROPERTIES</code> 属性名。
+  </div>
+  <div id="mdx-result" hidden></div>
+</div>
+
+<!-- ============ 数据规模概览 ============ -->
+{% if has_data %}
+<div class="card">
+  <h2>数据规模</h2>
+  <div class="stats">
+    <div class="stat accent"><div class="num">{{ counts.get('cubes', 0) }}</div><div class="lbl">Cubes</div></div>
+    <div class="stat"><div class="num">{{ counts.get('dimensions', 0) }}</div><div class="lbl">Dimensions</div></div>
+    <div class="stat violet"><div class="num">{{ counts.get('processes', 0) }}</div><div class="lbl">TI 进程</div></div>
+    <div class="stat"><div class="num">{{ counts.get('chores', 0) }}</div><div class="lbl">Chores</div></div>
+    <div class="stat green"><div class="num">{{ counts.get('ti_flows', 0) }}</div><div class="lbl">血缘流</div></div>
+    <div class="stat"><div class="num">{{ counts.get('front_backend_mapping', 0) }}</div><div class="lbl">前端映射</div></div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ============ 全局搜索（Cube + TI 混合联想） ============
+let searchTimer = null;
+const searchInput = document.getElementById('global-search');
+const searchResults = document.getElementById('search-results');
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = searchInput.value.trim();
+  if (!q) { searchResults.hidden = true; return; }
+  searchTimer = setTimeout(async () => {
+    try {
+      const j = await (await fetch('/api/search-all?q=' + encodeURIComponent(q))).json();
+      renderResults(j);
+    } catch (e) { searchResults.hidden = true; }
+  }, 200);
+});
+
+function renderResults(j) {
+  const cubes = j.cubes || [], procs = j.processes || [], chores = j.chores || [];
+  if (!cubes.length && !procs.length && !chores.length) {
+    searchResults.innerHTML = '<div class="sr-empty">无匹配结果</div>';
+    searchResults.hidden = false;
+    return;
+  }
+  let html = '';
+  if (cubes.length) {
+    html += '<div class="sr-group">Cube</div>';
+    html += cubes.map(c => `<a class="sr-item" href="/explorer/cube/${encodeURIComponent(c)}"><span class="sr-badge cube">C</span>${c}</a>`).join('');
+  }
+  if (procs.length) {
+    html += '<div class="sr-group">TI 进程</div>';
+    html += procs.map(p => `<a class="sr-item" href="/explorer/process/${encodeURIComponent(p)}"><span class="sr-badge ti">T</span>${p}</a>`).join('');
+  }
+  if (chores.length) {
+    html += '<div class="sr-group">Chore</div>';
+    html += chores.map(c => `<a class="sr-item" href="/explorer/chore/${encodeURIComponent(c)}"><span class="sr-badge chore">H</span>${c}</a>`).join('');
+  }
+  searchResults.innerHTML = html;
+  searchResults.hidden = false;
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-hero')) searchResults.hidden = true;
+});
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const first = searchResults.querySelector('.sr-item');
+    if (first) location.href = first.href;
+  }
+});
+
+// ============ MDX 反查 ============
+const mdxInput = document.getElementById('mdx-input');
+const mdxBtn = document.getElementById('mdx-btn');
+const mdxResult = document.getElementById('mdx-result');
+
+function hashColor(name) {
+  let h = 0;
+  for (const ch of String(name)) h = (h * 31 + ch.codePointAt(0)) & 0xFFFFFFFF;
+  return 'src-c' + (h % 10);
+}
+
+async function traceMdx() {
+  const mdx = mdxInput.value.trim();
+  if (!mdx) { mdxInput.focus(); return; }
+  mdxBtn.disabled = true;
+  mdxBtn.textContent = '解析中…';
+  mdxResult.hidden = false;
+  mdxResult.innerHTML = '<div class="muted">正在解析 MDX 并匹配写入点…</div>';
+  try {
+    const j = await (await fetch('/api/trace?mdx=' + encodeURIComponent(mdx))).json();
+    renderTrace(j);
+  } catch (e) {
+    mdxResult.innerHTML = '<div class="err">请求失败：' + e + '</div>';
+  } finally {
+    mdxBtn.disabled = false;
+    mdxBtn.textContent = '解析并反查';
+  }
+}
+
+function fillExample() {
+  mdxInput.value = 'SELECT {TM1SubsetToSet([Month].[Month], "Default")}\nPROPERTIES [Month].[Month].[Caption zh-Hans] ON COLUMNS,\n{[Company].[All Companies By Plant],[Company].[0001],[Company].[0003]}\nON ROWS FROM [EXP OOH Uncontrollable Expense Assumption]\nWHERE ([Scenario].[Scenario].[BG], [Version].[Version].[WIP], [Year].[Year].[2023],\n[M EXP OOH Uncontrollable Expense Assumption].[M EXP OOH Uncontrollable Expense Assumption].[Amount])';
+  mdxInput.focus();
+}
+
+function clearMdx() {
+  mdxInput.value = '';
+  mdxResult.hidden = true;
+  mdxResult.innerHTML = '';
+  mdxInput.focus();
+}
+
+function renderTrace(j) {
+  if (!j.cube) {
+    mdxResult.innerHTML = '<div class="err">未从 MDX 中解析出 Cube（请确认包含 FROM [Cube]）。</div>';
+    return;
+  }
+  let html = '';
+
+  const dims = j.dimensions || [];
+  const members = j.members || {};
+  html += '<div class="trace-summary">';
+  html += `<div class="trace-cube">目标 Cube：<a class="cube-chip" href="/explorer/cube/${encodeURIComponent(j.cube)}">${j.cube}</a></div>`;
+  if (dims.length) {
+    html += '<div class="trace-dims">';
+    html += dims.map(d => {
+      const elems = members[d] || [];
+      const v = elems.length ? elems.join(', ') : '<span class="muted">（未限定）</span>';
+      return `<span class="trace-dim"><b>${d}</b> = ${v}</span>`;
+    }).join('');
+    html += '</div>';
+  } else {
+    html += '<div class="muted small">未解析出维度筛选条件</div>';
+  }
+  html += '</div>';
+
+  const cands = j.candidates || [];
+  html += `<div class="trace-count">匹配到 <b>${cands.length}</b> 个可能的写入 TI${j.relaxed ? '（宽松匹配）' : ''}</div>`;
+
+  if (!cands.length) {
+    html += '<div class="muted">未找到写入该交叉点的 TI。</div>';
+    mdxResult.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="trace-list">';
+  cands.forEach(c => {
+    const score = c.score !== undefined ? c.score : null;
+    const pct = score === null ? '' : `<span class="trace-score ${score >= 100 ? 'full' : score >= 60 ? 'high' : 'mid'}">${score}%</span>`;
+    const dimBadges = (c.matched_dims || []).map(d => `<span class="dim-badge hit">${d} 命中</span>`)
+      .concat((c.variable_dims || []).map(d => `<span class="dim-badge var">${d} 变量?</span>`)).join('');
+    const srcs = (c.source_cubes || []).map(s => `<a class="cube-chip ${hashColor(s)}" href="/explorer/cube/${encodeURIComponent(s)}">${s}</a>`).join(' ');
+    const wpCount = c.write_point_count > 1 ? `<span class="trace-wp-count">${c.write_point_count} 个写入点</span>` : '';
+    html += `<div class="trace-item">
+      <div class="trace-item-head">
+        ${pct}
+        <a href="/explorer/process/${encodeURIComponent(c.process)}">${c.process}</a>
+        ${wpCount}
+      </div>
+      <div class="trace-item-meta">
+        <span class="muted small">${c.operation_human || c.operation}</span>
+        ${c.conditions_human && c.conditions_human.length ? '<span class="muted small">条件：' + c.conditions_human.join('；') + '</span>' : ''}
+      </div>
+      <div class="trace-item-dims">${dimBadges || '<span class="muted small">无维度约束</span>'}</div>
+      ${srcs ? '<div class="trace-item-src">上游源头：' + srcs + '</div>' : ''}
+    </div>`;
+  });
+  html += '</div>';
+
+  mdxResult.innerHTML = html;
+}
+</script>
+{% endblock %}

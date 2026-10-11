@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}连接 · tm1-suite{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">首页</a><span class="sep">/</span><span class="current">连接设置</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">连接设置</h1>
+    <p class="page-sub">配置 TM1 连接，拉取最新元数据到本地；或只扫描本地前端资产</p>
+  </div>
+</div>
+
+<!-- TM1 连接 -->
+<div class="card">
+  <h2>TM1 服务器连接</h2>
+  <p class="muted small">填写连接信息后点击「开始拉取」，后台并行拉取全部元数据入库。密码留空则使用 <code>.env</code> 默认凭据。</p>
+  <form id="scan-form" onsubmit="return false;">
+    <div class="grid">
+      <label>地址
+        <input id="tm1_address" value="{{ tm1_address }}" placeholder="例如 192.168.1.100">
+      </label>
+      <label>端口
+        <input id="tm1_port" value="{{ tm1_port }}" placeholder="例如 30003">
+      </label>
+      <label>用户
+        <input id="tm1_user" value="{{ tm1_user }}" placeholder="登录用户名">
+      </label>
+      <label>密码
+        <input id="tm1_password" type="password" placeholder="登录密码">
+      </label>
+      <label>命名空间（可选）
+        <input id="tm1_namespace" value="{{ tm1_namespace }}" placeholder="CAM 命名空间">
+      </label>
+      <label class="checkbox">SSL
+        <input id="tm1_ssl" type="checkbox" {% if tm1_ssl %}checked{% endif %}>
+      </label>
+    </div>
+    <div class="actions">
+      <button type="submit" id="scan-btn" class="btn primary" onclick="startIngest()">开始拉取</button>
+      <span id="ingest-status" class="status-inline muted"></span>
+    </div>
+  </form>
+</div>
+
+<!-- 前端资产扫描 -->
+<div class="card">
+  <h2>前端资产扫描</h2>
+  <p class="muted small">只读本地 Excel（<code>applications/</code> 与 <code>externals/</code>），不访问 TM1，用于「前端文件 → 后端 Cube」映射。</p>
+  <table class="table">
+    <tbody>
+      <tr><td>应用目录 <code>applications/</code></td><td><code>{{ input_applications_dir }}</code></td></tr>
+      <tr><td>外部仓库 <code>externals/</code></td><td><code>{{ input_externals_dir }}</code></td></tr>
+    </tbody>
+  </table>
+  <div class="actions">
+    <button type="button" class="btn ghost" onclick="scanFrontend()">扫描前端资产</button>
+  </div>
+  <div class="progress-wrap" id="audit-progress">
+    <div class="progress-track"><div class="progress-fill" id="audit-progress-fill"></div></div>
+    <div class="progress-label">
+      <span id="audit-progress-text">准备中…</span>
+      <span class="pct" id="audit-progress-pct"></span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function startIngest() {
+  const btn = document.getElementById('scan-btn');
+  const statusEl = document.getElementById('ingest-status');
+  btn.disabled = true;
+  btn.textContent = '拉取中…';
+  statusEl.textContent = '正在连接 TM1 并拉取元数据，请稍候（可关闭页面，后台继续）…';
+  statusEl.className = 'status-inline muted';
+
+  const creds = {
+    tm1_address: document.getElementById('tm1_address').value,
+    tm1_port: document.getElementById('tm1_port').value,
+    tm1_user: document.getElementById('tm1_user').value,
+    tm1_password: document.getElementById('tm1_password').value,
+    tm1_namespace: document.getElementById('tm1_namespace').value,
+    tm1_ssl: document.getElementById('tm1_ssl').checked,
+  };
+
+  try {
+    const r = await fetch('/api/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const j = await r.json();
+    if (!r.ok) { statusEl.textContent = '启动失败：' + (j.error || r.status); statusEl.className='status-inline err'; btn.disabled = false; btn.textContent = '开始拉取'; return; }
+    poll();
+  } catch (e) {
+    statusEl.textContent = '请求失败：' + e;
+    statusEl.className = 'status-inline err';
+    btn.disabled = false;
+    btn.textContent = '开始拉取';
+  }
+}
+
+async function poll() {
+  const statusEl = document.getElementById('ingest-status');
+  const btn = document.getElementById('scan-btn');
+  while (true) {
+    await new Promise(res => setTimeout(res, 2000));
+    let j;
+    try { j = await (await fetch('/api/ingest/status')).json(); }
+    catch (e) { continue; }
+    if (j.error) { statusEl.textContent = '拉取失败：' + j.error; statusEl.className='status-inline err'; break; }
+    if (j.done) { statusEl.textContent = '拉取完成，正在刷新…'; statusEl.className='status-inline ok'; location.reload(); return; }
+  }
+  btn.disabled = false;
+  btn.textContent = '开始拉取';
+}
+
+async function scanFrontend() {
+  const statusEl = document.getElementById('ingest-status');
+  const btn = document.querySelector('button[onclick="scanFrontend()"]');
+  const wrap = document.getElementById('audit-progress');
+  const fill = document.getElementById('audit-progress-fill');
+  const ptext = document.getElementById('audit-progress-text');
+  const ppct = document.getElementById('audit-progress-pct');
+  if (btn) btn.disabled = true;
+  statusEl.textContent = '正在启动扫描（后台执行，可关闭页面）…';
+  statusEl.className = 'status-inline muted';
+  try {
+    const r = await fetch('/api/audit', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '扫描失败：' + (j.error || r.status);
+      statusEl.className = 'status-inline err';
+      if (btn) btn.disabled = false;
+      return;
+    }
+    wrap.classList.add('visible');
+    pollAudit();
+  } catch (e) {
+    statusEl.textContent = '请求失败：' + e;
+    statusEl.className = 'status-inline err';
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function pollAudit() {
+  const statusEl = document.getElementById('ingest-status');
+  const fill = document.getElementById('audit-progress-fill');
+  const ptext = document.getElementById('audit-progress-text');
+  const ppct = document.getElementById('audit-progress-pct');
+  while (true) {
+    await new Promise(res => setTimeout(res, 1500));
+    let j;
+    try { j = await (await fetch('/api/audit/status')).json(); }
+    catch (e) { continue; }
+    if (j.running && j.progress) {
+      const p = j.progress;
+      const pct = p.total ? Math.round(p.done / p.total * 100) : 0;
+      fill.style.width = pct + '%';
+      ptext.textContent = `正在扫描前端资产… ${p.done}/${p.total}`;
+      ppct.textContent = pct + '%';
+      statusEl.textContent = p.phase || '扫描中';
+      statusEl.className = 'status-inline muted';
+      continue;
+    }
+    if (j.done) {
+      if (j.error) {
+        statusEl.textContent = '扫描失败：' + j.error;
+        statusEl.className = 'status-inline err';
+      } else {
+        fill.style.width = '100%';
+        ppct.textContent = '100%';
+        ptext.textContent = '扫描完成';
+        const s = j.stats || {};
+        statusEl.textContent = `扫描完成：${s.excel_assets || 0} 个资产、${s.front_backend_mapping || 0} 条映射，正在刷新…`;
+        statusEl.className = 'status-inline ok';
+        setTimeout(() => location.reload(), 800);
+      }
+      return;
+    }
+  }
+}
+</script>
+{% endblock %}

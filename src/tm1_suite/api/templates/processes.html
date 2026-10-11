@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}TI 进程 · tm1-suite{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">首页</a><span class="sep">/</span><span class="current">TI 进程</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">TI 进程</h1>
+    <p class="page-sub">全部 TI 进程及其读写 Cube / 调用关系</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="list-toolbar">
+    <h2>TI 进程 <span class="tag">{{ total }}</span></h2>
+    <form class="list-search" method="get" action="/processes">
+      <input type="search" name="q" value="{{ q }}" placeholder="搜索 TI 进程名 / 代码…">
+      <button type="submit" class="btn primary btn-sm">搜索</button>
+      {% if q %}<a class="btn ghost btn-sm" href="/processes">清除</a>{% endif %}
+    </form>
+  </div>
+
+  {% if processes %}
+  <ul class="list">
+    {% for p in processes %}
+    <li><a href="/explorer/process/{{ p }}">{{ p }}</a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">{% include "icons/process.svg" %}</div>
+    <div class="empty-title">{% if q %}没有匹配的 TI 进程{% else %}暂无 TI 进程{% endif %}</div>
+    <div class="empty-desc">{% if q %}换个关键词试试，或<a href="/processes">清除搜索</a>。{% else %}尚未入库任何 TI 进程，请到「连接设置」拉取 TM1 元数据。{% endif %}</div>
+  </div>
+  {% endif %}
+
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    <span class="pagination-info">共 {{ total }} 项 · 第 {{ page }} / {{ total_pages }} 页</span>
+    <div class="pagination-btns">
+      {% if page > 1 %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&page={{ page - 1 }}">上一页</a>{% endif %}
+      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&page={{ page + 1 }}">下一页</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% if chores %}
+<div class="card">
+  <h2>Chores <span class="tag">{{ chores|length }}</span></h2>
+  <ul class="list">
+    {% for ch in chores %}
+    <li><a href="/explorer/chore/{{ ch.name }}">{{ ch.name }}</a> <span class="tag">{{ ch.process_count }} 步</span></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 记录当前列表位置，供详情页「返回列表」恢复搜索词与页码（标签页会话级，不污染下次打开）
+(function () {
+  try { sessionStorage.setItem('processes-last', JSON.stringify({ q: {{ q|tojson }}, page: {{ page }} })); } catch (e) {}
+})();
+</script>
+{% endblock %}

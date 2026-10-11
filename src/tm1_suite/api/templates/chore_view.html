@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ chore.name }} · Chore{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">概览</a><span class="sep">/</span>
+  <a href="/processes" id="back-to-list">TI 进程</a><span class="sep">/</span>
+  <span class="current">{{ chore.name }}</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">{{ chore.name }}</h1>
+    <p class="page-sub">定时任务 Chore · {{ chore.process_count }} 个步骤</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>执行步骤 <span class="tag">{{ chore.process_count }}</span></h2>
+  <p class="muted small">Chore 按顺序执行下列 TI 进程。步骤顺序为 TM1 中的执行次序。</p>
+
+  {% if chore.steps %}
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th style="width:60px;">顺序</th><th>TI 进程</th></tr></thead>
+    <tbody>
+      {% for s in chore.steps %}
+      <tr>
+        <td><span class="tag">{{ s.step_order if s.step_order is not none else loop.index }}</span></td>
+        <td>
+          {% set pname = s.name if s.name is defined else s %}
+          {% if pname %}<a class="tree-node" href="/explorer/process/{{ pname }}">{{ pname }}</a>{% else %}<span class="muted">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">{% include "icons/process.svg" %}</div>
+    <div class="empty-title">该 Chore 暂无步骤明细</div>
+    <div class="empty-desc">这通常是因为拉取元数据时未展开 Chore 的任务列表（TM1py 的 Chore 对象未返回 <code>tasks</code>）。请在「连接设置」重新拉取元数据后查看。</div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 从列表页进来时，「返回列表」恢复上次的搜索词与页码
+(function () {
+  var a = document.getElementById('back-to-list');
+  if (!a) return;
+  try {
+    var last = JSON.parse(sessionStorage.getItem('processes-last') || '{}');
+    var params = new URLSearchParams();
+    if (last.q) params.set('q', last.q);
+    if (last.page && last.page > 1) params.set('page', last.page);
+    var qs = params.toString();
+    if (qs) a.href = '/processes?' + qs;
+  } catch (e) {}
+})();
+</script>
+{% endblock %}

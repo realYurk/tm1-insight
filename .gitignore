@@ -1,0 +1,50 @@
+# 凭据与本地环境
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# 数据产物（体积大，不入库）
+data/raw/
+data/parquet/
+data/db/
+*.duckdb
+*.duckdb.wal
+*.parquet
+
+# 本地输入文件（含敏感报表）
+data/inputs/
+
+# 工具
+.ruff_cache/
+.pytest_cache/
+
+# 本地工作数据（WorkBuddy 项目数据，不入库）
+.workbuddy/
+
+# IDE 配置
+.idea/
+
+# 日志（运行时生成，不入库）
+logs/
+
+# 扫描缓存（本地增量缓存）
+_audit_scan_cache.json
+
+# 原始工具源码（可能含他人版权，仅本地参考，不入库/不分发）
+resources/original-tools/
+
+# 样例输出数据（含真实业务文件路径，不入库）
+resources/reference-outputs/
+
+# 本地数据仓库（整体排除）
+data/
+
+# 本地数据仓库（整体排除）
+data/
