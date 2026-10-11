@@ -22,6 +22,34 @@ TM1 模型的痛点：对象成百上千、TI 代码互相调用、Rule 层层�
 
 ---
 
+## 界面预览
+
+**首页**——全局搜索 + MDX 反查（粘贴一段 MDX，直接找出最可能写入这个交叉点的 TI）+ 数据规模一览：
+
+![首页](images/img-home.png)
+
+**Cube 浏览**——维度结构单行展示、数据流向图（源头 Cube → 搬运 TI → 本 Cube）、逐写入点拆解：
+
+![Cube 浏览](images/img-cubeview.png)
+
+**TI 进程**——参数/变量/Prolog/Metadata/Data/Epilog 分 Tab 浏览，代码高亮 + 行号，右侧栏跨 Tab 搜索代码、数据源头与调用关系：
+
+![TI 进程](images/img-TIview.png)
+
+**知识图谱**——以 TI 为中心，看它往哪个 Cube 的哪个切面写数据：每个写入点的维度、来源变量、取值与写入前提：
+
+![知识图谱](images/img-TIsummary.png)
+
+**前端资产**——扫描前端 Excel，自动建立"前端页面 → 后端 Cube"映射，标出含 TM1 公式与断链风险：
+
+![前端资产](images/img-frontview.png)
+
+**连接设置**——配置 TM1 连接、一键拉取元数据、重新扫描前端资产：
+
+![连接设置](images/img-settings.png)
+
+---
+
 ## 快速开始
 
 ### 前置条件
