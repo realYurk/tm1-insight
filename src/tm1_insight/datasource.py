@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -36,6 +37,11 @@ from tm1_insight.store.db import Store
 from tm1_insight.store.schema import ALL_TABLES
 
 logger = logging.getLogger(__name__)
+
+# Demo 建库的进程级锁：保证多请求并发触发兜底时只建一次库，
+# 避免 DuckDB 多连接同时 DROP/CREATE 同一表导致事务冲突。
+_demo_lock = threading.Lock()
+
 
 
 class DataSourceType(str, Enum):
@@ -394,10 +400,19 @@ def ensure_demo_if_empty() -> DataSourceStatus:
 
     这是「新用户不能打开空壳」的产品底线。只在**当前数据目录为空**时
     才生成 Demo；一旦用户导入真实数据，后续启动走 REAL_LOCAL 分支。
+
+    并发安全：demo 建库是「写一次、后续复用」的操作，用模块级锁保证
+    多请求同时触发时只有一个真正建库，其余等待后复用已建好的库，
+    避免 DuckDB 事务冲突（多连接同时 DROP/CREATE 同一表）。
     """
     status = detect_current_source()
-    if status.type == DataSourceType.REAL_LOCAL:
+    if status.type in (DataSourceType.REAL_LOCAL, DataSourceType.DEMO):
         return status
-    # 空数据 → 兜底 Demo
-    logger.info("无本地数据，自动进入 Demo 模式")
-    return load_demo_data()
+    # 空数据 → 兜底 Demo（持锁，防并发重复建库）
+    with _demo_lock:
+        # 双检：拿到锁后再次检测，可能已被其他请求建好
+        status = detect_current_source()
+        if status.type in (DataSourceType.REAL_LOCAL, DataSourceType.DEMO):
+            return status
+        logger.info("无本地数据，自动进入 Demo 模式")
+        return load_demo_data()
