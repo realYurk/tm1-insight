@@ -65,19 +65,19 @@
   <form id="scan-form" onsubmit="return false;">
     <div class="grid">
       <label>地址
-        <input id="tm1_address" value="{{ tm1_address }}" placeholder="例如 192.168.1.100">
+        <input id="tm1_address" value="" placeholder="TM1 服务器地址" autocomplete="off">
       </label>
       <label>端口
         <input id="tm1_port" value="{{ tm1_port }}" placeholder="例如 30003">
       </label>
       <label>用户
-        <input id="tm1_user" value="{{ tm1_user }}" placeholder="登录用户名">
+        <input id="tm1_user" value="" placeholder="登录用户名" autocomplete="off">
       </label>
       <label>密码
-        <input id="tm1_password" type="password" placeholder="登录密码">
+        <input id="tm1_password" type="password" placeholder="登录密码" autocomplete="off">
       </label>
       <label>命名空间（可选）
-        <input id="tm1_namespace" value="{{ tm1_namespace }}" placeholder="CAM 命名空间">
+        <input id="tm1_namespace" value="" placeholder="CAM 命名空间" autocomplete="off">
       </label>
       <label class="checkbox">SSL
         <input id="tm1_ssl" type="checkbox" {% if tm1_ssl %}checked{% endif %}>

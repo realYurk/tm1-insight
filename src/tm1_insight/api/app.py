@@ -278,10 +278,9 @@ def settings_page(request: Request):
     return templates.TemplateResponse(request, "settings.html", {
         "has_data": has_data,
         "data_source": _data_source_status(),
-        "tm1_address": settings.tm1_address,
+        # 敏感连接信息（地址/用户/命名空间）不回填到页面，避免在浏览器暴露真实服务器信息；
+        # 端口与 SSL 非敏感，保留回填。
         "tm1_port": settings.tm1_port,
-        "tm1_user": settings.tm1_user,
-        "tm1_namespace": settings.tm1_namespace,
         "tm1_ssl": settings.tm1_ssl,
         "input_applications_dir": str(settings.input_applications_dir),
         "input_externals_dir": str(settings.input_externals_dir),
