@@ -73,10 +73,23 @@ def _run_web() -> None:
 
 def main() -> None:
     argv = sys.argv[1:]
+    if argv and argv[0]=="--internal-learning-worker":
+        from tm1_insight.learning.worker import main as worker_main
+        worker_main(argv[1:])
+        return
+    if argv and argv[0]=="--self-check":
+        import json,sqlite3,ssl,lzma,ctypes
+        import duckdb,openpyxl,pyarrow,TM1py
+        from tm1_insight.api.app import app
+        from tm1_insight import __version__
+        con=duckdb.connect(":memory:");assert con.execute("SELECT 1").fetchone()[0]==1;con.close()
+        con=sqlite3.connect(":memory:");assert con.execute("SELECT 1").fetchone()[0]==1;con.close()
+        print(json.dumps({"status":"ok","version":__version__,"routes":len(app.routes)},ensure_ascii=True))
+        return
     if not argv:
         _run_web()
         return
-    if argv[0] == "web":
+    if argv[0] == "web" and len(argv)==1:
         _run_web()
         return
     cli_app()

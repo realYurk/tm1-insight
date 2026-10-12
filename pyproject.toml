@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tm1-insight"
-version = "0.2.0"
+version = "0.3.0"
 description = "TM1 Insight：高性能 TM1 运维套件（Explorer / Audit / Graph 三视图统一元数据仓库）"
 requires-python = ">=3.9"
 dependencies = [

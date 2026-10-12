@@ -29,6 +29,7 @@ from tm1_insight.store import queries
 from tm1_insight.store.graph_adapter import dependencies_from_store
 from tm1_insight.api.knowledge_tasks import router as knowledge_router
 from tm1_insight.api.learning import router as learning_router
+from tm1_insight.api.experience import router as experience_router
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ app = FastAPI(title="TM1 Insight", version=__version__)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.include_router(knowledge_router)
 app.include_router(learning_router)
+app.include_router(experience_router)
 
 
 # ---- 全局异常处理：任何未捕获异常都返回友好错误页，而非白屏 500 ----

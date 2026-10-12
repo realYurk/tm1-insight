@@ -201,6 +201,18 @@ def study(query: str = typer.Option("*", "--query", help="功能关键词；* �
     typer.echo("结果含模型知识，仅供本地使用，禁止发布到公共空间。")
 
 
+@app.command("study-all")
+def study_all(root:Path=typer.Option(...,"--root",help="只读扫描的本地数据目录"),
+              output:Path=typer.Option(None,"--output",help="位于原始数据目录之外的私有报告目录")):
+    """盘点整个目录，为每份模型分别生成教材，不合并不同快照。"""
+    from tm1_insight.learning.inventory import study_directory
+    settings=get_settings()
+    destination=output or settings.user_data_root/"cache"/"learning-all"
+    result=study_directory(settings,root,destination,lambda n,total:typer.echo(f"分析本地仓库 {n}/{total}"))
+    typer.echo(f"已盘点 {result['files']} 个文件，分析 {len(result['models'])} 份独立模型。")
+    typer.echo(f"私有报告：{destination / '从这里开始.md'}；禁止上传。")
+
+
 def main() -> None:
     app()
 

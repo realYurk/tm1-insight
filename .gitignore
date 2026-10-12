@@ -53,3 +53,4 @@ imports/
 data_dir_override.txt
 last_local_source.txt
 config/audit-*.json
+experiences/

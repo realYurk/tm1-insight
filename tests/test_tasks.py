@@ -101,3 +101,23 @@ def test_disk_cache_and_in_memory_records_are_bounded(tmp_path):
         assert manager.result(tasks[-1]["task_id"], source="A")["payload"] == "x" * 700
     finally:
         manager.close()
+
+
+def test_report_artifact_is_moved_without_decoding_and_temporary_files_are_released(tmp_path):
+    import tempfile,json
+    from pathlib import Path
+    from tm1_insight.tasks import ResultArtifact
+    from tm1_insight.learning import pages
+    temporary=tempfile.TemporaryDirectory(dir=tmp_path)
+    folder=Path(temporary.name);source=folder/'result.json'
+    source.write_text(json.dumps({'version':'study-test','processes':[{'process':'Synthetic','patterns':{}}]}),encoding='utf-8')
+    pages.build(source,json.loads(source.read_text(encoding='utf-8')))
+    manager=TaskManager(tmp_path/'cache')
+    try:
+        task=manager.submit('file',lambda update:ResultArtifact(source,pages.index_path(source),temporary),source='A')
+        assert finished(manager,task['task_id'])['status']=='completed'
+        assert not folder.exists()
+        path=manager.result_path(task['task_id'],source='A')
+        assert pages.valid(path)
+        assert pages.process(path,'Synthetic')['process']=='Synthetic'
+    finally:manager.close()

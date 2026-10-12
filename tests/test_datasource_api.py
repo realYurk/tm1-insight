@@ -44,7 +44,7 @@ def client(tmp_path, monkeypatch):
 def test_all_pages_no_500_in_demo(client):
     """Demo 兜底后，所有主要页面都应返回 200。"""
     for path in ["/", "/cubes", "/processes", "/dimensions", "/graph",
-                 "/impact", "/compare", "/audit", "/codegen", "/settings", "/learn"]:
+                 "/impact", "/compare", "/audit", "/codegen", "/settings", "/learn", "/experience"]:
         r = client.get(path)
         assert r.status_code == 200, f"{path} -> {r.status_code}"
 

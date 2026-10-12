@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -17,6 +18,15 @@ class TaskBusy(Exception):
 
 class TaskCancelled(Exception):
     pass
+
+
+@dataclass
+class ResultArtifact:
+    path: Path
+    index: Path
+    owner: object
+
+    def cleanup(self):self.owner.cleanup()
 
 
 class TaskManager:
@@ -56,6 +66,8 @@ class TaskManager:
             return self.state(task_id)
 
     def _run(self, job, worker):
+        result=None
+        from tm1_insight.learning import pages
         def update(**fields):
             if job["cancel"].is_set():
                 raise TaskCancelled()
@@ -66,11 +78,13 @@ class TaskManager:
         try:
             update(status="running", stage="Checking local cache")
             path = job["path"]
+            result=None
             if path.exists():
                 try:
-                    with path.open(encoding="utf-8") as stream:
-                        json.load(stream)
-                    os.utime(path, None)
+                    if pages.valid(path):os.utime(pages.index_path(path),None)
+                    else:
+                        with path.open(encoding="utf-8") as stream:result=json.load(stream)
+                        os.utime(path, None)
                     update(cached=True)
                 except (OSError, ValueError):
                     path.unlink(missing_ok=True)
@@ -80,14 +94,23 @@ class TaskManager:
                 self.root.mkdir(parents=True, exist_ok=True)
                 temporary = path.with_suffix("." + job["task_id"] + ".tmp")
                 try:
-                    with temporary.open("w", encoding="utf-8") as stream:
-                        json.dump(result, stream, ensure_ascii=False)
+                    if isinstance(result,ResultArtifact):os.replace(result.path,temporary)
+                    else:
+                        with temporary.open("w", encoding="utf-8") as stream:json.dump(result, stream, ensure_ascii=False)
                     if temporary.stat().st_size > self.max_cache_bytes:
                         raise ValueError("Result exceeds local cache capacity")
                     os.replace(temporary, path)
+                    if isinstance(result,ResultArtifact):os.replace(result.index,pages.index_path(path))
                 finally:
                     temporary.unlink(missing_ok=True)
-                self._prune(path)
+                    if isinstance(result,ResultArtifact):result.cleanup()
+            if isinstance(result,dict) and str(result.get("version","")).startswith("study-") and not pages.valid(path):
+                update(stage="建立分页检索索引",stage_index=6)
+                pages.build(path,result)
+            if pages.index_path(path).exists() and path.stat().st_size+pages.index_path(path).stat().st_size>self.max_cache_bytes:
+                path.unlink(missing_ok=True);pages.index_path(path).unlink(missing_ok=True)
+                raise ValueError("Result and index exceed local cache capacity")
+            self._prune(path)
             update(status="completed", stage="Completed", stage_index=6, current=1, total=1)
         except TaskCancelled:
             with self._lock:
@@ -97,19 +120,23 @@ class TaskManager:
             with self._lock:
                 job.update(status="failed", error="本地分析失败；请检查数据格式或缩小范围后重试。", message="分析失败")
         finally:
+            if isinstance(result,ResultArtifact):result.cleanup()
             with self._lock:
                 job["finished"] = time.monotonic()
             self._slots.release()
 
     def _prune(self, protected: Path):
-        files = sorted(self.root.glob("*.json"), key=lambda p: p.stat().st_mtime_ns)
-        size = sum(p.stat().st_size for p in files)
+        from tm1_insight.learning.pages import index_path
+        files = sorted(self.root.glob("*.json"), key=lambda p:max(p.stat().st_mtime_ns,index_path(p).stat().st_mtime_ns if index_path(p).exists() else 0))
+        def size_of(path):return path.stat().st_size+(index_path(path).stat().st_size if index_path(path).exists() else 0)
+        size = sum(size_of(p) for p in files)
         for path in files:
             if size <= self.max_cache_bytes:
                 break
             if path != protected:
-                size -= path.stat().st_size
+                size -= size_of(path)
                 path.unlink(missing_ok=True)
+                index_path(path).unlink(missing_ok=True)
 
     def state(self, task_id: str) -> dict:
         with self._lock:
@@ -138,6 +165,14 @@ class TaskManager:
         with self._lock:
             self._jobs[task_id]["cancel"].set()
             return self.state(task_id)
+
+    def result_path(self, task_id: str, *, source: str) -> Path:
+        with self._lock:
+            job=self._jobs[task_id]
+            if job["source"]!=source:raise ValueError("数据源已切换；请重新分析。")
+            if job["status"]!="completed":raise ValueError("分析尚未完成。")
+            if not job["path"].exists():raise FileNotFoundError("缓存已清理，请重新分析。")
+            return job["path"]
 
     def close(self):
         self._pool.shutdown(wait=True)

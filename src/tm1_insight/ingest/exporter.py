@@ -39,7 +39,13 @@ class Exporter:
     def _export_one(self, tm1, obj_type: str, name: str, *args) -> tuple[str, bool, str | None]:
         filepath = self.raw_dir / obj_type / f"{safe_filename(name)}.json"
         if self.settings.tm1_skip_existing and filepath.exists():
-            return name, True, "skipped"
+            if obj_type!="cubes":return name, True, "skipped"
+            try:
+                existing=json.loads(filepath.read_text(encoding="utf-8"))
+                if existing.get("rules_status")=="available":return name,True,"skipped"
+            except (OSError,ValueError):pass
+            # Legacy files without collection status cannot prove absent rules.
+            # Re-fetch only when the user explicitly runs collection again.
 
         fetch: Callable = {
             "cubes": self.client.fetch_cube,

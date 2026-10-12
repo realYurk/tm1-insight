@@ -100,52 +100,54 @@ class TM1Client:
             info["chores"] = len(tm1.chores.get_all_names())
             return info
 
-    # ---- 规则（四级回退） ----
+    # ---- Read-only rule collection, preserving unavailable vs empty ----
     @staticmethod
-    def get_cube_rules(tm1: TM1Service, cube_name: str) -> str:
-        # 1) 最可靠：Cube 对象上的 rules 属性（TM1py 的 tm1.cubes.get() 返回带 .rules 的 Cube）
-        try:
-            cube = tm1.cubes.get(cube_name)
-            rules = safe_getattr(cube, "rules", None)
-            if rules is not None:
-                text = safe_getattr(rules, "text", None)
-                if text:
-                    return text
-        except Exception:
-            pass
-        # 2) 显式的 get_rules 方法（部分版本存在）
-        if hasattr(tm1.cubes, "get_rules"):
-            try:
-                rules = tm1.cubes.get_rules(cube_name)
-                return rules.text if rules and hasattr(rules, "text") else ""
-            except Exception:
-                pass
-        # 3) 子服务 rules.get
-        if hasattr(tm1.cubes, "rules") and hasattr(tm1.cubes.rules, "get"):
-            try:
-                rules = tm1.cubes.rules.get(cube_name)
-                return rules.text if rules and hasattr(rules, "text") else ""
-            except Exception:
-                pass
-        # 4) 直接 REST（注意 TM1py 用 _rest.GET，不是 .get）
-        try:
-            url = f"/Cubes('{cube_name}')/Rules"
-            response = tm1._rest.GET(url)
-            data = response.json()
-            return (data.get("value") or {}).get("Text", "") or ""
-        except Exception:
-            return ""
+    def _rule_text(value,depth=0):
+        if depth>4:return None
+        if isinstance(value,str):return value
+        if value is None:return ""
+        if isinstance(value,dict):
+            for key in ("Rules","rules","Text","text","value"):
+                if key in value:return TM1Client._rule_text(value[key],depth+1)
+            return None
+        text=getattr(value,"text",None)
+        return text if isinstance(text,str) else None
 
-    # ---- 单对象读取（返回标准化 dict，不落盘） ----
-    def fetch_cube(self, tm1: TM1Service, name: str) -> dict:
-        dims = tm1.cubes.get_dimension_names(name)
-        rules_text = self.get_cube_rules(tm1, name)
-        return {
-            "name": name,
-            "dimensions": list(dims),
-            "rules": rules_text,
-            "has_rules": bool(rules_text.strip()),
-        }
+    @staticmethod
+    def read_cube_rules(tm1,cube_name):
+        sentinel=object()
+        try:
+            cube=tm1.cubes.get(cube_name)
+            value=safe_getattr(cube,"rules",sentinel)
+            if value is sentinel:value=safe_getattr(cube,"Rules",sentinel)
+            if value is not sentinel:
+                text=TM1Client._rule_text(value)
+                if text is not None:return text,"available"
+        except Exception:pass
+        for getter in (getattr(tm1.cubes,"get_rules",None),getattr(getattr(tm1.cubes,"rules",None),"get",None)):
+            if callable(getter):
+                try:
+                    text=TM1Client._rule_text(getter(cube_name))
+                    if text is not None:return text,"available"
+                except Exception:pass
+        try:
+            escaped=cube_name.replace("'","''")
+            data=tm1._rest.GET(f"/Cubes('{escaped}')?$select=Rules").json()
+            text=TM1Client._rule_text(data)
+            if text is not None:return text,"available"
+        except Exception:pass
+        return "","unavailable"
+
+    @staticmethod
+    def get_cube_rules(tm1,cube_name):
+        # Backward-compatible text API. New collection also records status.
+        return TM1Client.read_cube_rules(tm1,cube_name)[0]
+
+    def fetch_cube(self,tm1,name):
+        dims=tm1.cubes.get_dimension_names(name)
+        text,status=self.read_cube_rules(tm1,name)
+        return {"name":name,"dimensions":list(dims),"rules":text,
+                "has_rules":bool(text.strip()),"rules_status":status}
 
     def fetch_process(self, tm1: TM1Service, name: str) -> dict:
         p = tm1.processes.get(name)

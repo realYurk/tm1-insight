@@ -30,6 +30,8 @@
       if (id !== serial) return;
       total=report.total; el('study-output').hidden=false;
       const s=report.summary; el('study-summary').textContent=`范围 ${report.query} · ${s.processes} 个 TI · ${s.cubes} 个 Cube · ${s.dimensions} 个维度 · ${s.chapters_with_evidence} 类设计信号 · ${s.review_items} 项待复查`;
+      const coverage=report.coverage;el('study-coverage').replaceChildren();node('p',coverage.meaning,el('study-coverage'));node('p',`本范围分析 ${coverage.analyzed_processes} 个 TI；未解释的 Rule/Feeder ${coverage.rules_uninterpreted} 个；仅盘点的维度 ${coverage.dimensions_inventory_only} 个；运行结果验证 0 个。`,el('study-coverage'));const statusNames={resolved:'已绑定目录对象',parameter:'依赖运行参数',unresolved:'动态或未知表达式',missing_object:'常量不在目录',structure_unknown:'控制结构无法确认'};node('p',Object.entries(coverage.object_reference_counts).map(([key,value])=>`${statusNames[key] || key} ${value}`).join(' · '),el('study-coverage'));
+      (coverage.source_gaps || []).forEach(text=>node('p',text,el('study-coverage')).className='err');
       el('study-sop').replaceChildren(); report.sop.forEach(value => node('li',value,el('study-sop')));
       el('study-limits').replaceChildren(); report.limitations.forEach(value => node('li',value,el('study-limits')));
       document.querySelectorAll('[data-study]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.study===section)));
@@ -49,10 +51,24 @@
           references(card,'读取来源',item.reads,'cube'); references(card,'写入目标',item.writes,'cube'); references(card,'调用步骤',item.calls,'process'); references(card,'谁调用它',item.called_by,'process');
           item.formulas.forEach(formula => node('pre',`${formula.section}:${formula.line} ${formula.variable} = ${formula.expression}`,card).className='code study-formula');
           Object.entries(item.patterns).forEach(([kind,events])=>{node('strong',patternNames[kind] || kind,card);position(card,events);});
+          const ir=item.understanding;node('p',`结构解释：${ir.statements} 条语句 · ${ir.reference_total} 个对象引用。条件未求值，完整记录可下载。`,card);
+          ir.references.forEach(ref=>node('p',`${ref.section}:${ref.line} ${ref.operation} → ${ref.target || ref.expression || '未知'}（${statusNames[ref.status] || ref.status}）`,card).className='muted small');
+          const actions=node('div','',card);actions.className='study-actions';
+          const save=node('button','保存为经验候选',actions);save.className='btn ghost';save.addEventListener('click',async()=>{save.disabled=true;save.textContent='正在保存…';try{const value=await(await request('/api/experience/cards',{task_id:task,process:item.process})).json();save.textContent='候选已保存';link(actions,'填写业务含义与验证记录','/experience?card='+encodeURIComponent(value.id));}catch(e){error(e.message);save.disabled=false;save.textContent='保存为经验候选';}});
+          const contract=node('button','下载迁移准备说明',actions);contract.className='btn ghost';contract.addEventListener('click',async()=>{contract.disabled=true;try{const response=await request(`/api/learning/tasks/${task}/contract?process=${encodeURIComponent(item.process)}`);const url=URL.createObjectURL(await response.blob());const a=node('a','');a.href=url;a.download='migration-contract.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){error(e.message);}finally{contract.disabled=false;}});
+
         } else if (section==='cubes') {
           const title=node('h3','',card); link(title,item.cube,'/explorer/cube/'+encodeURIComponent(item.cube)); node('p','观察位置：'+item.position,card); node('p','维度：'+item.dimensions.join(' → '),card); references(card,'读取它的 TI',item.readers,'process');references(card,'写入它的 TI',item.writers,'process');
         } else if(section==='findings') {
           node('h3',item.title+' · 待验证',card);process(card,item.process);node('p',item.detail,card);position(card,item.evidence);
+        } else if(section==='dimensions') {
+          node('h3',item.dimension,card);node('p',`目录声明元素 ${item.declared_elements ?? '未知'} 个；仅完成字段盘点。`,card);node('p',item.note,card);
+        } else if(section==='rules') {
+          link(card,item.cube,'/explorer/cube/'+encodeURIComponent(item.cube));node('p',`规则文本 ${item.characters} 字符。${item.note}`,card);
+        } else if(section==='chores') {
+          link(card,item.chore,'/explorer/chore/'+encodeURIComponent(item.chore));references(card,'调度成员',item.processes,'process');node('p',item.note,card);
+        } else if(section==='coupling') {
+          node('h3',item.kind==='call_cycle'?'调用关系形成闭环':'多个 TI 写同一 Cube',card);if(item.cube)link(card,item.cube,'/explorer/cube/'+encodeURIComponent(item.cube));references(card,'相关 TI',item.processes,'process');node('p',item.reason,card);
         } else {
           node('h3',`${item.processes.length} 个 TI 具有相同的去常量词法结构`,card);node('p',item.reason,card);item.processes.slice(0,10).forEach(name=>{process(card,name);node('br','',card);});
         }

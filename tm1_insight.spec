@@ -27,6 +27,8 @@ hiddenimports = [
     "tm1_insight.datasource",
     "tm1_insight.api",
     "tm1_insight.api.app",
+    "tm1_insight.api.experience",
+    "tm1_insight.learning.worker",
     "tm1_insight.store",
     "tm1_insight.store.db",
     "tm1_insight.store.queries",
@@ -46,7 +48,7 @@ hiddenimports = [
 # 报 "DLL load failed"）。conda 的 DLL 命名不规范（libssl-3-x64.dll 而非 libssl.dll），
 # PyInstaller 按标准名找不到，因此这里显式打包 Library/bin/ 里的全部运行时 DLL。
 # 注意 sys.executable 的 dirname 只取一层（conda 的 python.exe 就在 anaconda/ 根，无 bin 中间层）。
-_conda_root = os.path.dirname(sys.executable)  # .../anaconda
+_conda_root = sys.base_prefix  # Works for an isolated venv on a conda Python.
 _library_bin = os.path.join(_conda_root, "Library", "bin")
 
 # 需要打包的 DLL（覆盖 Python 标准库扩展 + 第三方 C 库的运行时依赖）
@@ -102,6 +104,9 @@ a = Analysis(
     noarchive=False,
 )
 
+# Dependency hooks may collect upstream fixtures even when test modules are
+# excluded. Filter them from the program manifest before COLLECT.
+a.datas = [entry for entry in a.datas if not any(part.lower() in {"tests", "testing"} for part in Path(entry[0]).parts)]
 pyz = PYZ(a.pure)
 
 exe = EXE(
