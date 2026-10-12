@@ -180,6 +180,27 @@ def web(
     uvicorn.run("tm1_insight.api.app:app", host=settings.web_host, port=port)
 
 
+@app.command()
+def study(query: str = typer.Option("*", "--query", help="功能关键词；* 为整模型"),
+          output: Path = typer.Option(None, "--output", help="本地私有教材输出目录")) -> None:
+    """只读分析当前本地模型，生成无需 AI 的学习手册和业务地图。"""
+    import json
+    from tm1_insight.learning.engine import build_report, markdown
+    settings = get_settings()
+    if not settings.db_path.exists():
+        raise typer.BadParameter("未找到当前本地模型，请先在设置中选择数据库。")
+    destination = output or settings.user_data_root / "cache" / "learning"
+    destination.mkdir(parents=True, exist_ok=True)
+    con = Store(settings).connect(read_only=True)
+    try: report = build_report(con, query)
+    finally: con.close()
+    (destination / "study.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    path = destination / "READ_ME_FIRST.md"
+    path.write_text(markdown(report), encoding="utf-8")
+    typer.echo(f"私有学习手册已保存：{path}")
+    typer.echo("结果含模型知识，仅供本地使用，禁止发布到公共空间。")
+
+
 def main() -> None:
     app()
 

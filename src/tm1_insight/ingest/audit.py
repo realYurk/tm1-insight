@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import tempfile
+import zipfile
 from pathlib import Path
 
 from tm1_insight.config import Settings
@@ -245,7 +246,7 @@ def _split_excel_args(s: str) -> list[str]:
     return args
 
 
-def _scan_excel(path: str, whitelist: set[str]) -> tuple[int, bool, set[str]]:
+def _scan_excel(path: str, whitelist: set[str], temporary_dir: Path | None = None) -> tuple[int, bool, set[str]]:
     """扫描 Excel：返回 (公式数, 是否含 TM1, 命中的 Cube 集合)。"""
     f_count = 0
     has_tm1 = False
@@ -290,14 +291,17 @@ def _scan_excel(path: str, whitelist: set[str]) -> tuple[int, bool, set[str]]:
     try:
         process(path)
     except (PermissionError, OSError):
+        tmp_path = None
         try:
-            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            if temporary_dir: temporary_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", dir=temporary_dir, delete=False) as tmp:
                 shutil.copy2(path, tmp.name)
                 tmp_path = tmp.name
             process(tmp_path)
-            os.unlink(tmp_path)
         except Exception:  # noqa: BLE001
             pass
+        finally:
+            if tmp_path: Path(tmp_path).unlink(missing_ok=True)
     except Exception as e:  # noqa: BLE001
         logger.debug("扫描 Excel 失败 %s: %s", path, e)
     return f_count, has_tm1, found
@@ -323,7 +327,7 @@ def _save_scan_cache(settings: Settings, cache: dict) -> None:
         pass
 
 
-def _scan_excel_cached(path: str, whitelist: set[str], cache: dict) -> tuple[int, bool, set[str]]:
+def _scan_excel_cached(path: str, whitelist: set[str], cache: dict, temporary_dir: Path | None = None) -> tuple[int, bool, set[str]]:
     """扫描 Excel，带缓存：若文件 (mtime, size) 未变，直接复用上次结果。"""
     try:
         st = os.stat(path)
@@ -334,7 +338,7 @@ def _scan_excel_cached(path: str, whitelist: set[str], cache: dict) -> tuple[int
             return int(r[0]), bool(r[1]), set(r[2])
     except OSError:
         pass
-    cnt, has_tm1, found = _scan_excel(path, whitelist)
+    cnt, has_tm1, found = _scan_excel(path, whitelist, temporary_dir)
     try:
         st = os.stat(path)
         cache[str(path)] = {
@@ -347,7 +351,7 @@ def _scan_excel_cached(path: str, whitelist: set[str], cache: dict) -> tuple[int
     return cnt, has_tm1, found
 
 
-def scan_audit(settings: Settings, progress: callable | None = None) -> dict:
+def scan_audit(settings: Settings, progress: callable | None = None, replace: bool = False) -> dict:
     """扫描前端资产并写入 excel_assets / front_backend_mapping。返回行数统计。
 
     progress(phase: str, done: int, total: int) 可选回调，用于前端进度反馈。
@@ -359,7 +363,8 @@ def scan_audit(settings: Settings, progress: callable | None = None) -> dict:
 
     con = store.connect(read_only=True)
     try:
-        whitelist = {r[0].strip().upper() for r in con.execute("SELECT name FROM cubes").fetchall()}
+        canonical = {r[0].strip().upper():r[0] for r in con.execute("SELECT name FROM cubes").fetchall()}
+        whitelist = set(canonical)
     finally:
         con.close()
 
@@ -385,21 +390,21 @@ def scan_audit(settings: Settings, progress: callable | None = None) -> dict:
 
         if lower.endswith(".view"):
             assets.append((menu, file, "Native View", "低", "Direct", str(full), True, 0))
-        elif lower.endswith((".xlsx", ".xlsm")) and full.stat().st_size > 10240:
-            cnt, has_tm1, found = _scan_excel_cached(str(full), whitelist, cache)
+        elif lower.endswith((".xlsx", ".xlsm")) and zipfile.is_zipfile(full):
+            cnt, has_tm1, found = _scan_excel_cached(str(full), whitelist, cache, settings.data_dir / "tmp")
             assets.append((menu, file, "Excel Direct", _risk(has_tm1), "Direct File", str(full), has_tm1, cnt))
             if found:
-                mappings.append((menu, file, ", ".join(sorted(found)), len(found)))
+                mappings.append((menu, file, ", ".join(sorted(canonical[c] for c in found if c in canonical)), len(found)))
         else:
             target = _target_from_blob(full)
             if target:
                 clean = _normalize_name(target)
                 real = ext_index.get(clean) or ext_index.get(_normalize_name(file))
                 if real:
-                    cnt, has_tm1, found = _scan_excel_cached(real, whitelist, cache)
+                    cnt, has_tm1, found = _scan_excel_cached(real, whitelist, cache, settings.data_dir / "tmp")
                     assets.append((menu, file, "Excel Link", _risk(has_tm1), "Linked OK", real, has_tm1, cnt))
                     if found:
-                        mappings.append((menu, file, ", ".join(sorted(found)), len(found)))
+                        mappings.append((menu, file, ", ".join(sorted(canonical[c] for c in found if c in canonical)), len(found)))
                 else:
                     assets.append((menu, file, "Broken Link", "高", f"Missing: {clean}", "", False, 0))
             else:
@@ -412,10 +417,18 @@ def scan_audit(settings: Settings, progress: callable | None = None) -> dict:
 
     con = store.connect()
     try:
+        con.execute("BEGIN TRANSACTION")
+        if replace:
+            con.execute("DELETE FROM excel_assets")
+            con.execute("DELETE FROM front_backend_mapping")
         if assets:
             con.executemany("INSERT INTO excel_assets VALUES (?,?,?,?,?,?,?,?)", assets)
         if mappings:
             con.executemany("INSERT INTO front_backend_mapping VALUES (?,?,?,?)", mappings)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
     finally:
         con.close()
 
@@ -431,12 +444,5 @@ def _risk(has_tm1: bool) -> str:
 
 
 def load_audit(settings: Settings, drop: bool = True, progress: callable | None = None) -> dict:
-    """入口：清空审计表后重新扫描入库。"""
-    store = Store(settings)
-    con = store.connect()
-    try:
-        for t in ("excel_assets", "front_backend_mapping"):
-            con.execute(f"DELETE FROM {t}")
-    finally:
-        con.close()
-    return scan_audit(settings, progress=progress)
+    """扫描成功后在事务中替换结果；失败保留上一次完整结果。"""
+    return scan_audit(settings, progress=progress, replace=drop)

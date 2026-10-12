@@ -28,6 +28,7 @@ from tm1_insight.store.db import Store
 from tm1_insight.store import queries
 from tm1_insight.store.graph_adapter import dependencies_from_store
 from tm1_insight.api.knowledge_tasks import router as knowledge_router
+from tm1_insight.api.learning import router as learning_router
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ templates.env.filters["hash_color"] = _hash_color
 app = FastAPI(title="TM1 Insight", version=__version__)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.include_router(knowledge_router)
+app.include_router(learning_router)
 
 
 # ---- 全局异常处理：任何未捕获异常都返回友好错误页，而非白屏 500 ----
@@ -153,7 +155,7 @@ def _ensure_demo_available() -> None:
     ensure_demo_if_empty()
 
 
-def _run_audit() -> None:
+def _run_audit(settings=None) -> None:
     global _audit_state
     try:
         from tm1_insight.ingest.audit import load_audit
@@ -162,13 +164,15 @@ def _run_audit() -> None:
             with _audit_lock:
                 _audit_state["progress"] = {"phase": phase, "done": done, "total": total}
 
-        stats = load_audit(get_settings(), progress=progress)
+        from tm1_insight.audit_workspace import workspace
+        scan_settings = workspace(settings or get_settings().model_copy(), initialize=True)
+        stats = load_audit(scan_settings, progress=progress)
         with _audit_lock:
             _audit_state.update({"running": False, "done": True, "error": None, "stats": stats})
     except Exception as e:  # noqa: BLE001
-        logger.exception("audit 扫描失败")
+        logger.error("本地前端扫描失败：%s", type(e).__name__)
         with _audit_lock:
-            _audit_state.update({"running": False, "done": True, "error": str(e), "stats": None})
+            _audit_state.update({"running": False, "done": True, "error": "扫描失败，请检查文件格式、权限和缓存目录空间。", "stats": None})
 
 
 def _coerce_creds(raw: dict) -> dict:
@@ -725,6 +729,11 @@ def api_codegen_dimension_maintain(body: dict = Body(...)) -> dict:
 @app.get("/audit", response_class=HTMLResponse)
 def audit(request: Request):
     store = _store()
+    from tm1_insight.audit_workspace import workspace, preferences
+    settings = get_settings()
+    local = workspace(settings)
+    if local.db_path.exists():
+        store = Store(local)
     con = store.connect(read_only=True)
     try:
         assets = queries.list_audit_assets(con)
@@ -747,8 +756,9 @@ def audit(request: Request):
         "assets": assets,
         "mappings": mappings,
         "summary": summary,
-        "applications_dir": str(settings.input_applications_dir),
-        "externals_dir": str(settings.input_externals_dir),
+        "applications_dir": preferences(settings)["applications"],
+        "externals_dir": preferences(settings)["externals"],
+        "audit_work_dir": preferences(settings)["work_dir"],
     })
 
 
@@ -1028,14 +1038,38 @@ def api_ingest_status() -> dict:
         return dict(_ingest_state)
 
 
+@app.get("/api/audit/config")
+def api_audit_config():
+    from tm1_insight.audit_workspace import preferences
+    return preferences(get_settings())
+
+
+@app.post("/api/audit/config")
+def api_save_audit_config(body: dict = Body(...)):
+    from tm1_insight.audit_workspace import save_preferences
+    with _audit_lock:
+        if _audit_state.get("running"):
+            return JSONResponse({"error":"扫描进行中，请完成后修改路径。"}, status_code=409)
+        try: return save_preferences(get_settings(), body)
+        except (ValueError, OSError):
+            return JSONResponse({"error":"路径无效：来源必须是可读目录；缓存目录必须可写。支持任意盘符的绝对路径。"}, status_code=400)
+
+
 @app.post("/api/audit")
-def api_audit() -> dict:
+def api_audit(body: Optional[dict] = Body(default=None)) -> dict:
     """触发前端 Excel 资产扫描（本地，异步后台执行，通过 /api/audit/status 轮询进度）。"""
     with _audit_lock:
         if _audit_state.get("running"):
             return JSONResponse({"error": "已有扫描任务在运行"}, status_code=409)
-        _audit_state.update({"running": True, "done": False, "error": None, "stats": None, "progress": {"phase": "准备中", "done": 0, "total": 0}})
-    thread = threading.Thread(target=_run_audit, daemon=True)
+        from tm1_insight.audit_workspace import save_preferences, preferences
+        from tm1_insight.api.knowledge_tasks import fingerprint
+        settings = get_settings().model_copy()
+        try:
+            save_preferences(settings, body or preferences(settings))
+        except (ValueError, OSError):
+            return JSONResponse({"error":"请指定存在的扫描目录和可写缓存目录；外部仓库可以留空。"}, status_code=400)
+        _audit_state.update({"running": True, "done": False, "error": None, "stats": None, "source":fingerprint(settings), "progress": {"phase": "准备中", "done": 0, "total": 0}})
+    thread = threading.Thread(target=_run_audit, args=(settings,), daemon=True)
     thread.start()
     return {"started": True}
 
@@ -1043,4 +1077,7 @@ def api_audit() -> dict:
 @app.get("/api/audit/status")
 def api_audit_status() -> dict:
     with _audit_lock:
+        from tm1_insight.api.knowledge_tasks import fingerprint
+        if _audit_state.get("source") and _audit_state["source"] != fingerprint():
+            return JSONResponse({"error":"数据源已切换，旧扫描结果仅保存在原模型的独立工作区。"}, status_code=409)
         return dict(_audit_state)

@@ -11,10 +11,19 @@
 <div class="page-head">
   <div>
     <h1 class="page-title">代码生成</h1>
-    <p class="page-sub">完整复刻标准 TI 框架：Header + Initialize Logging + Declare Constants + ZeroOut + Create DataSource，粘贴即用</p>
+    <p class="page-sub">从设计方法选择教材骨架，或按模型维度生成 TI 草稿；配置并验证后使用</p>
   </div>
 </div>
 
+<section class="card" id="teaching-templates">
+  <h2>可复用的设计方法 · 教材模板</h2>
+  <p>先在<a href="/learn">读懂业务</a>查看本地项目中的匹配证据，再选择同类方法。这里提供通用骨架，不复制客户源码。</p>
+  <div class="knowledge-query"><label>选择设计方法<select id="teaching-pattern" class="input" aria-label="选择设计方法"></select></label><button class="btn primary" id="teaching-generate">生成教材骨架</button></div>
+  <p id="teaching-status" role="status" aria-live="polite"></p>
+  <div id="teaching-output" hidden><p id="teaching-instructions" class="knowledge-disclaimer"></p><ul id="teaching-checks"></ul><button class="btn ghost" id="teaching-copy">复制骨架</button><button class="btn ghost" id="teaching-download">下载文本</button><pre class="code study-formula" id="teaching-code"></pre></div>
+</section>
+
+<p id="cg-action-status" role="status" aria-live="polite"></p>
 <!-- 全局命名空间：日志前缀，四个 Tab 共享 -->
 <div class="card cg-global">
   <div class="cg-global-head">
@@ -43,7 +52,7 @@
   <div class="card">
     <h2>环境初始化 · 日志框架 + Settings 参数 cube</h2>
     <p class="muted small">生成一套完整初始化代码：第一次跑自动建好日志维度元素 + 日志 cube + <code>Settings 参数 cube</code>（含 159 个标准参数，如 <code>ODBC Datasource</code>、<code>Std Datasource View Prefix</code>、<code>pDelim</code> 等）。之后每个 TI 的 <code>CellGetS(cCubParam, ...)</code> 都能取到参数。</p>
-    <p class="muted small" style="margin-top:6px;"><strong>解决「写不进去」</strong>：自动带 <code>DimIx</code> 检查，元素不存在就自动插入，新环境一跑什么都不用管。</p>
+    <p class="muted small" style="margin-top:6px;"><strong>解决「写不进去」</strong>：自动带 <code>DimIx</code> 检查，元素不存在就自动插入，会创建或修改模型对象，请先检查名称、权限和年份范围，再在隔离模型验证。</p>
 
     <div class="cg-form">
       <label>预置年份范围（起）
@@ -270,12 +279,13 @@ document.querySelectorAll('.cg-copy').forEach(btn => {
 
 // ============ 维度筛选 UI ============
 // 渲染一个 cube 的维度筛选列表，每个维度：勾选 + 值输入框
+function escapeCodegenHTML(value) { const span = document.createElement('span'); span.textContent = value; return span.innerHTML.replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
 function renderFilterList(containerId, dims) {
   const el = document.getElementById(containerId);
   el.innerHTML = dims.map((d, i) => `
-    <div class="cg-filter-row" data-dim="${d}" data-idx="${i}">
+    <div class="cg-filter-row" data-dim="${escapeCodegenHTML(d)}" data-idx="${i}">
       <label class="cg-filter-check">
-        <input type="checkbox" data-role="use"> <span class="cg-filter-dim">${d}</span>
+        <input type="checkbox" data-role="use"> <span class="cg-filter-dim">${escapeCodegenHTML(d)}</span>
       </label>
       <input type="text" class="cg-filter-val" data-role="val" placeholder="留空=入参 或 填固定值" disabled>
     </div>
@@ -331,7 +341,7 @@ async function genLoggingInit() {
   const prefix = getGlobalPrefix();
   const year_start = document.getElementById('env-year-start').value;
   const year_end = document.getElementById('env-year-end').value;
-  const j = await (await fetch('/api/codegen/logging-init', {
+  const j = await (await requestCodegen('/api/codegen/logging-init', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prefix, year_start, year_end }),
   })).json();
@@ -344,12 +354,12 @@ async function genLoggingInit() {
 async function loadTransferDims() {
   const src = document.getElementById('tr-src').value.trim();
   const tgt = document.getElementById('tr-tgt').value.trim();
-  if (!src || !tgt) { alert('请先填写源 cube 和目标 cube'); return; }
+  if (!src || !tgt) { throw new Error('请先填写源 cube 和目标 cube'); }
   const [sj, tj] = await Promise.all([
-    (await fetch('/api/codegen/cube-dims', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ cube: src }) })).json(),
-    (await fetch('/api/codegen/cube-dims', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ cube: tgt }) })).json(),
+    (await requestCodegen('/api/codegen/cube-dims', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ cube: src }) })).json(),
+    (await requestCodegen('/api/codegen/cube-dims', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ cube: tgt }) })).json(),
   ]);
-  if (sj.error || tj.error) { alert(sj.error || tj.error); return; }
+  if (sj.error || tj.error) { throw new Error(sj.error || tj.error); }
   renderFilterList('tr-src-filters', sj.dims);
   renderFilterList('tr-tgt-filters', tj.dims);
   document.getElementById('tr-filter-card').hidden = false;
@@ -360,20 +370,20 @@ async function genDataTransfer() {
   const tgt_cube = document.getElementById('tr-tgt').value.trim();
   const prefix = getGlobalPrefix();
   const operation = document.getElementById('tr-op').value;
-  if (!src_cube || !tgt_cube) { alert('请填写源 cube 和目标 cube'); return; }
+  if (!src_cube || !tgt_cube) { throw new Error('请填写源 cube 和目标 cube'); }
   const src_filters = readFilters('tr-src-filters');
   const tgt_filters = readFilters('tr-tgt-filters');
   const params = deriveParams('tr-src-filters');
-  const j = await (await fetch('/api/codegen/data-transfer', {
+  const j = await (await requestCodegen('/api/codegen/data-transfer', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ src_cube, tgt_cube, prefix, src_filters, tgt_filters, params, operation }),
   })).json();
-  if (j.error) { alert(j.error); return; }
+  if (j.error) { throw new Error(j.error); }
   genState.tr = { prolog: j.prolog, metadata: j.metadata, data: j.data, epilog: j.epilog };
   // 渲染维度对齐说明
   const mapEl = document.getElementById('tr-mapping');
   mapEl.innerHTML = '<div class="cg-map-title">维度对齐（源 → 目标）</div>' +
-    j.mapping.map(m => `<span class="cg-map-item ${m.auto ? 'auto' : 'todo'}">${m.tgt_dim}${m.auto ? ' ✓自动' : ' ⚠留空'}</span>`).join('');
+    j.mapping.map(m => `<span class="cg-map-item ${m.auto ? 'auto' : 'todo'}">${escapeCodegenHTML(m.tgt_dim)}${m.auto ? ' ✓自动' : ' ⚠留空'}</span>`).join('');
   showOutput('tr-output', 'tr');
   bindOutputSegs('tr-output', 'tr-code', 'tr');
 }
@@ -394,7 +404,7 @@ const suggestData = { cubes: {{ cubes | tojson }}, dims: [] };
 
 async function loadDimList() {
   try {
-    const j = await (await fetch('/api/codegen/dim-list')).json();
+    const j = await (await requestCodegen('/api/codegen/dim-list')).json();
     suggestData.dims = j.dims || [];
   } catch (e) {}
 }
@@ -419,7 +429,7 @@ function initSuggest(input) {
       box.innerHTML = '<div class="cg-suggest-empty">无匹配项</div>';
     } else {
       box.innerHTML = items.map((s, i) =>
-        `<div class="cg-suggest-item${i === hl ? ' hl' : ''}" data-i="${i}">${s}</div>`).join('');
+        `<div class="cg-suggest-item${i === hl ? ' hl' : ''}" data-i="${i}">${escapeCodegenHTML(s)}</div>`).join('');
     }
     box.classList.add('open');
   }
@@ -449,12 +459,12 @@ document.querySelectorAll('input[data-suggest]').forEach(initSuggest);
 async function genDataExport() {
   const src_cube = document.getElementById('ex-src').value.trim();
   const prefix = getGlobalPrefix();
-  if (!src_cube) { alert('请填写源 cube'); return; }
-  const j = await (await fetch('/api/codegen/data-export', {
+  if (!src_cube) { throw new Error('请填写源 cube'); }
+  const j = await (await requestCodegen('/api/codegen/data-export', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ src_cube, prefix }),
   })).json();
-  if (j.error) { alert(j.error); return; }
+  if (j.error) { throw new Error(j.error); }
   genState.ex = { prolog: j.prolog, metadata: j.metadata, data: j.data, epilog: j.epilog };
   showOutput('ex-output', 'ex');
   bindOutputSegs('ex-output', 'ex-code', 'ex');
@@ -463,12 +473,12 @@ async function genDataExport() {
 async function genDataExportDim() {
   const dim = document.getElementById('ex-dim').value.trim();
   const prefix = getGlobalPrefix();
-  if (!dim) { alert('请填写维度名'); return; }
-  const j = await (await fetch('/api/codegen/data-export-dim', {
+  if (!dim) { throw new Error('请填写维度名'); }
+  const j = await (await requestCodegen('/api/codegen/data-export-dim', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dim, prefix }),
   })).json();
-  if (j.error) { alert(j.error); return; }
+  if (j.error) { throw new Error(j.error); }
   genState.ex = { prolog: j.prolog, metadata: j.metadata, data: j.data, epilog: j.epilog };
   showOutput('ex-output', 'ex');
   bindOutputSegs('ex-output', 'ex-code', 'ex');
@@ -478,8 +488,8 @@ async function genDataExportDim() {
 async function genDimMaintain() {
   const dim = document.getElementById('dm-dim').value.trim();
   const prefix = getGlobalPrefix();
-  if (!dim) { alert('请填写维度名'); return; }
-  const j = await (await fetch('/api/codegen/dimension-maintain', {
+  if (!dim) { throw new Error('请填写维度名'); }
+  const j = await (await requestCodegen('/api/codegen/dimension-maintain', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dim, prefix }),
   })).json();
@@ -488,4 +498,28 @@ async function genDimMaintain() {
   bindOutputSegs('dm-output', 'dm-code', 'dm');
 }
 </script>
+<script>
+async function requestCodegen(url, options) {
+  const response = await fetch(url, options);
+  if (!response.ok) { let error = {}; try { error = await response.json(); } catch (_) {} throw new Error(error.error || '代码生成请求失败，请检查输入'); }
+  return response;
+}
+const pendingCodegen = new Set();
+['genLoggingInit','loadTransferDims','genDataTransfer','genDataExport','genDataExportDim','genDimMaintain'].forEach(name => {
+  const original = window[name]; if (typeof original !== 'function') return;
+  window[name] = async function (...args) {
+    if (pendingCodegen.has(name)) return;
+    pendingCodegen.add(name);
+    const active = document.activeElement;
+    const button = active && active.tagName === 'BUTTON' ? active : null;
+    const status = document.getElementById('cg-action-status');
+    if (button) button.disabled = true;
+    status.textContent = '正在准备代码或模型结构…';
+    try { await original(...args); status.textContent = '已完成。请核对维度、清理范围和运行参数，再在隔离模型验证。'; }
+    catch (error) { status.textContent = error.message || '操作失败，请重试'; }
+    finally { pendingCodegen.delete(name); if(button)button.disabled = false; }
+  };
+});
+</script>
+<script src="/static/teaching.js" defer></script>
 {% endblock %}

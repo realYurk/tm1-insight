@@ -44,9 +44,132 @@ def client(tmp_path, monkeypatch):
 def test_all_pages_no_500_in_demo(client):
     """Demo 兜底后，所有主要页面都应返回 200。"""
     for path in ["/", "/cubes", "/processes", "/dimensions", "/graph",
-                 "/impact", "/compare", "/audit", "/codegen", "/settings"]:
+                 "/impact", "/compare", "/audit", "/codegen", "/settings", "/learn"]:
         r = client.get(path)
         assert r.status_code == 200, f"{path} -> {r.status_code}"
+
+
+def test_learning_job_results_and_templates(client):
+    import io,time,zipfile
+    response=client.post('/api/learning/tasks',json={'query':'Load'})
+    assert response.status_code==202
+    task=response.json()['task_id']
+    deadline=time.monotonic()+5
+    while True:
+        status=client.get('/api/learning/tasks/'+task).json()
+        if status['status'] not in {'queued','running'}:break
+        assert time.monotonic()<deadline
+        time.sleep(.01)
+    assert status['status']=='completed'
+    result=client.get(f'/api/learning/tasks/{task}/result?section=processes&limit=1').json()
+    assert len(result['items'])==1
+    assert result['items'][0]['process']=='Load_Sales'
+    exported=client.post(f'/api/learning/tasks/{task}/export')
+    with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
+        assert 'READ_ME_FIRST.md' in archive.namelist()
+        assert not json.loads(archive.read('study.json'))['privacy']['contains_source']
+    assert len(client.get('/api/learning/templates').json())>=10
+    assert 'nEnableExample = 0' in client.get('/api/learning/templates/proportion').json()['prolog']
+    assert client.get('/api/learning/templates/unknown').status_code==404
+    cached=client.post('/api/learning/tasks',json={'query':'Load'}).json()['task_id']
+    deadline=time.monotonic()+5
+    while client.get('/api/learning/tasks/'+cached).json()['status'] in {'queued','running'}:
+        assert time.monotonic()<deadline
+        time.sleep(.01)
+    assert client.get('/api/learning/tasks/'+cached).json()['cached']
+    from test_datasource import _make_real_db
+    other=_make_real_db(get_settings().user_data_root/'different-model')
+    assert client.post('/api/datasource/use',json={'source':'local','path':str(other)}).status_code==200
+    assert client.get(f'/api/learning/tasks/{task}/result').status_code==409
+
+
+def test_learning_worker_cancellation_cleans_temporary_output(client):
+    from tm1_insight.learning.worker import isolated_report
+    from tm1_insight.tasks import TaskCancelled
+    client.get('/')
+    settings=get_settings()
+    def cancel(**event):raise TaskCancelled()
+    with pytest.raises(TaskCancelled):isolated_report(settings,'*',cancel)
+    assert not list((settings.user_data_root/'cache'/'learning-workers').iterdir())
+
+
+def test_audit_paths_and_sidecar_preserve_source(client,tmp_path):
+    import hashlib,time
+    from openpyxl import Workbook
+    client.get('/')
+    source=Path(client.get('/api/datasource/status').json()['db_path'])
+    before=hashlib.sha256(source.read_bytes()).hexdigest()
+    apps=tmp_path/'separate-drive-apps';apps.mkdir()
+    work=tmp_path/'separate-drive-cache'
+    book=Workbook();book.active['A1']='=DBRW("Sales","Actual","2026")';book.save(apps/'small.xlsx')
+    paths={'applications':str(apps),'externals':'','work_dir':str(work)}
+    assert client.post('/api/audit/config',json=paths).status_code==200
+    assert client.get('/api/audit/config').json()==paths
+    response=client.post('/api/audit',json=paths)
+    assert response.status_code==200
+    deadline=time.monotonic()+5
+    while True:
+        state=client.get('/api/audit/status').json()
+        if not state['running']:break
+        assert time.monotonic()<deadline
+        time.sleep(.01)
+    assert not state['error']
+    assert state['stats']['excel_assets']==1
+    assert list(work.rglob('audit.duckdb'))
+    assert hashlib.sha256(source.read_bytes()).hexdigest()==before
+    assert 'small.xlsx' in client.get('/audit').text
+    assert '/explorer/cube/Sales' in client.get('/audit').text
+    invalid={**paths,'applications':str(tmp_path/'missing')}
+    assert client.post('/api/audit/config',json=invalid).status_code==400
+    assert client.get('/api/audit/config').json()==paths
+
+
+def test_audit_initialization_failure_leaves_no_partial_database(client,tmp_path,monkeypatch):
+    import tm1_insight.audit_workspace as audit
+    client.get('/')
+    settings=get_settings()
+    expected=audit.workspace(settings).db_path
+    original=audit.ALL_TABLES
+    monkeypatch.setattr(audit,'ALL_TABLES',{'invalid':'THIS IS NOT SQL'})
+    with pytest.raises(Exception):
+        audit.workspace(settings,initialize=True)
+    assert not expected.exists()
+    assert not list(expected.parent.glob('audit-init-*'))
+    monkeypatch.setattr(audit,'ALL_TABLES',original)
+    assert audit.workspace(settings,initialize=True).db_path.exists()
+
+
+def test_study_cli_writes_private_report_without_changing_source(client,tmp_path):
+    import hashlib
+    from typer.testing import CliRunner
+    from tm1_insight.cli import app
+    client.get('/')
+    source=get_settings().db_path
+    before=hashlib.sha256(source.read_bytes()).hexdigest()
+    destination=tmp_path/'private-study'
+    result=CliRunner().invoke(app,['study','--query','*','--output',str(destination)])
+    assert result.exit_code==0,result.output
+    assert (destination/'READ_ME_FIRST.md').exists()
+    assert json.loads((destination/'study.json').read_text(encoding='utf-8'))['summary']['processes']==3
+    assert hashlib.sha256(source.read_bytes()).hexdigest()==before
+
+
+def test_web_opens_selected_port_once_and_supports_no_browser(client,monkeypatch):
+    from typer.testing import CliRunner
+    from tm1_insight.cli import app
+    import tm1_insight.portable as portable
+    import uvicorn
+    opened=[]
+    started=[]
+    monkeypatch.setattr(portable,'pick_port',lambda *args:8769)
+    monkeypatch.setattr(portable,'start_browser_thread',lambda port:opened.append(port))
+    monkeypatch.setattr(uvicorn,'run',lambda *args,**kwargs:started.append(kwargs['port']))
+    result=CliRunner().invoke(app,['web'])
+    assert result.exit_code==0,result.output
+    assert opened==[8769] and started==[8769]
+    opened.clear()
+    assert CliRunner().invoke(app,['web','--no-browser']).exit_code==0
+    assert not opened
 
 
 def test_comparison_has_fast_shell_and_honest_sample_count(client):

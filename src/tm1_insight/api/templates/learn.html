@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}读懂业务 · TM1 Insight{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">读懂业务</h1><p class="page-sub">先看链路，再读公式，最后把经验变成可复用的方法</p></div><span class="tag">本机分析 · 无 AI</span></div>
+<section class="card">
+  <h2>从哪个功能开始？</h2>
+  <form id="study-form" class="knowledge-query"><label>功能关键词<input id="study-query" class="input" value="*" required placeholder="如 BP、Allocation、Expense；* 表示整个模型"></label><button class="btn primary" id="study-start">生成学习手册</button></form>
+  <p class="muted small">按名称包含关键词选择范围，再补充直接读写关系与两层下级调用。名称只用于找对象；结论依据代码和目录关系。</p>
+  <p class="knowledge-disclaimer">生成结果含私有模型名称，仅供本机学习。模式候选不代表已验证的最佳实践。软件不会执行任何 TI。</p>
+</section>
+<section class="card" id="study-task" hidden><h2>分析进度</h2><p id="study-status" role="status" aria-live="polite"></p><progress id="study-progress" class="knowledge-progress" aria-label="学习报告进度"></progress><button class="btn ghost" id="study-cancel">取消分析</button></section>
+<section class="card" id="study-output" hidden>
+  <div class="list-toolbar"><h2>你的项目学习手册</h2><button id="study-export" class="btn ghost">下载完整教材 ZIP</button></div>
+  <p id="study-summary"></p><details><summary>六步读懂一个功能：每次分析都可以照着做</summary><ol id="study-sop"></ol></details>
+  <div class="knowledge-tabs" aria-label="学习内容">
+    <button class="btn ghost" data-study="chapters" aria-pressed="true">① 设计方法与练习</button><button class="btn ghost" data-study="cubes" aria-pressed="false">② 输入输出地图</button><button class="btn ghost" data-study="processes" aria-pressed="false">③ 关键 TI 与公式</button><button class="btn ghost" data-study="findings" aria-pressed="false">④ 改进清单</button><button class="btn ghost" data-study="duplicate_groups" aria-pressed="false">⑤ 候选模板族</button>
+  </div>
+  <form id="study-filter-form" class="knowledge-query"><label>在当前分类中查找<input id="study-filter" class="input" placeholder="输入对象名或章节标题"></label><button class="btn ghost">查找</button><button type="button" class="btn ghost" id="study-clear">清除筛选</button></form>
+  <p id="study-pattern" class="muted"></p><div id="study-results" aria-live="polite"></div>
+  <div class="knowledge-pagination"><button class="btn ghost" id="study-previous">上一页</button><span id="study-page"></span><button class="btn ghost" id="study-next">下一页</button></div>
+  <details><summary>分析有哪些边界？</summary><ul id="study-limits"></ul></details>
+</section><p id="study-error" class="err" role="alert" hidden></p>
+{% endblock %}
+{% block scripts %}<script src="/static/learn.js" defer></script>{% endblock %}

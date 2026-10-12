@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 ROOT_FILES = {".gitignore", ".gitattributes", "README.md", "AI_INSTRUCTIONS.md",
-              "pyproject.toml", "requirements.txt", "LICENSE", "MANIFEST.in"}
+              "pyproject.toml", "requirements.txt", "LICENSE", "MANIFEST.in", "start.bat"}
 PUBLIC_ROOTS = {"src", "tests", "scripts", "docs", ".github"}
 TEXT_SUFFIXES = {".py", ".md", ".html", ".css", ".js", ".toml", ".yml", ".yaml", ".txt"}
 PRIVATE_PARTS = {"data", "cache", "imports", "exports", "logs", "release", "dist",

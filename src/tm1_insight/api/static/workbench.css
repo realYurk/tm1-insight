@@ -25,6 +25,12 @@
 .knowledge-tabs [aria-pressed=true] { color: var(--accent-strong); background: var(--accent-soft); border-color: var(--accent); }
 .table-scroll { overflow-x: auto; }
 .knowledge-pagination { margin-top: 16px; }
+.study-item { padding: 20px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.study-item p { margin: 10px 0; }
+.study-item li { margin: 6px 0; }
+.study-formula { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 380px; overflow: auto; }
+#study-filter-form { margin-top: 16px; }
+details summary { cursor: pointer; padding: 12px 0; }
 .knowledge-pagination button:disabled { opacity: .45; cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
