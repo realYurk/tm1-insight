@@ -12,9 +12,11 @@
 <div class="page-head">
   <div>
     <h1 class="page-title">影响分析</h1>
-    <p class="page-sub">给定一个对象，展示它依赖什么（下游）与它被谁依赖（上游），复用 Dependency → Lineage → Impact 引擎</p>
+    <p class="page-sub">检查对象的结构依赖与依赖它的对象，保留每条可达路径</p>
   </div>
 </div>
+
+<p class="knowledge-disclaimer">当前展示结构依赖的可达范围。读写、调用和 Rule 引用的方向各有语义；这些路径不能直接证明单元格数据传播、业务影响或运行时执行顺序。</p>
 
 <div class="card">
   <div class="list-toolbar">
@@ -34,7 +36,7 @@
 <div class="card empty-state">
   <div class="empty-icon">{% include "icons/graph.svg" %}</div>
   <div class="empty-title">输入一个对象名</div>
-  <div class="empty-desc">查看它依赖的对象（Dependencies / 下游）、依赖它的对象（Affected / 上游），以及沿依赖链传递的完整影响路径（path + depth）。</div>
+    <div class="empty-desc">查看它依赖的对象、依赖它的对象，以及每个可达对象的一条最短结构依赖路径。</div>
 </div>
 {% else %}
 
@@ -43,7 +45,7 @@
   <h2>依赖对象（Downstream）<span class="tag">{{ result.downstream|length }}</span></h2>
   {% if result.downstream %}
   <ul class="list">
-    {% for lin in result.downstream %}
+    {% for lin in result.downstream[:100] %}
     <li>
       <a href="/impact?source={{ lin.target|urlencode }}">{{ lin.target }}</a>
       <span class="tag">{{ 'direct' if lin.depth == 1 else 'indirect' }}</span>
@@ -52,6 +54,7 @@
     </li>
     {% endfor %}
   </ul>
+  {% if result.downstream|length > 100 %}<p class="muted small">首屏显示前 100 个对象；可继续选择具体对象缩小范围。</p>{% endif %}
   {% else %}
   <p class="muted small">该对象不依赖任何已确认的对象（无下游依赖）。</p>
   {% endif %}
@@ -59,18 +62,19 @@
 
 <!-- ============ 受影响（上游：谁依赖它） ============ -->
 <div class="card">
-  <h2>受影响对象（Affected / Impact）<span class="tag">{{ result.impacts|length }}</span></h2>
-  {% if result.impacts %}
+  <h2>结构依赖方（潜在受影响范围）<span class="tag">{{ result.upstream|length }}</span></h2>
+  {% if result.upstream %}
   <ul class="list">
-    {% for imp in result.impacts %}
+    {% for imp in result.upstream[:100] %}
     <li>
-      <a href="/impact?source={{ imp.target|urlencode }}">{{ imp.target }}</a>
-      <span class="tag">{{ imp.kind.value }}</span>
+      <a href="/impact?source={{ imp.source|urlencode }}">{{ imp.source }}</a>
+      <span class="tag">{{ 'direct' if imp.depth == 1 else 'indirect' }}</span>
       <span class="tag">depth {{ imp.depth }}</span>
-      <span class="muted small">path: {{ imp.path|join(' → ') }}</span>
+      <span class="muted small">依赖证据链：{{ imp.path|join(' → ') }}</span>
     </li>
     {% endfor %}
   </ul>
+  {% if result.upstream|length > 100 %}<p class="muted small">首屏显示前 100 个对象；可继续选择具体对象缩小范围。</p>{% endif %}
   {% else %}
   <p class="muted small">没有对象依赖它（无上游依赖者）。</p>
   {% endif %}

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 
@@ -80,19 +81,22 @@ except OSError:
 def set_data_dir(path: str | Path | None) -> None:
     """设置数据目录覆盖（切换数据源）。None 表示清除覆盖、回到默认。"""
     global _DATA_DIR_OVERRIDE
-    if path is None or path == "":
-        _DATA_DIR_OVERRIDE = None
+    candidate = Path(path).resolve() if path else None
+    state = _data_dir_state_path()
+    state.parent.mkdir(parents=True, exist_ok=True)
+    if candidate is None:
+        state.unlink(missing_ok=True)
     else:
-        _DATA_DIR_OVERRIDE = Path(path).resolve()
-    try:
-        state = _data_dir_state_path()
-        state.parent.mkdir(parents=True, exist_ok=True)
-        if _DATA_DIR_OVERRIDE is None:
-            state.unlink(missing_ok=True)
-        else:
-            state.write_text(str(_DATA_DIR_OVERRIDE), encoding="utf-8")
-    except OSError:
-        pass
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=state.parent,
+                                         prefix=".source-", suffix=".tmp", delete=False) as stream:
+            stream.write(str(candidate))
+            temporary = Path(stream.name)
+        try:
+            os.replace(temporary, state)
+        finally:
+            temporary.unlink(missing_ok=True)
+    # Only change the live configuration after persistence has succeeded.
+    _DATA_DIR_OVERRIDE = candidate
     get_settings.cache_clear()
 
 
@@ -124,13 +128,14 @@ class Settings(BaseSettings):
 
     # ---- 本地数据目录 ----
     data_dir: Path = Field(default=Path("./data"))
+    database_file: Path | None = None
     input_applications_dir: Path = Field(default=Path("./data/inputs/applications"))
     input_externals_dir: Path = Field(default=Path("./data/inputs/externals"))
     input_process_dir: Path = Field(default=Path("./data/inputs/process"))
     input_rux_dir: Path = Field(default=Path("./data/inputs/rux"))
 
     # ---- Web 服务 ----
-    web_host: str = "0.0.0.0"
+    web_host: str = "127.0.0.1"
     web_port: int = 8000
 
     @model_validator(mode="after")
@@ -146,7 +151,13 @@ class Settings(BaseSettings):
         """
         # 数据目录覆盖优先级最高（用户主动选择的数据目录）
         if _DATA_DIR_OVERRIDE is not None:
-            self.data_dir = _DATA_DIR_OVERRIDE
+            if _DATA_DIR_OVERRIDE.suffix.lower() == ".duckdb":
+                self.database_file = _DATA_DIR_OVERRIDE
+                parent = _DATA_DIR_OVERRIDE.parent
+                self.data_dir = parent.parent if parent.name.lower() == "db" else parent
+            else:
+                self.data_dir = _DATA_DIR_OVERRIDE
+                self.database_file = None
 
         for name in (
             "data_dir",
@@ -175,7 +186,7 @@ class Settings(BaseSettings):
 
     @property
     def db_path(self) -> Path:
-        return self.db_dir / "tm1_insight.duckdb"
+        return self.database_file or self.db_dir / "tm1_insight.duckdb"
 
     @property
     def project_root(self) -> Path:

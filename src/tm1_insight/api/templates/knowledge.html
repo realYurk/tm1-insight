@@ -1,12 +1,59 @@
 {% extends "base.html" %}
-{% block title %}Knowledge · TM1 Insight{% endblock %}
+{% block title %}知识提炼 · TM1 Insight{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1 class="page-title">TM1 Knowledge Extraction</h1><p class="page-sub">基于本地元数据提取对象事实、可观察行为和模式候选</p></div></div>
-<div class="card"><label>Prefix / Keyword <input id="prefix" class="input" placeholder="BP 或 BP*"></label> <button class="btn ghost" onclick="scopePreview()">Scope Preview</button> <button class="btn primary" onclick="analyze()">Analyze</button> <button class="btn ghost" onclick="downloadPackage()">Export Knowledge ZIP</button><div id="progress" class="muted" style="margin-top:12px"></div><pre id="result" style="white-space:pre-wrap;overflow:auto"></pre></div>
+<div class="page-head"><div>
+  <h1 class="page-title">知识提炼</h1>
+  <p class="page-sub">将模型关系与代码证据整理成可复查的本地知识包</p>
+</div><span class="tag">离线分析 · 无 AI</span></div>
+
+<section class="card" aria-labelledby="scope-title">
+  <h2 id="scope-title">选择功能范围</h2>
+  <form id="knowledge-form">
+    <div class="knowledge-query">
+      <label for="knowledge-query">前缀或关键词
+        <input id="knowledge-query" class="input" placeholder="例如 BP；使用 * 选择全部对象" required autocomplete="off">
+      </label>
+      <label for="knowledge-mode">匹配方式
+        <select id="knowledge-mode"><option value="prefix">名称前缀</option><option value="keyword">名称包含关键词</option></select>
+      </label>
+      <button type="button" id="knowledge-preview" class="btn ghost">预览范围</button>
+      <button type="submit" id="knowledge-start" class="btn primary">开始分析</button>
+    </div>
+    <fieldset class="knowledge-options"><legend>对象与关联范围</legend>
+      {% for kind, label in [('processes','Process'),('cubes','Cube'),('dimensions','Dimension'),('rules','Rule')] %}
+      <label><input type="checkbox" name="{{ kind }}" checked> {{ label }}</label>
+      {% endfor %}
+      <label><input type="checkbox" id="knowledge-dependencies" checked> 包含直接关联对象</label>
+      <label><input type="checkbox" id="knowledge-lineage" checked> 包含已有血缘</label>
+    </fieldset>
+  </form>
+  <div id="knowledge-scope" class="knowledge-scope muted" role="status" aria-live="polite">输入功能前缀，预览对象数量。不会自动分析整个模型。</div>
+</section>
+
+<section id="knowledge-task" class="card" hidden aria-labelledby="task-title">
+  <div class="list-toolbar"><h2 id="task-title">分析进度</h2><button id="knowledge-cancel" type="button" class="btn ghost">取消分析</button></div>
+  <p id="knowledge-stage" role="status" aria-live="polite"></p>
+  <progress id="knowledge-progress" class="knowledge-progress" aria-label="当前阶段进度"></progress>
+  <p id="knowledge-timing" class="muted small"></p>
+</section>
+
+<section id="knowledge-output" class="card" hidden aria-labelledby="result-title">
+  <div class="list-toolbar"><h2 id="result-title">提取结果</h2><button id="knowledge-export" type="button" class="btn ghost">导出本地知识包</button></div>
+  <p class="knowledge-disclaimer">模式候选来自代码中的操作顺序，尚未证明业务算法或最佳实践。所有结论需要结合原始证据复查；导出文件含客户模型信息，仅供本地私有使用。</p>
+  <div id="knowledge-summary" class="knowledge-summary"></div>
+  <div class="knowledge-tabs" aria-label="结果分类">
+    <button type="button" class="btn ghost" data-section="processes" aria-pressed="true">Process 行为</button>
+    <button type="button" class="btn ghost" data-section="patterns" aria-pressed="false">模式候选</button>
+    <button type="button" class="btn ghost" data-section="flows" aria-pressed="false">数据流</button>
+    <button type="button" class="btn ghost" data-section="facts" aria-pressed="false">关系事实</button>
+  </div>
+  <div id="knowledge-results" class="table-scroll" aria-live="polite"></div>
+  <div class="list-toolbar knowledge-pagination">
+    <button type="button" id="knowledge-previous" class="btn ghost">上一页</button>
+    <span id="knowledge-page" class="muted small"></span>
+    <button type="button" id="knowledge-next" class="btn ghost">下一页</button>
+  </div>
+</section>
+<p id="knowledge-error" class="err" role="alert" hidden></p>
 {% endblock %}
-{% block scripts %}<script>
-let packageData=null;
-async function scopePreview(){const p=document.getElementById('prefix').value;const status=document.getElementById('progress');status.textContent='Discovering scope…';try{const r=await fetch('/api/knowledge/scope',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix:p})});const j=await r.json();status.textContent=`Scope Preview · ${j.estimated_analysis} · Ready to analyze`;document.getElementById('result').textContent=JSON.stringify(j,null,2)}catch(e){status.textContent='Scope discovery failed: '+e}}
-async function analyze(){const p=document.getElementById('prefix').value;const status=document.getElementById('progress');status.textContent='Step 1/6 · Object Discovery…';try{const r=await fetch('/api/knowledge/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix:p})});packageData=await r.json();status.textContent=`Completed · ${packageData.progress.current}/${packageData.progress.total} stages`;document.getElementById('result').textContent=JSON.stringify({scope:packageData.matched,processes:packageData.processes.map(x=>({process:x.process,role:x.observed_role,behavior:x.behavior_sequence.map(b=>b.behavior)})),pattern_candidates:packageData.pattern_candidates},null,2)}catch(e){status.textContent='Analysis failed: '+e}}
-async function downloadPackage(){if(!packageData)await analyze();const r=await fetch('/api/knowledge/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix:document.getElementById('prefix').value})});if(!r.ok){document.getElementById('progress').textContent='Export failed';return}const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download='TM1_Knowledge.zip';a.click();URL.revokeObjectURL(a.href)}
-</script>{% endblock %}
+{% block scripts %}<script src="/static/knowledge.js" defer></script>{% endblock %}

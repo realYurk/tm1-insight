@@ -55,6 +55,10 @@
       <button type="button" class="btn primary" id="btn-detect" onclick="detectData()">检测数据</button>
     </div>
     <div id="detect-result" class="ds-detect-result" hidden></div>
+    <div id="ds-loading" hidden role="status" aria-live="polite">
+      <p id="ds-loading-label">正在读取本地数据…</p>
+      <progress class="knowledge-progress" aria-label="数据源读取进度"></progress>
+    </div>
   </div>
 </div>
 
@@ -116,6 +120,11 @@
 {% block scripts %}
 <script>
 // ============ 数据源（Data Sources） ============
+function sourceBusy(message) {
+  document.getElementById('ds-loading').hidden = !message;
+  document.getElementById('ds-loading-label').textContent = message || '';
+  ['btn-use-local','btn-use-demo','btn-reset'].forEach(id => { document.getElementById(id).disabled = !!message; });
+}
 function refreshDsStatus() {
   fetch('/api/datasource/status')
     .then(r => r.json())
@@ -129,6 +138,13 @@ function refreshDsStatus() {
         meta.textContent = '';
       }
       const tag = document.getElementById('ds-current-tag');
+      ['local','demo'].forEach(kind => {
+        const active = kind === 'local' ? j.type === 'real_local' : j.type === 'demo';
+        const button = document.getElementById('btn-use-' + kind);
+        button.classList.toggle('primary', active);
+        button.classList.toggle('ghost', !active);
+        button.setAttribute('aria-pressed', String(active));
+      });
       if (j.type === 'demo') { tag.textContent = 'Demo'; tag.className = 'tag violet'; }
       else if (j.ready) { tag.textContent = 'Ready'; tag.className = 'tag ok'; }
       else { tag.textContent = 'Empty'; tag.className = 'tag'; }
@@ -201,6 +217,7 @@ async function useData() {
   const path = document.getElementById('ds-path').value.trim();
   const resultEl = document.getElementById('detect-result');
   resultEl.innerHTML = '<div class="muted">正在切换数据源…</div>';
+  sourceBusy('正在验证本地数据库并读取对象数量…');
   try {
     const r = await fetch('/api/datasource/use', {
       method: 'POST',
@@ -210,13 +227,16 @@ async function useData() {
     const j = await r.json();
     if (!r.ok) { showDetectResult('<span class="err">✕ ' + (j.error || '切换失败') + '</span>'); return; }
     showDetectResult('<div class="ok">✓ 本地数据加载成功</div><div class="muted small">正在刷新…</div>');
-    setTimeout(() => location.href = '/', 800);
+    location.href = '/';
   } catch (e) {
     showDetectResult('<span class="err">请求失败：' + e + '</span>');
+  } finally {
+    sourceBusy('');
   }
 }
 
 async function switchToDemo() {
+  sourceBusy('正在连接示例数据库…');
   const resultEl = document.getElementById('detect-result');
   resultEl.hidden = false;
   resultEl.innerHTML = '<div class="muted">正在切换到示例数据…</div>';
@@ -229,21 +249,39 @@ async function switchToDemo() {
     const j = await r.json();
     if (!r.ok) { showDetectResult('<span class="err">✕ ' + (j.error || '切换失败') + '</span>'); return; }
     showDetectResult('<div class="ok">✓ 已切换到示例数据 (Demo Mode)</div>');
-    setTimeout(() => location.href = '/', 800);
+    location.href = '/';
   } catch (e) {
     showDetectResult('<span class="err">请求失败：' + e + '</span>');
+  } finally {
+    sourceBusy('');
   }
 }
 
 function switchToLocal() {
   const inp = document.getElementById('ds-path');
+  if (inp.value.trim()) { useData(); return; }
   const resultEl = document.getElementById('detect-result');
   resultEl.hidden = false;
   resultEl.innerHTML = '<div class="muted">正在查找本地数据并读取数据量…</div>';
+  sourceBusy('正在查找已保存的位置与本地数据库…');
   fetch('/api/datasource/discover').then(r => r.json()).then(async j => {
     if (!j.found) {
       resultEl.innerHTML = '<div class="warn">未自动找到数据目录，请在上方填写包含 DuckDB 的 data 目录后检测。</div>';
       inp.focus(); return;
+    }
+    if (j.candidates && j.candidates.length > 1) {
+      resultEl.replaceChildren();
+      const message = document.createElement('p');
+      message.textContent = '找到多份本地模型，请选择要使用的数据库：';
+      resultEl.appendChild(message);
+      j.candidates.forEach(candidate => {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'btn ghost';
+        button.textContent = candidate.path;
+        button.onclick = () => { inp.value = candidate.path; useData(); };
+        resultEl.appendChild(button);
+      });
+      return;
     }
     inp.value = j.path;
     resultEl.innerHTML = `<div class="muted">已找到 ${j.counts.cubes || 0} 个 Cube、${j.counts.processes || 0} 个 TI，正在切换…</div>`;
@@ -251,11 +289,12 @@ function switchToLocal() {
     const out = await r.json();
     if (!r.ok) { showDetectResult('<span class="err">✕ ' + (out.error || '切换失败') + '</span>'); return; }
     resultEl.innerHTML = '<div class="ok">✓ 本地数据已加载，正在打开工作台…</div>';
-    setTimeout(() => location.href = '/', 500);
-  }).catch(e => { resultEl.innerHTML = '<span class="err">查找失败：' + e + '</span>'; });
+    location.href = '/';
+  }).catch(e => { resultEl.innerHTML = '<span class="err">查找失败：' + e + '</span>'; }).finally(() => sourceBusy(''));
 }
 
 async function resetSource() {
+  sourceBusy('正在重置数据源选择…');
   const resultEl = document.getElementById('detect-result');
   resultEl.hidden = false;
   resultEl.innerHTML = '<div class="muted">正在重置数据源…</div>';
@@ -265,10 +304,13 @@ async function resetSource() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source: 'reset' }),
     });
-    await r.json();
-    setTimeout(() => location.href = '/', 600);
+    const result = await r.json();
+    if (!r.ok) throw new Error(result.error || '重置失败');
+    location.href = '/';
   } catch (e) {
     showDetectResult('<span class="err">请求失败：' + e + '</span>');
+  } finally {
+    sourceBusy('');
   }
 }
 

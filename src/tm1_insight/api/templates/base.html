@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}TM1 Insight{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/workbench.css">
   <script src="/static/syntax.js"></script>
   <script>
     // 页面加载前应用主题，避免闪烁
@@ -17,6 +18,8 @@
   </script>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">跳转到内容</a>
+  <div id="navigation-status" class="navigation-status" role="status" aria-live="polite" hidden></div>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="sidebar-head">
@@ -35,40 +38,40 @@
       <nav class="sidebar-nav">
         {% set path = request.url.path %}
         <div class="nav-group-label">工作台</div>
-        <a href="/" class="nav-link {% if path == '/' %}active{% endif %}">
+        <a href="/" aria-label="首页" title="首页" class="nav-link {% if path == '/' %}active{% endif %}">
           <span class="nav-icon">{% include "icons/home.svg" %}</span><span>首页</span>
         </a>
         <div class="nav-group-label">对象</div>
-        <a href="/cubes" class="nav-link {% if path.startswith('/cubes') or path.startswith('/explorer/cube') %}active{% endif %}">
+        <a href="/cubes" aria-label="Cube 浏览" title="Cube 浏览" class="nav-link {% if path.startswith('/cubes') or path.startswith('/explorer/cube') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>Cube 浏览</span>
         </a>
-        <a href="/processes" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') or path.startswith('/explorer/chore') %}active{% endif %}">
+        <a href="/processes" aria-label="TI 进程" title="TI 进程" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') or path.startswith('/explorer/chore') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/process.svg" %}</span><span>TI 进程</span>
         </a>
-        <a href="/dimensions" class="nav-link {% if path.startswith('/dimensions') %}active{% endif %}">
+        <a href="/dimensions" aria-label="维度" title="维度" class="nav-link {% if path.startswith('/dimensions') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>维度</span>
         </a>
         <div class="nav-group-label">分析</div>
-        <a href="/graph" class="nav-link {% if path.startswith('/graph') %}active{% endif %}">
+        <a href="/graph" aria-label="知识图谱" title="知识图谱" class="nav-link {% if path.startswith('/graph') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/graph.svg" %}</span><span>知识图谱</span>
         </a>
-        <a href="/impact" class="nav-link {% if path.startswith('/impact') %}active{% endif %}">
+        <a href="/impact" aria-label="影响分析" title="影响分析" class="nav-link {% if path.startswith('/impact') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/graph.svg" %}</span><span>影响分析</span>
         </a>
-        <a href="/compare" class="nav-link {% if path.startswith('/compare') %}active{% endif %}">
+        <a href="/compare" aria-label="快照对比" title="快照对比" class="nav-link {% if path.startswith('/compare') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>快照对比</span>
         </a>
-        <a href="/knowledge" class="nav-link {% if path.startswith('/knowledge') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>Knowledge</span>
+        <a href="/knowledge" aria-label="知识提炼" title="知识提炼" class="nav-link {% if path.startswith('/knowledge') %}active{% endif %}">
+          <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>知识提炼</span>
         </a>
-        <a href="/codegen" class="nav-link {% if path.startswith('/codegen') %}active{% endif %}">
+        <a href="/codegen" aria-label="代码生成" title="代码生成" class="nav-link {% if path.startswith('/codegen') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/codegen.svg" %}</span><span>代码生成</span>
         </a>
-        <a href="/audit" class="nav-link {% if path.startswith('/audit') %}active{% endif %}">
+        <a href="/audit" aria-label="前端资产" title="前端资产" class="nav-link {% if path.startswith('/audit') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>前端资产</span>
         </a>
         <div class="nav-group-label">系统</div>
-        <a href="/settings" class="nav-link {% if path.startswith('/settings') %}active{% endif %}">
+        <a href="/settings" aria-label="连接设置" title="连接设置" class="nav-link {% if path.startswith('/settings') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/settings.svg" %}</span><span>连接设置</span>
         </a>
       </nav>
@@ -81,7 +84,7 @@
       </div>
     </aside>
 
-    <main class="main-area">
+    <main class="main-area" id="main-content" tabindex="-1">
       <div class="content">
         {% block breadcrumb %}{% endblock %}
         {% block content %}{% endblock %}
@@ -128,85 +131,8 @@
         });
     })();
 
-    // =====================================================================
-    // T0 零延迟导航：整页预取到内存 + 点击时 document.write 瞬时重写
-    // 原理：
-    //   1. 页面加载后立即并行 fetch 所有侧边栏页面完整 HTML，存入 window 级
-    //      缓存对象（window 跨 document.write 存活，缓存不会因重写而丢失）；
-    //   2. 点击 nav-link 时拦截，若目标页已缓存 → document.open/write/close
-    //      瞬时渲染（脚本正常执行，零网络、零服务端等待）；document 写入是
-    //      同步的，浏览器在 close() 前不 paint，因此无白屏闪烁；
-    //   3. 事件监听挂在 window 上（document.open 会清空 document 监听器，
-    //      但 window 监听器不受影响），保证多次切换后仍持续生效。
-    // =====================================================================
-    (function () {
-      if (!('fetch' in window) || !('history' in window)) return;
-      var nav = window.__tm1InsightNav;
-      if (!nav) {
-        nav = window.__tm1InsightNav = { cache: {}, pending: {} };
-      }
-
-      nav.fetchPage = function (href) {
-        var u = href.split('#')[0];
-        if (nav.cache[u]) return Promise.resolve(nav.cache[u]);
-        if (nav.pending[u]) return nav.pending[u];
-        nav.pending[u] = fetch(u, { credentials: 'same-origin', headers: { 'Accept': 'text/html' } })
-          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-          .then(function (html) { nav.cache[u] = html; delete nav.pending[u]; return html; })
-          .catch(function (e) { delete nav.pending[u]; throw e; });
-        return nav.pending[u];
-      };
-
-      // 写入缓存 HTML（不触碰 history，由调用方决定是否 pushState）
-      nav.render = function (html) {
-        document.open();
-        document.write(html);
-        document.close();
-        try { window.scrollTo(0, 0); } catch (e) {}
-      };
-
-      nav.show = function (href, html) {
-        try { history.pushState({ __tm1Insight: true }, '', href.split('#')[0]); } catch (e) {}
-        nav.render(html);
-      };
-
-      // 仅首次安装 window 级监听（window 对象跨 document.write 存活，监听不丢）
-      if (!nav.installed) {
-        nav.installed = true;
-        window.addEventListener('click', function (e) {
-          var t = e.target;
-          var a = t && t.closest ? t.closest('a.nav-link') : null;
-          if (!a) return;
-          if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-          var href = a.getAttribute('href');
-          if (!href || href.charAt(0) !== '/') return;
-
-          var u = href.split('#')[0];
-          if (nav.cache[u]) {
-            e.preventDefault();
-            nav.show(href, nav.cache[u]);
-            return;
-          }
-          e.preventDefault();
-          nav.fetchPage(u).then(function (html) {
-            nav.show(href, html);
-          }).catch(function () {
-            location.href = href;
-          });
-        }, false);
-
-        window.addEventListener('popstate', function () {
-          // 浏览器前进/后退：内存命中则瞬时恢复（不再 pushState，避免破坏后退栈）
-          var u = location.pathname + location.search;
-          if (nav.cache[u]) { nav.render(nav.cache[u]); }
-          else { location.reload(); }
-        }, false);
-      }
-
-      // 按需加载导航页面。预先抓取所有页面会触发 Graph/Impact/Compare 的
-      // 整套数据库分析，即使用户没有打开这些页面也会占满服务端。
-    })();
   </script>
+  <script src="/static/navigation.js" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

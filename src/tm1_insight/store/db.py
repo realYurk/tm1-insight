@@ -59,8 +59,9 @@ class Store:
     def all_rows(self) -> dict[str, int]:
         con = self.connect(read_only=True)
         try:
+            available = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
             return {
-                t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] if t in available else 0
                 for t in ALL_TABLES
             }
         finally:

@@ -38,7 +38,7 @@
   --border-strong: #d7dae3;
   --text: #1a1d29;
   --text-2: #4a5066;
-  --muted: #868da3;
+  --muted: #626b80;
 
   /* 阴影 */
   --shadow-sm: 0 1px 2px rgba(16, 20, 40, 0.04), 0 1px 3px rgba(16, 20, 40, 0.06);
@@ -81,7 +81,7 @@
   --border-strong: #33384a;
   --text: #e6e9f2;
   --text-2: #b8bfd0;
-  --muted: #7c8397;
+  --muted: #a5adbf;
 
   --accent-soft: #232a4a;
   --green-soft: #12332a;

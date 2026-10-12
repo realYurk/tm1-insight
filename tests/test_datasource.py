@@ -206,3 +206,12 @@ def test_switch_local_data(isolated):
     s = ds.detect_current_source()
     assert s.type == ds.DataSourceType.REAL_LOCAL
     assert s.counts["cubes"] == 1
+
+
+def test_unavailable_explicit_source_does_not_silently_become_demo(isolated):
+    set_data_dir(isolated / "unavailable-model")
+    result = ds.ensure_demo_if_empty()
+    assert result.type == ds.DataSourceType.EMPTY
+    assert result.error
+    assert get_settings().data_dir == isolated / "unavailable-model"
+    assert not (isolated / "demo").exists()

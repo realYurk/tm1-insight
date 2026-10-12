@@ -112,6 +112,12 @@ def _shortest_paths(adj: dict[str, list[tuple[str, Dependency]]], start: str) ->
             if nxt in path:
                 # 环：nxt 已在此路径中，跳过（不重复入队，防无限循环）
                 continue
+            key = (start, nxt)
+            if key in seen:
+                # BFS visits shortest paths first. Sorted adjacency also makes
+                # the first equal-length path deterministic. Expanding this node
+                # again enumerates exponentially many paths in converging DAGs.
+                continue
             new_path = path + (nxt,)
             new_deps = deps + (dep,)
             depth = len(new_path) - 1
@@ -122,12 +128,7 @@ def _shortest_paths(adj: dict[str, list[tuple[str, Dependency]]], start: str) ->
                 path=new_path,
                 depth=depth,
             )
-            key = (start, nxt)
-            if key not in seen:
-                seen[key] = lin
-            # 无论 nxt 是否已见，都继续入队扩展，以便到达更远节点。
-            # 防环靠上面的 `nxt in path`；入队不设 visited 节点集合，
-            # 而是依赖 path 内去重（等价于 DFS 的灰色节点标记）。
+            seen[key] = lin
             queue.append((nxt, new_path, new_deps))
 
     return list(seen.values())

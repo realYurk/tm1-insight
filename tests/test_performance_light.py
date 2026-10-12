@@ -72,3 +72,34 @@ def test_get_upstream_adjacency_reuse():
     # 结果应一致（确定性）
     assert [l.target for l in r1] == [l.target for l in r2]
     assert [l.source for l in r1] == [l.source for l in r2]
+
+
+def test_converging_graph_expands_each_node_once():
+    """A layered DAG has exponentially many paths but only linearly many nodes."""
+    from tm1_insight.lineage import get_downstream
+    from tm1_insight.lineage.engine import build_adjacency
+
+    deps = []
+    previous = ["Start"]
+    for level in range(24):
+        current = [f"L{level:02}_{suffix}" for suffix in ("a", "b")]
+        for source in previous:
+            for target in current:
+                deps.append(Dependency(kind=DependencyKind.PROCESS_CALLS_PROCESS,
+                                       source=source, target=target))
+        previous = current
+
+    class CountingAdjacency(dict):
+        expansions = 0
+
+        def get(self, key, default=None):
+            self.expansions += 1
+            assert self.expansions <= 49, "A previously visited node was expanded again"
+            return super().get(key, default)
+
+    adjacency = CountingAdjacency(build_adjacency(deps))
+    results = get_downstream(deps, "Start", _adj=adjacency)
+    assert len(results) == 48
+    last = next(item for item in results if item.target == "L23_b")
+    assert last.depth == 24
+    assert last.path == ("Start", *(f"L{level:02}_a" for level in range(23)), "L23_b")

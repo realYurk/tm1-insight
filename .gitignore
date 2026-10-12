@@ -46,3 +46,9 @@ resources/reference-outputs/
 
 # 本地数据仓库（整体排除）
 data/
+
+# Private local analysis caches and remembered source paths
+cache/
+imports/
+data_dir_override.txt
+last_local_source.txt

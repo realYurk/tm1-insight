@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}快照对比 · TM1 Insight{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">快照对比</h1><p class="page-sub">正在准备目录基线预览，期间可以继续切换菜单。</p></div></div>
+<section class="card" id="comparison-state" aria-busy="true">
+  <h2>准备对比结果</h2>
+  <p role="status">正在比较对象并分析结构关系…</p>
+  <progress class="knowledge-progress" aria-label="正在准备对比"></progress>
+  <p class="muted small">当前版本的 Web 对比是“空快照 → 当前目录”能力预览，不能作为两个真实时间点之间的变更报告。</p>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const controller = new AbortController();
+  window.addEventListener('pagehide', () => controller.abort(), {once: true});
+  fetch('/compare?render=true', {signal: controller.signal, cache: 'no-store'})
+    .then(response => { if (!response.ok) throw new Error('比较失败，请重试。'); return response.text(); })
+    .then(html => {
+      const parsed = new DOMParser().parseFromString(html, 'text/html');
+      const content = parsed.querySelector('.content');
+      if (!content) throw new Error('比较结果格式异常。');
+      document.querySelector('.content').replaceChildren(...content.childNodes);
+    }).catch(error => {
+      if (error.name === 'AbortError') return;
+      const state = document.getElementById('comparison-state');
+      state.setAttribute('aria-busy', 'false');
+      const message = document.createElement('p'); message.setAttribute('role', 'alert');
+      message.textContent = error.message; state.replaceChildren(message);
+    });
+})();
+</script>
+{% endblock %}

@@ -122,7 +122,9 @@ def detect_current_source() -> DataSourceStatus:
     db_path = settings.db_path
     try:
         st = db_path.stat()
-        fp = f"{db_path.resolve()}:{st.st_mtime_ns}:{st.st_size}"
+        wal = db_path.with_suffix(db_path.suffix + ".wal")
+        wal_state = f"{wal.stat().st_mtime_ns}:{wal.stat().st_size}" if wal.exists() else "no-wal"
+        fp = f"{db_path.resolve()}:{st.st_mtime_ns}:{st.st_size}:{wal_state}"
         if _source_cache and _source_cache[0] == fp:
             cached = _source_cache[1]
             return DataSourceStatus(type=cached.type, location=cached.location, ready=cached.ready,
@@ -173,6 +175,7 @@ class DirectoryDetection:
     counts: dict[str, int] = field(default_factory=dict)
     db_size: int = 0
     partial: bool = False          # 结构不完整但部分可用
+    db_path: str = ""
 
 
 def detect_directory(path: str) -> DirectoryDetection:
@@ -197,10 +200,13 @@ def detect_directory(path: str) -> DirectoryDetection:
             result.error = "不是有效的 .duckdb 文件。"
             return result
         db_path = p
-        data_dir = p.parent
+        data_dir = p.parent.parent if p.parent.name.lower() == "db" else p.parent
     else:
-        db_path = p / "db" / "tm1_insight.duckdb"
-        data_dir = p
+        candidates = [p / "db" / "tm1_insight.duckdb", p / "tm1_insight.duckdb",
+                      p / "data" / "db" / "tm1_insight.duckdb"]
+        db_path = next((candidate for candidate in candidates if candidate.is_file()), candidates[0])
+        data_dir = db_path.parent.parent if db_path.parent.name.lower() == "db" else db_path.parent
+    result.db_path = str(db_path.resolve())
 
     # DuckDB 检测
     if db_path.exists():
@@ -422,6 +428,12 @@ def ensure_demo_if_empty() -> DataSourceStatus:
     """
     status = detect_current_source()
     if status.type in (DataSourceType.REAL_LOCAL, DataSourceType.DEMO):
+        return status
+    from tm1_insight.config import get_data_dir_override
+    selected = get_data_dir_override()
+    if selected is not None and get_settings().data_dir.resolve() != _demo_data_dir().resolve():
+        # An unavailable explicitly selected model must not silently become Demo.
+        status.error = "已选择的本地数据不可用，请重新连接目录；当前没有切换到 Demo。"
         return status
     # 空数据 → 兜底 Demo（持锁，防并发重复建库）
     with _demo_lock:

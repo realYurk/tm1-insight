@@ -14,6 +14,7 @@ import shutil
 import json
 import io
 import zipfile
+from functools import lru_cache
 
 from fastapi import Body, FastAPI, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -26,6 +27,7 @@ from tm1_insight.config import Settings, get_settings
 from tm1_insight.store.db import Store
 from tm1_insight.store import queries
 from tm1_insight.store.graph_adapter import dependencies_from_store
+from tm1_insight.api.knowledge_tasks import router as knowledge_router
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,7 @@ templates.env.filters["hash_color"] = _hash_color
 
 app = FastAPI(title="TM1 Insight", version=__version__)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.include_router(knowledge_router)
 
 
 # ---- 全局异常处理：任何未捕获异常都返回友好错误页，而非白屏 500 ----
@@ -73,6 +76,8 @@ def _error_page(request: Request, status_code: int, title: str, detail: str) -> 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"error": str(exc.detail)}, status_code=exc.status_code)
     # 404 与其它 HTTP 错误走友好错误页
     if exc.status_code == 404:
         return _error_page(request, 404, "页面不存在", "你访问的页面不存在，或已被移动。请从左侧导航重新进入。")
@@ -113,7 +118,9 @@ def _data_fingerprint() -> str:
         db = Path(settings.db_path) if settings.db_path else None
         if db and db.exists():
             st = db.stat()
-            return f"{db.resolve()}:{st.st_mtime_ns}:{st.st_size}"
+            wal = db.with_suffix(db.suffix + ".wal")
+            wal_state = f"{wal.stat().st_mtime_ns}:{wal.stat().st_size}" if wal.exists() else "no-wal"
+            return f"{db.resolve()}:{st.st_mtime_ns}:{st.st_size}:{wal_state}"
     except Exception:
         pass
     return "no-db"
@@ -129,8 +136,8 @@ def _cached_page(key: str, renderer) -> HTMLResponse:
         hit = _page_cache.get(key)
         if hit and hit[0] == fp:
             return HTMLResponse(hit[1])
-    html = renderer()
-    with _page_cache_lock:
+        # Single-flight: simultaneous opens must not repeat the same calculation.
+        html = renderer()
         _page_cache[key] = (fp, html)
     return HTMLResponse(html)
 
@@ -445,30 +452,33 @@ def graph(request: Request, ti: Optional[str] = None):
 
 
 # ---- 页面：Impact（依赖 / 影响分析，复用 impact 引擎） ----
-@app.get("/impact", response_class=HTMLResponse)
-def impact_page(request: Request, source: Optional[str] = None):
-    store = _store()
-    con = store.connect(read_only=True)
+@lru_cache(maxsize=2)
+def _dependency_index(db_path: str, fingerprint: str):
+    """Bounded, rebuildable index; never retain source code or database connections."""
+    import duckdb
+    from tm1_insight.lineage.engine import build_adjacency
+    con = duckdb.connect(db_path, read_only=True)
     try:
-        all_processes = [r[0] for r in con.execute(
-            "SELECT name FROM processes ORDER BY name").fetchall()]
-        all_cubes = [r[0] for r in con.execute(
-            "SELECT name FROM cubes ORDER BY name").fetchall()]
         dependencies = dependencies_from_store(con)
     finally:
         con.close()
+    return dependencies, build_adjacency(dependencies)
 
+
+@app.get("/impact", response_class=HTMLResponse)
+def impact_page(request: Request, source: Optional[str] = None):
+    store = _store()
+    counts = _data_source_status().get("counts", {})
+    dependency_count = sum(counts.get(table, 0) for table in
+                           ("process_reads_cube", "process_writes_cube", "process_calls_process", "rule_references_cube"))
     result = None
     if source:
-        from tm1_insight.impact import analyze_impact
         from tm1_insight.lineage import get_upstream, get_downstream
-
-        impacts = analyze_impact(dependencies, source)
-        upstream = get_upstream(dependencies, source)
-        downstream = get_downstream(dependencies, source)
+        dependencies, adjacency = _dependency_index(str(store.db_path), _data_fingerprint())
+        upstream = get_upstream(dependencies, source, _adj=adjacency)
+        downstream = get_downstream(dependencies, source, _adj=adjacency)
         result = {
             "source": source,
-            "impacts": impacts,
             "upstream": upstream,
             "downstream": downstream,
         }
@@ -476,15 +486,16 @@ def impact_page(request: Request, source: Optional[str] = None):
     return templates.TemplateResponse(request, "impact.html", {
         "source": source,
         "result": result,
-        "all_processes": all_processes,
-        "all_cubes": all_cubes,
-        "dependency_count": len(dependencies),
+        "dependency_count": dependency_count,
     })
 
 
 # ---- 页面：Compare（Snapshot Compare + Change Intelligence） ----
 @app.get("/compare", response_class=HTMLResponse)
-def compare_page(request: Request):
+def compare_page(request: Request, render: bool = False):
+    if not render:
+        _store()
+        return templates.TemplateResponse(request, "compare_loading.html", {})
     # 重计算页面（约 1s）：数据未变化时复用缓存结果，切换延迟压到毫秒级。
     def _render() -> str:
         store = _store()
@@ -506,7 +517,7 @@ def compare_page(request: Request):
         compare_result = compare_snapshots(empty, payload)
 
         # Change Intelligence 做「有界采样」：只对「有入边（会被依赖）」的 cube 中
-        # 前 50 个做影响分析，避免对全部 19763 个对象做 upstream 遍历导致页面超时。
+        # 前 50 个做影响分析，避免对整模型每个对象做 upstream 遍历导致页面超时。
         # 这是 Web MVP 的体验取舍，真实多快照 Compare 需接入快照数据 + 引擎性能优化。
         indegree: dict[str, int] = {}
         for d in dependencies:
@@ -520,6 +531,7 @@ def compare_page(request: Request):
             "compare": compare_result,
             "ci": ci_result,
             "sampled": True,
+            "sampled_count": len(sampled_cubes),
             "sampled_total": len(payload["cubes"]),
             "sampled_note": "影响分析对「会被依赖的 Cube」采样前 50 个做预览演示；完整分析需接入多快照历史或后台索引引擎。",
         })
@@ -554,23 +566,17 @@ def knowledge_preview(body: dict = Body(...)) -> dict:
 
 @app.post("/api/knowledge/scope")
 def knowledge_scope(body: dict = Body(...)) -> dict:
+    from tm1_insight.knowledge import discover_scope
     store = _store(); con = store.connect(read_only=True)
     try:
-        prefix = (body.get("prefix") or "").strip().rstrip("*").lower() + "%"
-        tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
-        cubes = {r[0] for r in con.execute("SELECT name FROM cubes WHERE lower(name) LIKE ?", [prefix]).fetchall()}
-        processes = {r[0] for r in con.execute("SELECT name FROM processes WHERE lower(name) LIKE ?", [prefix]).fetchall()}
-        for rel in ("process_reads_cube", "process_writes_cube"):
-            if rel in tables and cubes:
-                processes.update(r[0] for r in con.execute(f"SELECT DISTINCT process_name FROM {rel} WHERE cube_name IN (SELECT unnest(?))", [list(cubes)]).fetchall())
-        dims = {r[0] for r in con.execute("SELECT name FROM dimensions WHERE lower(name) LIKE ?", [prefix]).fetchall()}
-        if "cube_has_dimension" in tables and cubes:
-            dims.update(r[0] for r in con.execute("SELECT DISTINCT dimension_name FROM cube_has_dimension WHERE cube_name IN (SELECT unnest(?))", [list(cubes)]).fetchall())
-        rules = con.execute("SELECT count(*) FROM cubes WHERE lower(name) LIKE ? AND has_rules", [prefix]).fetchone()[0]
-        counts = {"cubes":len(cubes),"processes":len(processes),"dimensions":len(dims),"rules":rules}
+        selection = discover_scope(con, body.get("prefix", ""), body.get("scope"),
+                                   include_dependencies=body.get("include_dependencies", True),
+                                   match_mode=body.get("match_mode", "prefix"))
+        counts = selection["matched"]
         size = sum(counts.values())
         estimate = "Small" if size < 100 else "Medium" if size < 1000 else "Large"
-        return {"prefix": body.get("prefix", ""), "matched": counts, "estimated_analysis": estimate}
+        return {"prefix": body.get("prefix", ""), "matched": counts,
+                "estimated_analysis": estimate, "scope": selection}
     finally: con.close()
 
 
@@ -799,14 +805,17 @@ def api_datasource_discover() -> dict:
     settings = get_settings()
     # Prefer the project's actual data directory over the currently active source;
     # otherwise clicking Local while Demo is active would rediscover Demo itself.
-    candidates = [settings.project_root / "data"]
-    # Also recognize a project folder selected by its parent or a sibling demo folder.
-    for root in (settings.project_root, settings.project_root.parent):
-        try:
-            candidates.extend(p for p in root.iterdir() if p.is_dir() and p.name.lower() in {"data", "demo", "tm1insight-demo"})
-        except OSError:
-            pass
+    candidates = [settings.user_data_root / "data", settings.project_root / "data"]
+    try:
+        remembered = (settings.user_data_root / "last_local_source.txt").read_text(encoding="utf-8").strip()
+        if remembered:
+            candidates.insert(0, Path(remembered))
+    except OSError:
+        pass
+    if settings.data_dir.resolve() != ds._demo_data_dir().resolve():
+        candidates.insert(0, settings.db_path)
     seen = set()
+    found = []
     for candidate in candidates:
         try:
             key = candidate.resolve()
@@ -814,11 +823,11 @@ def api_datasource_discover() -> dict:
                 continue
             seen.add(key)
             detected = ds.detect_directory(str(key))
-            if detected.valid:
-                return {"found": True, "path": str(key), "counts": detected.counts, "db_size": detected.db_size}
+            if detected.valid and detected.db_path not in {item["path"] for item in found}:
+                found.append({"path": detected.db_path, "counts": detected.counts, "db_size": detected.db_size})
         except OSError:
             continue
-    return {"found": False}
+    return {"found": bool(found), "candidates": found, **(found[0] if len(found) == 1 else {})}
 
 
 @app.post("/api/datasource/use")
@@ -852,16 +861,17 @@ def api_datasource_use(body: dict = Body(...)) -> dict:
                 {"error": det.error or "数据目录无效。"},
                 status_code=400,
             )
-        # 记录覆盖目录（不复制数据）。若给的是 .duckdb 文件，取其父目录。
-        from pathlib import Path as _P
-        _pp = _P(path)
-        data_dir = str(_pp.parent) if _pp.is_file() else path
-        set_data_dir(data_dir)
+        previous = get_settings().database_file or get_settings().data_dir
+        set_data_dir(det.db_path)
         # 重新检测确认
         st = ds.detect_current_source()
         if not st.has_data:
-            set_data_dir(None)
+            set_data_dir(previous)
             return JSONResponse({"error": "该目录未包含有效数据。"}, status_code=400)
+        try:
+            (get_settings().user_data_root / "last_local_source.txt").write_text(det.db_path, encoding="utf-8")
+        except OSError:
+            logger.warning("数据源已保存；快捷位置保存失败。")
         return {"ok": True, "status": _data_source_status()}
 
     if source == "reset":
@@ -876,63 +886,45 @@ def api_datasource_use(body: dict = Body(...)) -> dict:
 
 @app.post("/api/import")
 async def api_import(file: UploadFile = File(...)) -> dict:
-    """导入数据包：接收一个 .duckdb 文件，替换用户数据目录里的库文件。
+    """Validate in a new private import directory; never overwrite the active model."""
+    import tempfile
+    from starlette.concurrency import run_in_threadpool
+    from tm1_insight.config import set_data_dir
+    from tm1_insight.ingest.import_package import prepare_import
 
-    支持：
-      - *.duckdb：直接作为 tm1_insight.duckdb 使用
-      - *.zip：解压出 data/db/tm1_insight.duckdb（或根下的 tm1_insight.duckdb）后导入
-    导入后前端刷新即可看到数据，无需联网、无需重新拉取 TM1。
-    """
-    import io
-    import zipfile
-
-    filename = (file.filename or "").lower()
-    settings = get_settings()
-    settings.ensure_dirs()
-
-    # 目标库文件路径（用户数据目录）
-    dst = settings.db_dir / "tm1_insight.duckdb"
-    dst.parent.mkdir(parents=True, exist_ok=True)
-
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".duckdb", ".zip"}:
+        return JSONResponse({"error": "请上传 .duckdb 或 .zip 文件。"}, status_code=400)
+    root = get_settings().user_data_root / "imports"
+    root.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(prefix="model-", dir=root))
+    upload = folder / ("upload" + suffix)
+    destination = folder / "db" / "tm1_insight.duckdb"
+    succeeded = False
     try:
-        if filename.endswith(".duckdb"):
-            # 直接写入（分块避免大文件一次性读入内存）
-            with open(dst, "wb") as out:
-                while chunk := await file.read(1024 * 1024):
-                    out.write(chunk)
-        elif filename.endswith(".zip"):
-            data = await file.read()
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                # 找 data/db/tm1_insight.duckdb 或根下 tm1_insight.duckdb
-                candidates = [
-                    n for n in zf.namelist()
-                    if n.endswith("tm1_insight.duckdb")
-                ]
-                if not candidates:
-                    return JSONResponse(
-                        {"error": "压缩包里没有找到 tm1_insight.duckdb 文件"},
-                        status_code=400,
-                    )
-                # 优先精确的 data/db/tm1_insight.duckdb
-                exact = next((n for n in candidates if n.endswith("data/db/tm1_insight.duckdb")), candidates[0])
-                with zf.open(exact) as src, open(dst, "wb") as out:
-                    shutil.copyfileobj(src, out)
-        else:
-            return JSONResponse(
-                {"error": "不支持的文件类型，请上传 .duckdb 或 .zip 文件"},
-                status_code=400,
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.exception("导入数据包失败")
-        return JSONResponse({"error": f"导入失败：{e}"}, status_code=500)
-
-    # 导入成功后清空内存缓存，避免旧连接缓存旧数据
-    try:
-        get_settings.cache_clear()
-    except Exception:  # noqa: BLE001
-        pass
-
-    return {"ok": True, "db_path": str(dst)}
+        with upload.open("wb") as target:
+            while chunk := await file.read(1024 * 1024):
+                target.write(chunk)
+        await run_in_threadpool(prepare_import, upload, destination, zipped=suffix == ".zip")
+        set_data_dir(destination)
+        succeeded = True
+        try:
+            (get_settings().user_data_root / "last_local_source.txt").write_text(str(destination), encoding="utf-8")
+        except OSError:
+            logger.warning("导入数据源已保存；快捷位置保存失败。")
+        return {"ok": True, "db_path": str(destination), "status": _data_source_status()}
+    except (ValueError, zipfile.BadZipFile) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception:
+        logger.error("本地数据包导入失败；原数据源保持不变。")
+        return JSONResponse({"error": "导入失败，请检查文件格式与磁盘空间。"}, status_code=400)
+    finally:
+        upload.unlink(missing_ok=True)
+        if not succeeded:
+            destination.unlink(missing_ok=True)
+            if destination.parent.exists():
+                destination.parent.rmdir()
+            folder.rmdir()
 
 
 @app.get("/api/cube/{cube}")

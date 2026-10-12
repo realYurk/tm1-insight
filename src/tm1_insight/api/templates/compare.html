@@ -65,11 +65,11 @@
 <!-- ============ Affected Objects（Change Intelligence） ============ -->
 <div class="card">
   <h2>Affected Objects <span class="tag">{{ ci.statistics.affected_count }}</span></h2>
-  <p class="muted small">基于变更对象，复用 Lineage / Impact 引擎推导出的受影响对象（依赖变更源的对象）。</p>
+  <p class="muted small">结构上依赖变更源的对象；这些关系不能证明业务数值影响或运行时执行顺序。</p>
   {% if sampled %}
   <div class="sample-banner">
     <strong>Preview / 采样结果</strong>
-    <span>已分析 50 个「会被依赖的 Cube」（共 {{ sampled_total }} 个），完整分析将由后台/索引引擎执行。</span>
+    <span>已采样 {{ sampled_count }} 个「会被依赖的 Cube」（目录共 {{ sampled_total }} 个）。当前仅提供能力预览，完整历史比较尚未实现。</span>
   </div>
   {% endif %}
   {% if ci.affected_objects %}

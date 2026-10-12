@@ -26,6 +26,7 @@ from tm1_insight.config import set_data_dir, get_settings  # noqa: E402
 def client(tmp_path, monkeypatch):
     """构造一个隔离环境的 FastAPI TestClient（Demo 兜底）。"""
     monkeypatch.setattr(config, "_USER_DATA_ROOT", tmp_path)
+    monkeypatch.setattr(config, "_PROJECT_ROOT", tmp_path / "app")
     monkeypatch.setattr(ds, "_demo_data_dir", lambda: tmp_path / "demo")
     set_data_dir(None)
     get_settings.cache_clear()
@@ -46,6 +47,24 @@ def test_all_pages_no_500_in_demo(client):
                  "/impact", "/compare", "/audit", "/codegen", "/settings"]:
         r = client.get(path)
         assert r.status_code == 200, f"{path} -> {r.status_code}"
+
+
+def test_comparison_has_fast_shell_and_honest_sample_count(client):
+    shell = client.get("/compare")
+    assert "comparison-state" in shell.text
+    assert "render=true" in shell.text
+    result = client.get("/compare?render=true")
+    assert result.status_code == 200
+    assert "已采样 3 个" in result.text
+    assert "完整历史比较尚未实现" in result.text
+
+
+def test_impact_distinguishes_dependents_from_dependencies(client):
+    response = client.get("/impact", params={"source":"Sales"})
+    assert response.status_code == 200
+    assert "Load_Sales" in response.text
+    assert "结构依赖方" in response.text
+    assert "不能直接证明" in response.text
 
 
 def test_dashboard_has_data_in_demo(client):
@@ -113,3 +132,93 @@ def test_datasource_use_local_invalid(client):
     """切换到无效本地目录 → 400。"""
     r = client.post("/api/datasource/use", json={"source": "local", "path": "Z:/nope"})
     assert r.status_code == 400
+
+
+def test_exact_database_file_survives_restart(client, tmp_path):
+    import os
+    import subprocess
+    from test_datasource import _make_real_db
+    original = _make_real_db(tmp_path / "selected")
+    chosen = original.with_name("custom-model.duckdb")
+    original.rename(chosen)
+    response = client.post("/api/datasource/use", json={"source":"local", "path":str(chosen)})
+    assert response.status_code == 200
+    assert Path(response.json()["status"]["db_path"]) == chosen
+    environment = os.environ.copy()
+    environment["TM1_INSIGHT_HOME"] = str(tmp_path)
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    result = subprocess.check_output([sys.executable, "-c", "from tm1_insight.config import get_settings; print(get_settings().db_path)"],
+                                     env=environment, text=True)
+    assert Path(result.strip()) == chosen
+
+
+def test_import_is_atomic_and_never_overwrites_demo_or_active_model(client, tmp_path):
+    import hashlib
+    from test_datasource import _make_real_db
+    client.post("/api/datasource/use", json={"source":"demo"})
+    previous = Path(client.get("/api/datasource/status").json()["db_path"])
+    digest = hashlib.sha256(previous.read_bytes()).hexdigest()
+    source = _make_real_db(tmp_path / "upload-fixture")
+    response = client.post("/api/import", files={"file":("model.duckdb", source.read_bytes(), "application/octet-stream")})
+    assert response.status_code == 200
+    assert response.json()["status"]["type"] == "real_local"
+    imported = Path(response.json()["db_path"])
+    assert imported != previous
+    assert hashlib.sha256(previous.read_bytes()).hexdigest() == digest
+    failed = client.post("/api/import", files={"file":("invalid.duckdb", b"not-a-database", "application/octet-stream")})
+    assert failed.status_code == 400
+    assert Path(client.get("/api/datasource/status").json()["db_path"]) == imported
+
+
+def test_zip_import_accepts_one_arbitrary_filename_and_rejects_ambiguous_models(client, tmp_path):
+    import io
+    import zipfile
+    from test_datasource import _make_real_db
+    model = _make_real_db(tmp_path / "zip-fixture").read_bytes()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("../../custom-model.duckdb", model)
+    response = client.post("/api/import", files={"file":("model.zip", buffer.getvalue(), "application/zip")})
+    assert response.status_code == 200
+    selected = response.json()["db_path"]
+    assert Path(selected).is_relative_to(tmp_path / "imports")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("data/db/tm1_insight.duckdb", model)
+        archive.writestr("other.duckdb", model)
+    response = client.post("/api/import", files={"file":("models.zip", buffer.getvalue(), "application/zip")})
+    assert response.status_code == 400
+    assert client.get("/api/datasource/status").json()["db_path"] == selected
+
+
+def test_knowledge_background_result_pagination_export_and_source_isolation(client, tmp_path):
+    import io
+    import time
+    import zipfile
+    from test_datasource import _make_real_db
+    assert client.post("/api/knowledge/tasks", json={"prefix":""}).status_code == 400
+    client.get("/")
+    created = client.post("/api/knowledge/tasks", json={"prefix":"Load"})
+    assert created.status_code == 202
+    task_id = created.json()["task_id"]
+    deadline = time.monotonic() + 5
+    while True:
+        state = client.get(f"/api/knowledge/tasks/{task_id}").json()
+        if state["status"] not in {"queued", "running"}:
+            break
+        assert time.monotonic() < deadline
+        time.sleep(.01)
+    assert state["status"] == "completed"
+    response = client.get(f"/api/knowledge/tasks/{task_id}/result?limit=1")
+    assert response.status_code == 200
+    assert len(response.json()["items"]) <= 1
+    assert not response.json()["privacy"]["contains_source"]
+    export = client.post(f"/api/knowledge/tasks/{task_id}/export", json={"context_type":"process", "name":"Load_Sales"})
+    assert export.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(export.content)) as archive:
+        package = json.loads(archive.read("development_context.json"))
+        assert [p["process"] for p in package["processes"]] == ["Load_Sales"]
+        assert "source_code" not in package["processes"][0]
+    _make_real_db(tmp_path / "other-model")
+    assert client.post("/api/datasource/use", json={"source":"local", "path":str(tmp_path / "other-model")}).status_code == 200
+    assert client.get(f"/api/knowledge/tasks/{task_id}/result").status_code == 409
