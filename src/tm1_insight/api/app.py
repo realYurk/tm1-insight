@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Optional
 
 import shutil
+import json
+import io
+import zipfile
 
 from fastapi import Body, FastAPI, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -536,6 +539,57 @@ def codegen(request: Request):
     return templates.TemplateResponse(request, "codegen.html", {"cubes": cubes})
 
 
+@app.get("/knowledge", response_class=HTMLResponse)
+def knowledge_page(request: Request):
+    return templates.TemplateResponse(request, "knowledge.html", {})
+
+
+@app.post("/api/knowledge/preview")
+def knowledge_preview(body: dict = Body(...)) -> dict:
+    from tm1_insight.knowledge import extract
+    store = _store(); con = store.connect(read_only=True)
+    try: return extract(con, body.get("prefix", ""), body.get("scope"))
+    finally: con.close()
+
+
+@app.post("/api/knowledge/scope")
+def knowledge_scope(body: dict = Body(...)) -> dict:
+    store = _store(); con = store.connect(read_only=True)
+    try:
+        prefix = (body.get("prefix") or "").strip().rstrip("*").lower() + "%"
+        tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+        cubes = {r[0] for r in con.execute("SELECT name FROM cubes WHERE lower(name) LIKE ?", [prefix]).fetchall()}
+        processes = {r[0] for r in con.execute("SELECT name FROM processes WHERE lower(name) LIKE ?", [prefix]).fetchall()}
+        for rel in ("process_reads_cube", "process_writes_cube"):
+            if rel in tables and cubes:
+                processes.update(r[0] for r in con.execute(f"SELECT DISTINCT process_name FROM {rel} WHERE cube_name IN (SELECT unnest(?))", [list(cubes)]).fetchall())
+        dims = {r[0] for r in con.execute("SELECT name FROM dimensions WHERE lower(name) LIKE ?", [prefix]).fetchall()}
+        if "cube_has_dimension" in tables and cubes:
+            dims.update(r[0] for r in con.execute("SELECT DISTINCT dimension_name FROM cube_has_dimension WHERE cube_name IN (SELECT unnest(?))", [list(cubes)]).fetchall())
+        rules = con.execute("SELECT count(*) FROM cubes WHERE lower(name) LIKE ? AND has_rules", [prefix]).fetchone()[0]
+        counts = {"cubes":len(cubes),"processes":len(processes),"dimensions":len(dims),"rules":rules}
+        size = sum(counts.values())
+        estimate = "Small" if size < 100 else "Medium" if size < 1000 else "Large"
+        return {"prefix": body.get("prefix", ""), "matched": counts, "estimated_analysis": estimate}
+    finally: con.close()
+
+
+@app.post("/api/knowledge/export")
+def knowledge_export(body: dict = Body(...)):
+    from fastapi.responses import Response
+    from tm1_insight.knowledge import extract, markdown
+    store = _store(); con = store.connect(read_only=True)
+    try: package = extract(con, body.get("prefix", ""), body.get("scope"))
+    finally: con.close()
+    md = markdown(package)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("knowledge.json", json.dumps(package,ensure_ascii=False,indent=2))
+        archive.writestr("knowledge.md", md)
+        archive.writestr("development_context.md", md)
+    return Response(buf.getvalue(), media_type="application/zip", headers={"Content-Disposition":"attachment; filename=TM1_Knowledge.zip"})
+
+
 # ---- 代码生成 API ----
 @app.post("/api/codegen/data-transfer")
 def api_codegen_data_transfer(body: dict = Body(...)) -> dict:
@@ -736,6 +790,35 @@ def api_datasource_detect(body: dict = Body(...)) -> dict:
         "db_size": result.db_size,
         "partial": result.partial,
     }
+
+
+@app.get("/api/datasource/discover")
+def api_datasource_discover() -> dict:
+    """Find the usual project data folder so importing does not require browsing demo subfolders."""
+    from tm1_insight import datasource as ds
+    settings = get_settings()
+    # Prefer the project's actual data directory over the currently active source;
+    # otherwise clicking Local while Demo is active would rediscover Demo itself.
+    candidates = [settings.project_root / "data"]
+    # Also recognize a project folder selected by its parent or a sibling demo folder.
+    for root in (settings.project_root, settings.project_root.parent):
+        try:
+            candidates.extend(p for p in root.iterdir() if p.is_dir() and p.name.lower() in {"data", "demo", "tm1insight-demo"})
+        except OSError:
+            pass
+    seen = set()
+    for candidate in candidates:
+        try:
+            key = candidate.resolve()
+            if key in seen:
+                continue
+            seen.add(key)
+            detected = ds.detect_directory(str(key))
+            if detected.valid:
+                return {"found": True, "path": str(key), "counts": detected.counts, "db_size": detected.db_size}
+        except OSError:
+            continue
+    return {"found": False}
 
 
 @app.post("/api/datasource/use")

@@ -237,13 +237,22 @@ async function switchToDemo() {
 
 function switchToLocal() {
   const inp = document.getElementById('ds-path');
-  inp.focus();
-  if (inp.value.trim()) { detectData(); }
-  else {
-    const resultEl = document.getElementById('detect-result');
-    resultEl.hidden = false;
-    resultEl.innerHTML = '<div class="muted small">请在上方输入本地数据目录路径，然后点击「检测数据」。</div>';
-  }
+  const resultEl = document.getElementById('detect-result');
+  resultEl.hidden = false;
+  resultEl.innerHTML = '<div class="muted">正在查找本地数据并读取数据量…</div>';
+  fetch('/api/datasource/discover').then(r => r.json()).then(async j => {
+    if (!j.found) {
+      resultEl.innerHTML = '<div class="warn">未自动找到数据目录，请在上方填写包含 DuckDB 的 data 目录后检测。</div>';
+      inp.focus(); return;
+    }
+    inp.value = j.path;
+    resultEl.innerHTML = `<div class="muted">已找到 ${j.counts.cubes || 0} 个 Cube、${j.counts.processes || 0} 个 TI，正在切换…</div>`;
+    const r = await fetch('/api/datasource/use', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({source:'local', path:j.path})});
+    const out = await r.json();
+    if (!r.ok) { showDetectResult('<span class="err">✕ ' + (out.error || '切换失败') + '</span>'); return; }
+    resultEl.innerHTML = '<div class="ok">✓ 本地数据已加载，正在打开工作台…</div>';
+    setTimeout(() => location.href = '/', 500);
+  }).catch(e => { resultEl.innerHTML = '<span class="err">查找失败：' + e + '</span>'; });
 }
 
 async function resetSource() {

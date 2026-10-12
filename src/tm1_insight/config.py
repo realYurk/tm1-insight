@@ -66,6 +66,16 @@ _USER_DATA_ROOT = _user_data_root()
 # 用环境变量 TM1_INSIGHT_DATA_DIR 或 set_data_dir() 设置。
 _DATA_DIR_OVERRIDE: Path | None = None
 
+def _data_dir_state_path() -> Path:
+    return _USER_DATA_ROOT / "data_dir_override.txt"
+
+try:
+    _saved_data_dir = _data_dir_state_path().read_text(encoding="utf-8").strip()
+    if _saved_data_dir:
+        _DATA_DIR_OVERRIDE = Path(_saved_data_dir).resolve()
+except OSError:
+    pass
+
 
 def set_data_dir(path: str | Path | None) -> None:
     """设置数据目录覆盖（切换数据源）。None 表示清除覆盖、回到默认。"""
@@ -74,6 +84,15 @@ def set_data_dir(path: str | Path | None) -> None:
         _DATA_DIR_OVERRIDE = None
     else:
         _DATA_DIR_OVERRIDE = Path(path).resolve()
+    try:
+        state = _data_dir_state_path()
+        state.parent.mkdir(parents=True, exist_ok=True)
+        if _DATA_DIR_OVERRIDE is None:
+            state.unlink(missing_ok=True)
+        else:
+            state.write_text(str(_DATA_DIR_OVERRIDE), encoding="utf-8")
+    except OSError:
+        pass
     get_settings.cache_clear()
 
 

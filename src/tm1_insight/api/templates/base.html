@@ -58,6 +58,9 @@
         <a href="/compare" class="nav-link {% if path.startswith('/compare') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>快照对比</span>
         </a>
+        <a href="/knowledge" class="nav-link {% if path.startswith('/knowledge') %}active{% endif %}">
+          <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>Knowledge</span>
+        </a>
         <a href="/codegen" class="nav-link {% if path.startswith('/codegen') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/codegen.svg" %}</span><span>代码生成</span>
         </a>
@@ -200,21 +203,8 @@
         }, false);
       }
 
-      // 预热：串行抓取所有导航页（避免并发打爆单进程服务端导致排队），
-      // 且不阻塞首屏渲染。抓取完成后，后续点击均为零网络瞬时切换。
-      var links = Array.prototype.slice.call(document.querySelectorAll('a.nav-link'));
-      var hrefs = [];
-      links.forEach(function (a) {
-        var href = a.getAttribute('href');
-        if (href && href.charAt(0) === '/' && hrefs.indexOf(href) === -1) hrefs.push(href);
-      });
-      (function warm(i) {
-        if (i >= hrefs.length) return;
-        nav.fetchPage(hrefs[i]).catch(function () {}).then(function () {
-          // 串行下一个，间隔让出主线程，绝不与用户交互抢 CPU
-          setTimeout(function () { warm(i + 1); }, 30);
-        });
-      })(0);
+      // 按需加载导航页面。预先抓取所有页面会触发 Graph/Impact/Compare 的
+      // 整套数据库分析，即使用户没有打开这些页面也会占满服务端。
     })();
   </script>
   {% block scripts %}{% endblock %}

@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 # Demo 建库的进程级锁：保证多请求并发触发兜底时只建一次库，
 # 避免 DuckDB 多连接同时 DROP/CREATE 同一表导致事务冲突。
 _demo_lock = threading.Lock()
+_source_cache: tuple[str, DataSourceStatus] | None = None
 
 
 
@@ -116,8 +117,19 @@ def detect_current_source() -> DataSourceStatus:
 
     只读检测，不写库、不自动生成 Demo。
     """
+    global _source_cache
     settings = get_settings()
     db_path = settings.db_path
+    try:
+        st = db_path.stat()
+        fp = f"{db_path.resolve()}:{st.st_mtime_ns}:{st.st_size}"
+        if _source_cache and _source_cache[0] == fp:
+            cached = _source_cache[1]
+            return DataSourceStatus(type=cached.type, location=cached.location, ready=cached.ready,
+                                    counts=dict(cached.counts), db_path=cached.db_path,
+                                    db_size=cached.db_size, error=cached.error)
+    except OSError:
+        fp = f"{db_path.resolve()}:missing"
     status = DataSourceStatus(type=DataSourceType.EMPTY, db_path=str(db_path))
 
     # 识别 Demo 目录（数据目录指针指向 demo/ 时标记为 Demo）
@@ -142,6 +154,9 @@ def detect_current_source() -> DataSourceStatus:
         except OSError:
             pass
 
+    _source_cache = (fp, DataSourceStatus(type=status.type, location=status.location, ready=status.ready,
+                                          counts=dict(status.counts), db_path=status.db_path,
+                                          db_size=status.db_size, error=status.error))
     return status
 
 
