@@ -655,13 +655,35 @@ def api_codegen_data_transfer(body: dict = Body(...)) -> dict:
     operation = (body.get("operation") or "CellIncrementN").strip()
 
     store = _store()
+    source = _process_search_source(store.settings)
     con = store.connect(read_only=True)
     try:
-        return cg.data_transfer(con, src, tgt, prefix,
-                                src_filters=src_filters,
-                                tgt_filters=tgt_filters,
-                                params=params,
-                                operation=operation)
+        src_dims = cg._cube_dims(con, src)
+        tgt_dims = cg._cube_dims(con, tgt)
+        if not src_dims or not tgt_dims:
+            return JSONResponse({"error": "Cube 不存在或缺少维度结构，请重新选择并加载。"}, status_code=400)
+        # Optional additive contract: old API clients still generate from current metadata.
+        structure = body.get("structure")
+        if structure is not None and structure != {
+            "source": source,
+            "src_dims": src_dims, "tgt_dims": tgt_dims,
+        }:
+            return JSONResponse({"error": "模型或维度结构已变化，请重新加载维度结构。"}, status_code=409)
+        if operation not in {"CellIncrementN", "CellPutN", "CellPutS"}:
+            return JSONResponse({"error": "不支持的写入操作。"}, status_code=400)
+        for filters, dims in ((src_filters, src_dims), (tgt_filters, tgt_dims)):
+            if not isinstance(filters, list) or any(
+                not isinstance(f, dict) or f.get("dim") not in dims for f in filters
+            ):
+                return JSONResponse({"error": "筛选维度不属于所选 Cube，请重新加载结构。"}, status_code=400)
+        result = cg.data_transfer(con, src, tgt, prefix,
+                                  src_filters=src_filters,
+                                  tgt_filters=tgt_filters,
+                                  params=params,
+                                  operation=operation)
+        if source != _process_search_source(store.settings) or source != _process_search_source():
+            return JSONResponse({"error": "数据源在生成期间已变化，请重新加载维度结构。"}, status_code=409)
+        return result
     finally:
         con.close()
 
@@ -725,10 +747,15 @@ def api_codegen_cube_dims(body: dict = Body(...)) -> dict:
     if not cube:
         return JSONResponse({"error": "请填写 cube"}, status_code=400)
     store = _store()
+    source = _process_search_source(store.settings)
     con = store.connect(read_only=True)
     try:
         dims = cg._cube_dims(con, cube)
-        return {"cube": cube, "dims": dims}
+        if not dims:
+            return JSONResponse({"error": "Cube 不存在或缺少维度结构。"}, status_code=400)
+        if source != _process_search_source(store.settings) or source != _process_search_source():
+            return JSONResponse({"error": "数据源在加载期间已变化，请重新加载维度结构。"}, status_code=409)
+        return {"cube": cube, "dims": dims, "source": source}
     finally:
         con.close()
 
@@ -764,34 +791,42 @@ def api_codegen_dimension_maintain(body: dict = Body(...)) -> dict:
 
 # ---- 页面：Audit（阶段 3：Excel 资产 → Cube 映射） ----
 @app.get("/audit", response_class=HTMLResponse)
-def audit(request: Request):
+def audit(request: Request, asset_q: str = Query("", max_length=1000),
+          mapping_q: str = Query("", max_length=1000),
+          risk: Literal["", "高", "中", "低"] = "", tm1: bool = False, broken: bool = False,
+          asset_page: int = Query(1, ge=1), mapping_page: int = Query(1, ge=1),
+          source: str = ""):
     store = _store()
     from tm1_insight.audit_workspace import workspace, preferences
-    settings = get_settings()
+    settings = store.settings
     local = workspace(settings)
     if local.db_path.exists():
         store = Store(local)
+    # Both the model and its independently replaced scan result define the page context.
+    import hashlib
+    current_source = hashlib.sha256((_process_search_source(settings) +
+                                    _process_search_source(store.settings)).encode()).hexdigest()
+    if source and source != current_source:
+        return _error_page(request, 409, "资产来源已变化", "请重新打开前端资产页，再搜索或翻页。")
     con = store.connect(read_only=True)
     try:
-        assets = queries.list_audit_assets(con)
-        mappings = queries.list_audit_mappings(con)
-        # 汇总统计（供顶部统计卡片与筛选）
-        summary = {
-            "total_assets": len(assets),
-            "total_mappings": len(mappings),
-            "with_tm1": sum(1 for a in assets if a.get("has_tm1")),
-            "risk_high": sum(1 for a in assets if a.get("risk") == "高"),
-            "risk_mid": sum(1 for a in assets if a.get("risk") == "中"),
-            "risk_low": sum(1 for a in assets if a.get("risk") == "低"),
-            "broken_link": sum(1 for a in assets if a.get("asset_type") in ("Broken Link", "Invalid Blob")),
-            "formula_total": sum(a.get("formula_count") or 0 for a in assets),
-        }
+        assets = queries.audit_page(con, kind="assets", keyword=asset_q, risk=risk,
+                                    only_tm1=tm1, only_broken=broken, page=asset_page)
+        mappings = queries.audit_page(con, kind="mappings", keyword=mapping_q, page=mapping_page)
+        summary = queries.audit_summary(con)
     finally:
         con.close()
-    settings = get_settings()
+    def page_urls(result, key, anchor):
+        return {direction: str(request.url.include_query_params(
+            **{key: result["page"] + delta, "source": current_source})) + anchor
+                for direction, delta in (("previous", -1), ("next", 1))}
     return templates.TemplateResponse(request, "audit.html", {
-        "assets": assets,
-        "mappings": mappings,
+        "assets": assets["items"], "asset_result": assets,
+        "mappings": mappings["items"], "mapping_result": mappings,
+        "asset_urls": page_urls(assets, "asset_page", "#assets"),
+        "mapping_urls": page_urls(mappings, "mapping_page", "#mappings"),
+        "asset_q": asset_q, "mapping_q": mapping_q, "risk": risk,
+        "only_tm1": tm1, "only_broken": broken, "audit_source": current_source,
         "summary": summary,
         "applications_dir": preferences(settings)["applications"],
         "externals_dir": preferences(settings)["externals"],

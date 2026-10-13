@@ -11,7 +11,7 @@
 <div class="page-head">
   <div>
     <h1 class="page-title">前端资产 → 后端 Cube</h1>
-    <p class="page-sub">{{ mappings|length }} 条映射 · {{ assets|length }} 个资产</p>
+    <p class="page-sub">{{ summary.total_mappings }} 条映射 · {{ summary.total_assets }} 个资产 · 每表每页 50 条</p>
   </div>
   <button class="btn primary" id="audit-btn" onclick="runAudit()">重新扫描资产</button>
 </div>
@@ -45,12 +45,19 @@
   {% with job='audit', job_label='前端扫描', result_url='/audit', result_label='查看扫描结果' %}{% include "job_progress.html" %}{% endwith %}
 </div>
 
-<div class="card">
+<div class="card" id="mappings">
   <div class="list-toolbar">
-    <h2>前端文件 → 后端 Cube 映射 <span class="tag">{{ mappings|length }}</span></h2>
-    <div class="list-search">
-      <input type="search" id="mapping-search" placeholder="搜索菜单 / 文件 / Cube…" autocomplete="off" oninput="applyMappingFilter()">
-    </div>
+    <h2>前端文件 → 后端 Cube 映射 <span class="tag">{{ mapping_result.total }}</span></h2>
+    <form class="audit-query" action="/audit#mappings" method="get">
+      <input type="hidden" name="source" value="{{ audit_source }}">
+      <input type="hidden" name="asset_q" value="{{ asset_q }}">
+      <input type="hidden" name="risk" value="{{ risk }}">
+      <input type="hidden" name="tm1" value="{{ 'true' if only_tm1 else 'false' }}">
+      <input type="hidden" name="broken" value="{{ 'true' if only_broken else 'false' }}">
+      <input type="hidden" name="asset_page" value="{{ asset_result.page }}">
+      <input type="search" class="input" id="mapping-search" name="mapping_q" value="{{ mapping_q }}" aria-label="搜索全部映射" placeholder="搜索菜单 / 文件 / Cube…" maxlength="1000">
+      <button class="btn ghost" type="submit">搜索全部映射</button>
+    </form>
   </div>
   {% if mappings %}
   <div class="table-wrap">
@@ -69,29 +76,32 @@
     </tbody>
   </table>
   </div>
-  <div class="muted small" id="mapping-filter-count" hidden></div>
   {% else %}
   <div class="empty-state">
     <div class="empty-icon">{% include "icons/graph.svg" %}</div>
-    <div class="empty-title">暂无映射数据</div>
-    <div class="empty-desc">点击上方「重新扫描资产」，从本地 Excel 提取前端文件 → 后端 Cube 的映射。</div>
+    <div class="empty-title">{{ '没有符合搜索条件的映射' if summary.total_mappings else '暂无映射数据' }}</div>
+    <div class="empty-desc">{{ '请修改或清空搜索词，再搜索全部映射。' if summary.total_mappings else '点击上方「重新扫描资产」，从本地 Excel 提取前端文件 → 后端 Cube 的映射。' }}</div>
   </div>
   {% endif %}
+  {% with result=mapping_result, urls=mapping_urls, label='映射' %}{% include "audit_pagination.html" %}{% endwith %}
 </div>
 
-<div class="card">
+<div class="card" id="assets">
   <div class="list-toolbar">
-    <h2>前端 Excel 资产 <span class="tag">{{ assets|length }}</span></h2>
-    <div class="audit-filter">
-      <select id="risk-filter" onchange="applyAssetFilter()">
+    <h2>前端 Excel 资产 <span class="tag">{{ asset_result.total }}</span></h2>
+    <form class="audit-query" action="/audit#assets" method="get">
+      <input type="hidden" name="source" value="{{ audit_source }}">
+      <input type="hidden" name="mapping_q" value="{{ mapping_q }}">
+      <input type="hidden" name="mapping_page" value="{{ mapping_result.page }}">
+      <input type="search" class="input" name="asset_q" value="{{ asset_q }}" aria-label="搜索全部资产" placeholder="搜索菜单 / 文件 / 类型…" maxlength="1000">
+      <select id="risk-filter" name="risk" aria-label="资产风险">
         <option value="">全部风险</option>
-        <option value="高">高风险</option>
-        <option value="中">中风险</option>
-        <option value="低">低风险</option>
+        {% for value in ['高','中','低'] %}<option value="{{ value }}" {% if risk == value %}selected{% endif %}>{{ value }}风险</option>{% endfor %}
       </select>
-      <label class="audit-toggle"><input type="checkbox" id="tm1-filter" onchange="applyAssetFilter()"> 仅含 TM1</label>
-      <label class="audit-toggle"><input type="checkbox" id="broken-filter" onchange="applyAssetFilter()"> 仅断链/无效</label>
-    </div>
+      <label class="audit-toggle"><input type="checkbox" name="tm1" value="true" id="tm1-filter" {% if only_tm1 %}checked{% endif %}> 仅含 TM1</label>
+      <label class="audit-toggle"><input type="checkbox" name="broken" value="true" id="broken-filter" {% if only_broken %}checked{% endif %}> 仅断链/无效</label>
+      <button class="btn ghost" type="submit">筛选全部资产</button>
+    </form>
   </div>
   {% if assets %}
   <div class="table-wrap">
@@ -103,7 +113,7 @@
         <td>{{ a.menu }}</td>
         <td><code>{{ a.blob_name }}</code></td>
         <td><span class="tag">{{ a.asset_type }}</span></td>
-        <td>{% if a.risk == '高' %}<span class="tag danger">高</span>{% elif a.risk == '中' %}<span class="tag warn">中</span>{% else %}<span class="tag">低</span>{% endif %}</td>
+        <td>{% if a.risk == '高' %}<span class="tag danger">高</span>{% elif a.risk == '中' %}<span class="tag warn">中</span>{% else %}<span class="tag">{{ '低' if a.risk == '低' else '未评级' }}</span>{% endif %}</td>
         <td>{{ a.link_status }}</td>
         <td>{% if a.has_tm1 %}<span class="tag rule">是</span>{% else %}—{% endif %}</td>
         <td>{{ a.formula_count }}</td>
@@ -112,67 +122,20 @@
     </tbody>
   </table>
   </div>
-  <div class="muted small" id="asset-filter-count" hidden></div>
   {% else %}
   <div class="empty-state">
     <div class="empty-icon">{% include "icons/assets.svg" %}</div>
-    <div class="empty-title">暂无资产数据</div>
-    <div class="empty-desc">在上方填写现有前端 Excel 文件夹的位置，点击「重新扫描资产」。</div>
+    <div class="empty-title">{{ '没有符合筛选条件的资产' if summary.total_assets else '暂无资产数据' }}</div>
+    <div class="empty-desc">{{ '请修改或清空搜索词和筛选条件，再筛选全部资产。' if summary.total_assets else '在上方填写现有前端 Excel 文件夹的位置，点击「重新扫描资产」。' }}</div>
   </div>
   {% endif %}
+  {% with result=asset_result, urls=asset_urls, label='资产' %}{% include "audit_pagination.html" %}{% endwith %}
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="/static/job-progress.js"></script>
 <script>
-// 资产表筛选（纯前端）
-function applyAssetFilter() {
-  const risk = document.getElementById('risk-filter').value;
-  const onlyTm1 = document.getElementById('tm1-filter').checked;
-  const onlyBroken = document.getElementById('broken-filter').checked;
-  const rows = document.querySelectorAll('#asset-table tbody tr');
-  let visible = 0;
-  rows.forEach(tr => {
-    const r = tr.dataset.risk;
-    const tm1 = tr.dataset.tm1 === '1';
-    const broken = tr.dataset.broken === '1';
-    let show = true;
-    if (risk && r !== risk) show = false;
-    if (onlyTm1 && !tm1) show = false;
-    if (onlyBroken && !broken) show = false;
-    tr.style.display = show ? '' : 'none';
-    if (show) visible++;
-  });
-  const count = document.getElementById('asset-filter-count');
-  const filtering = risk || onlyTm1 || onlyBroken;
-  if (filtering) {
-    count.hidden = false;
-    count.textContent = `筛选后显示 ${visible} / ${rows.length} 项`;
-  } else {
-    count.hidden = true;
-  }
-}
-
-// 映射表搜索（纯前端，按菜单/文件/cube 名关键词过滤）
-function applyMappingFilter() {
-  const q = (document.getElementById('mapping-search').value || '').trim().toLowerCase();
-  const rows = document.querySelectorAll('#mapping-table tbody tr');
-  let visible = 0;
-  rows.forEach(tr => {
-    const show = !q || tr.dataset.search.indexOf(q) !== -1;
-    tr.style.display = show ? '' : 'none';
-    if (show) visible++;
-  });
-  const count = document.getElementById('mapping-filter-count');
-  if (q) {
-    count.hidden = false;
-    count.textContent = `筛选后显示 ${visible} / ${rows.length} 项`;
-  } else {
-    count.hidden = true;
-  }
-}
-
 const auditJob = new TM1JobProgress('audit', 'audit-btn', 'audit-status');
 function runAudit() { return auditJob.start(auditPaths()); }
 function auditPaths() {

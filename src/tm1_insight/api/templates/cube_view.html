@@ -159,6 +159,7 @@
         </div>
         {% endif %}
 
+        <div class="table-wrap">
         <table class="table">
           <thead>
             <tr>
@@ -196,6 +197,7 @@
             {% endfor %}
           </tbody>
         </table>
+        </div>
       </details>
       {% endfor %}
     </details>
@@ -262,31 +264,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-// 维度结构：隐藏放不下的元素，避免"裁一半"；确保「… 共 N 个」始终可见
-(function () {
-  var rows = document.querySelectorAll('.dim-elems-cell');
-  if (!rows.length) return;
-  function fit() {
-    rows.forEach(function (cell) {
-      // 还原所有隐藏的元素后重新计算
-      cell.querySelectorAll('.dim-elem.dim-hidden').forEach(function (el) { el.classList.remove('dim-hidden'); });
-      var more = cell.querySelector('.dim-more');
-      var elems = Array.from(cell.querySelectorAll('.dim-elem'));
-      if (!more || !elems.length) return;
-      // 逐步从后往前隐藏，直到 more 能放下
-      var i = elems.length - 1;
-      while (i >= 0 && (cell.scrollWidth > cell.clientWidth + 1)) {
-        elems[i].classList.add('dim-hidden');
-        i--;
-      }
-    });
-  }
-  fit();
-  var t = null;
-  window.addEventListener('resize', function () { clearTimeout(t); t = setTimeout(fit, 150); });
-})();
-</script>
 <script>
 // 从列表页进来时，「返回列表」恢复上次的搜索词与页码
 (function () {

@@ -1,0 +1,7 @@
+<nav class="audit-pagination" aria-label="{{ label }}分页">
+  <span class="muted small">筛选结果 {{ result.total }} 条 · 显示 {{ result.start }}–{{ result.end }} · 第 {{ result.page }} / {{ result.pages }} 页</span>
+  <div>
+    {% if result.page > 1 %}<a class="btn ghost" href="{{ urls.previous }}">上一页{{ label }}</a>{% endif %}
+    {% if result.page < result.pages %}<a class="btn ghost" href="{{ urls.next }}">下一页{{ label }}</a>{% endif %}
+  </div>
+</nav>

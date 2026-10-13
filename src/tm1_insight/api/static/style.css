@@ -1026,7 +1026,7 @@ details.card summary:hover { color: var(--accent); }
 .dim-table { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .dim-row {
   display: grid;
-  grid-template-columns: minmax(220px, 300px) 1fr;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   align-items: center;
   border-bottom: 1px solid var(--border);
   min-height: 44px;
@@ -1061,9 +1061,10 @@ details.card summary:hover { color: var(--accent); }
   font-weight: 650;
   font-size: 13.5px;
   color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
 }
 .dim-total {
   font-size: 11px;
@@ -1078,8 +1079,7 @@ details.card summary:hover { color: var(--accent); }
 .dim-elems-cell {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  overflow: hidden;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 8px 16px;
   min-width: 0;
@@ -1095,10 +1095,11 @@ details.card summary:hover { color: var(--accent); }
   font-weight: 550;
   font-family: var(--font-sans);
   color: var(--text-2);
-  white-space: nowrap;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
   flex-shrink: 0;
 }
-.dim-elem.dim-hidden { display: none; }
 .dim-more {
   font-size: 12px;
   color: var(--muted);
@@ -1110,6 +1111,19 @@ details.card summary:hover { color: var(--accent); }
   background: linear-gradient(90deg, transparent, var(--card) 14px);
 }
 .dim-row:nth-child(even) .dim-more { background: linear-gradient(90deg, transparent, #fafbfd 14px); }
+
+@media (max-width: 800px) {
+  .dim-row { grid-template-columns: minmax(0, 1fr); }
+  .dim-name-cell { border-right: 0; }
+}
+
+#assets .list-toolbar, #mappings .list-toolbar { flex-wrap: wrap; }
+.audit-query { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; gap: 10px; }
+.audit-query .input { width: min(100%, 300px); }
+.audit-query select { width: auto; max-width: 100%; margin: 0; }
+.audit-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.cg-transfer-next { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0; }
+.cg-transfer-next p { flex: 1 1 300px; margin: 0; }
 
 .dim-tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .dim-mini {

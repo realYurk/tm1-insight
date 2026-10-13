@@ -1592,6 +1592,63 @@ def get_cube(con: duckdb.DuckDBPyConnection, name: str) -> dict | None:
 
 
 # ---- Audit 视图查询 ----
+def audit_summary(con: duckdb.DuckDBPyConnection) -> dict:
+    row = con.execute("""SELECT count(*), count(*) FILTER (WHERE has_tm1),
+        count(*) FILTER (WHERE risk = '高'),
+        count(*) FILTER (WHERE asset_type IN ('Broken Link', 'Invalid Blob'))
+        FROM excel_assets""").fetchone()
+    return dict(zip(("total_assets", "with_tm1", "risk_high", "broken_link"), row),
+                total_mappings=con.execute("SELECT count(*) FROM front_backend_mapping").fetchone()[0])
+
+
+def audit_page(con: duckdb.DuckDBPyConnection, *, kind: str, keyword: str = "",
+               risk: str = "", only_tm1: bool = False, only_broken: bool = False,
+               page: int = 1, limit: int = 50) -> dict:
+    """Filter the entire audit table in SQL; materialize only a bounded page.
+
+    Literal substring search (including %/_); legacy full-list queries stay available.
+    All displayed columns break ordering ties; identical rows are interchangeable.
+    """
+    if kind not in {"assets", "mappings"}:
+        raise ValueError("Unknown audit table")
+    if risk not in {"", "高", "中", "低"}:
+        raise ValueError("Unknown risk")
+    limit = min(100, max(1, limit))
+    if kind == "assets":
+        table = "excel_assets"
+        columns = "menu, blob_name, asset_type, risk, link_status, excel_path, has_tm1, formula_count"
+        search = "concat_ws(' ', menu, blob_name, asset_type, link_status)"
+    else:
+        table = "front_backend_mapping"
+        columns = "menu, excel_file, backend_cubes, cube_count"
+        search = "concat_ws(' ', menu, excel_file, backend_cubes)"
+    clauses, params = [], []
+    if keyword.strip():
+        clauses.append(f"strpos(lower({search}), lower(?)) > 0")
+        params.append(keyword.strip())
+    if kind == "assets":
+        if risk:
+            clauses.append("risk = ?"); params.append(risk)
+        if only_tm1:
+            clauses.append("has_tm1 = true")
+        if only_broken:
+            clauses.append("asset_type IN ('Broken Link', 'Invalid Blob')")
+    where = " WHERE " + " AND ".join(clauses) if clauses else ""
+    total = con.execute(f"SELECT count(*) FROM {table}{where}", params).fetchone()[0]
+    pages = max(1, (total + limit - 1) // limit)
+    page = min(pages, max(1, page))
+    rows = con.execute(f"SELECT {columns} FROM {table}{where} ORDER BY {columns} LIMIT ? OFFSET ?",
+                       params + [limit, (page - 1) * limit]).fetchall()
+    items = [dict(zip(columns.split(", "), row)) for row in rows]
+    for item in items:
+        item["menu"] = item["menu"] or ""
+        if kind == "mappings":
+            item["backend_cubes"] = [c for c in (item["backend_cubes"] or "").split(", ") if c]
+    return {"items": items, "total": total, "page": page, "pages": pages,
+            "start": (page - 1) * limit + 1 if total else 0,
+            "end": min(page * limit, total), "limit": limit}
+
+
 def list_audit_assets(con: duckdb.DuckDBPyConnection) -> list[dict]:
     """前端 Excel 资产清单。"""
     return [
