@@ -1,4 +1,23 @@
 /* Accessible, bounded-density workbench primitives. No external fonts/assets. */
+.dimension-workspace { display: grid; grid-template-columns: minmax(220px, 25%) minmax(0, 1fr); gap: 20px; align-items: start; }
+.dimension-browser, .dimension-detail { min-width: 0; margin: 0; }
+.dimension-list { max-height: calc(100dvh - 360px); min-height: 180px; overflow: auto; }
+.dimension-list li { padding: 0; }
+.dimension-list a { display: grid; gap: 4px; padding: 10px 8px; border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.dimension-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+.dimension-list a[aria-current=page], .dimension-tabs a[aria-current=page], .dimension-records a[aria-current=page] { color: var(--accent); background: var(--accent-soft); }
+.dimension-tabs .tag { margin-left: 4px; }
+.dimension-detail h2, .dimension-detail h3 { overflow-wrap: anywhere; }
+.dimension-search { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.dimension-search .input { width: min(100%, 320px); margin: 0; }
+.dimension-limits { font-size: 13px; color: var(--muted); border-left: 3px solid var(--border-strong); padding-left: 12px; }
+.dimension-limits summary { cursor: pointer; }
+.dimension-subset { margin: 16px 0; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.dimension-expression { max-height: 320px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dimension-unknown { display: block; color: var(--muted); }
+.dimension-records td { vertical-align: top; overflow-wrap: anywhere; }
+.dimension-records code { white-space: pre-wrap; }
+@media (max-width: 1000px) { .dimension-workspace { grid-template-columns: minmax(0, 1fr); } .dimension-list { min-height: 0; max-height: 200px; } }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .main-area { min-width: 0; }
 .btn, .nav-link, select { min-height: 36px; }

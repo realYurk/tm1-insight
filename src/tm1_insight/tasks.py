@@ -65,6 +65,15 @@ class TaskManager:
             self._pool.submit(self._run, job, worker)
             return self.state(task_id)
 
+    def active(self, key: str, *, source: str) -> dict | None:
+        """Find an in-flight job without touching an artifact being published."""
+        digest = hashlib.sha256((source + "\0" + key).encode()).hexdigest()
+        with self._lock:
+            for job in self._jobs.values():
+                if job["key"] == digest and job["status"] in {"queued", "running"}:
+                    return self.state(job["task_id"])
+        return None
+
     def _run(self, job, worker):
         result=None
         from tm1_insight.learning import pages

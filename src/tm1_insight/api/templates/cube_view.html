@@ -59,7 +59,7 @@
     <div class="dim-row">
       <div class="dim-name-cell">
         <span class="dim-order">{{ d.order + 1 }}</span>
-        <span class="dim-name" title="{{ d.name }}">{{ d.name }}</span>
+        <a class="dim-name" title="查看元素与汇总权重 · {{ d.name }}" href="/dimensions?name={{ d.name|urlencode }}&amp;source={{ dimension_source }}">{{ d.name }}</a>
         <span class="dim-total">{{ d.total }} 元素</span>
       </div>
       <div class="dim-elems-cell">

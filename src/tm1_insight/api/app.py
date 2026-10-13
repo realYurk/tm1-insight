@@ -371,37 +371,110 @@ def processes_page(request: Request, q: str = Query("", max_length=1000),
 
 
 @app.get("/dimensions", response_class=HTMLResponse)
-def dimensions_page(request: Request, q: str = "", page: int = 1):
+def dimensions_page(request: Request, q: str = Query("", max_length=1000),
+                    page: int = Query(1, ge=1), name: str = Query("", max_length=1000),
+                    view: Literal["elements", "edges", "attributes", "subsets", "cubes"] = "elements",
+                    detail_q: str = Query("", max_length=1000), detail_page: int = Query(1, ge=1),
+                    element: str = Query("", max_length=1000),
+                    subset_index: Optional[int] = Query(None, ge=0),
+                    source: str = Query("", max_length=64)):
+    from urllib.parse import urlencode
+    from tm1_insight.store import dimensions as dim_queries
+    from tm1_insight.store import dimension_index
     store = _store()
+    current_source = _process_search_source(store.settings)
+    if source and source != current_source:
+        return _error_page(request, 409, "维度来源已变化", "请重新打开维度页，再选择元素或子集；旧记录位置未用于定位。")
     con = store.connect(read_only=True)
     try:
-        per_page = 100
-        offset = max(0, (page - 1)) * per_page
-        if q.strip():
-            like = f"%{q.strip()}%"
-            total = con.execute(
-                "SELECT count(*) FROM dimensions WHERE name ILIKE ?", [like]
-            ).fetchone()[0]
-            dims = [r[0] for r in con.execute(
-                "SELECT name FROM dimensions WHERE name ILIKE ? ORDER BY name LIMIT ? OFFSET ?",
-                [like, per_page, offset],
-            ).fetchall()]
-        else:
-            total = con.execute("SELECT count(*) FROM dimensions").fetchone()[0]
-            dims = [r[0] for r in con.execute(
-                "SELECT name FROM dimensions ORDER BY name LIMIT ? OFFSET ?",
-                [per_page, offset],
-            ).fetchall()]
+        listing = dim_queries.search(con, q, page)
+        selected_name = name or (listing["items"][0]["name"] if listing["items"] else "")
+        indexed = dimension_index.cached(store.settings, selected_name, current_source) if selected_name else None
+        dimension = indexed[0]["dimension"] if indexed else (dim_queries.metadata(con, selected_name) if selected_name else None)
+        if name and not dimension:
+            return _error_page(request, 404, "维度不存在", "当前本地模型没有这个维度，请重新搜索。")
+        details = None
+        subset = None
+        needs_index = bool(dimension and not indexed and view in dim_queries.FIELDS and (
+            dimension["fields"][view]["count"] > dimension_index.THRESHOLD or
+            (view == "edges" and dimension["fields"]["elements"]["count"] > dimension_index.THRESHOLD)))
+        if dimension and not needs_index:
+            def record_page(field, **options):
+                return (dimension_index.records(indexed[1], field, **options) if indexed else
+                        dim_queries.records(con, selected_name, field, **options))
+            details = (dim_queries.cubes(con, selected_name, detail_page) if view == "cubes" else
+                       record_page(view, keyword=detail_q, page=detail_page, element=element))
+            if view == "subsets" and subset_index is not None:
+                records = record_page("subsets", index=subset_index)
+                if not records["items"]:
+                    return _error_page(request, 404, "子集记录不存在", "该子集位置不存在，请重新选择。")
+                subset = records["items"][0]
     finally:
         con.close()
-    total_pages = max(1, (total + per_page - 1) // per_page)
+    if current_source != _process_search_source(store.settings) or current_source != _process_search_source():
+        return _error_page(request, 409, "维度来源已变化", "查询期间模型已变化，请重新打开维度页。")
+    def dimension_url(**updates):
+        params = dict(q=q, page=listing["page"], name=selected_name, view=view,
+                      detail_q=detail_q, detail_page=details["page"] if details else 1,
+                      element=element, subset_index=subset_index, source=current_source)
+        params.update(updates)
+        return "/dimensions?" + urlencode({k: v for k, v in params.items() if v is not None}) + "#dimension-detail"
     return templates.TemplateResponse(request, "dimensions.html", {
-        "dimensions": dims,
-        "total": total,
-        "q": q,
-        "page": page,
-        "total_pages": total_pages,
+        "listing": listing, "dimension": dimension, "details": details, "subset": subset,
+        "needs_index": needs_index,
+        "q": q, "view": view, "detail_q": detail_q, "element": element,
+        "source": current_source, "dimension_url": dimension_url,
     })
+
+
+@app.post("/api/dimensions/index", status_code=202)
+def start_dimension_index(body: dict = Body(...)):
+    from tm1_insight.store import dimensions, dimension_index
+    from tm1_insight.tasks import TaskBusy
+    store = _store()
+    source = _process_search_source(store.settings)
+    name = body.get("name")
+    if not isinstance(name, str) or not name or len(name) > 1000:
+        return JSONResponse({"error": "请指定有效的维度名称。"}, status_code=400)
+    if body.get("source") != source:
+        return JSONResponse({"error": "数据源已变化，请重新打开维度页。"}, status_code=409)
+    con = store.connect(read_only=True)
+    try:
+        meta = dimensions.metadata(con, name)
+    finally:
+        con.close()
+    if meta is None:
+        return JSONResponse({"error": "维度不存在。"}, status_code=404)
+    settings = store.settings.model_copy()
+    try:
+        return dimension_index.submit(settings, name, source, meta,
+            lambda: _process_search_source(settings) == source)
+    except TaskBusy as error:
+        return JSONResponse({"error": str(error)}, status_code=429)
+
+
+def _dimension_index_state(task_id):
+    from tm1_insight.store.dimension_index import manager
+    jobs = manager(get_settings())
+    try:
+        state = jobs.state(task_id)
+    except KeyError:
+        raise StarletteHTTPException(404, "索引任务不存在或服务已重启，请重试。") from None
+    if state["source"] != _process_search_source():
+        raise StarletteHTTPException(409, "数据源已变化，请重新打开维度页。")
+    return jobs, state
+
+
+@app.get("/api/dimensions/index/{task_id}")
+def dimension_index_status(task_id: str):
+    _, state = _dimension_index_state(task_id)
+    return JSONResponse(state, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/dimensions/index/{task_id}/cancel")
+def cancel_dimension_index(task_id: str):
+    jobs, _ = _dimension_index_state(task_id)
+    return jobs.cancel(task_id)
 
 
 # 兼容旧入口：/explorer 重定向到 Cube 浏览
@@ -465,6 +538,7 @@ def chores_page(request: Request, q: str = Query("", max_length=1000),
 @app.get("/explorer/cube/{name}", response_class=HTMLResponse)
 def explorer_cube(request: Request, name: str):
     store = _store()
+    source = _process_search_source(store.settings)
     con = store.connect(read_only=True)
     try:
         cube = queries.get_cube(con, name)
@@ -473,7 +547,10 @@ def explorer_cube(request: Request, name: str):
         con.close()
     if not cube:
         return _error_page(request, 404, "Cube 不存在", "未找到名为「" + name + "」的 Cube。它可能已被重命名或删除。")
-    return templates.TemplateResponse(request, "cube_view.html", {"cube": cube, "lineage": lineage})
+    if source != _process_search_source(store.settings) or source != _process_search_source():
+        return _error_page(request, 409, "Cube 来源已变化", "请重新打开 Cube，再进入维度结构。")
+    return templates.TemplateResponse(request, "cube_view.html", {"cube": cube, "lineage": lineage,
+                                                               "dimension_source": source})
 
 
 # ---- 页面：Graph（知识图谱：以 TI 为中心的操作 cube + 调用链） ----

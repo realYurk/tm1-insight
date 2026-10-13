@@ -1,53 +1,72 @@
 {% extends "base.html" %}
-{% block title %}维度浏览 · TM1 Insight{% endblock %}
-
-{% block breadcrumb %}
-<nav class="breadcrumb">
-  <a href="/">首页</a><span class="sep">/</span><span class="current">维度浏览</span>
-</nav>
-{% endblock %}
-
+{% block title %}维度结构 · TM1 Insight{% endblock %}
+{% block breadcrumb %}<nav class="breadcrumb"><a href="/">首页</a><span class="sep">/</span><a href="/dimensions">维度结构</a>{% if dimension %}<span class="sep">/</span><span class="current">{{ dimension.name }}</span>{% endif %}</nav>{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1 class="page-title">维度浏览</h1>
-    <p class="page-sub">全部 Dimension 及元素概况</p>
-  </div>
-</div>
-
-<div class="card">
-  <div class="list-toolbar">
-    <h2>Dimensions <span class="tag">{{ total }}</span></h2>
-    <form class="list-search" method="get" action="/dimensions">
-      <input type="search" name="q" value="{{ q }}" placeholder="搜索维度名…">
-      <button type="submit" class="btn primary btn-sm">搜索</button>
-      {% if q %}<a class="btn ghost btn-sm" href="/dimensions">清除</a>{% endif %}
+<div class="page-head"><div><h1 class="page-title">维度结构检查</h1><p class="page-sub">找到元素，核对直接上下级及汇总权重，再回到使用它的 Cube。</p></div></div>
+<div class="dimension-workspace">
+  <aside class="card dimension-browser" aria-label="维度列表">
+    <h2>维度 <span class="tag">{{ listing.total }}</span></h2>
+    <form method="get" action="/dimensions" class="chore-search">
+      <input type="hidden" name="source" value="{{ source }}">
+      <input class="input" type="search" name="q" value="{{ q }}" maxlength="1000" aria-label="搜索全部维度" placeholder="按名称搜索维度">
+      <button class="btn ghost btn-sm" type="submit">搜索维度</button>{% if q %}<a href="/dimensions">清除</a>{% endif %}
     </form>
-  </div>
+    <ul class="list dimension-list">
+      {% for item in listing['items'] %}<li><a href="{{ dimension_url(name=item.name, view='elements', detail_q='', detail_page=1, element='', subset_index=none) }}" {% if dimension and dimension.name == item.name %}aria-current="page"{% endif %}><span>{{ item.name }}</span><small class="muted">原记录 {{ item.element_count if item.element_count is not none else 'UNKNOWN' }} 个元素{% if item.is_system %} · 系统{% endif %}</small></a></li>{% else %}<li class="muted">没有匹配维度，请修改搜索词或检查采集范围。</li>{% endfor %}
+    </ul>
+    <nav class="pagination" aria-label="维度列表分页"><span class="muted small">{{ listing.page }} / {{ listing.pages }}</span>{% if listing.page > 1 %}<a class="btn ghost btn-sm" href="{{ dimension_url(page=listing.page-1) }}">上一页维度</a>{% endif %}{% if listing.page < listing.pages %}<a class="btn ghost btn-sm" href="{{ dimension_url(page=listing.page+1) }}">下一页维度</a>{% endif %}</nav>
+  </aside>
+  <section class="card dimension-detail" id="dimension-detail" aria-label="维度详情">
+    {% if dimension %}
+    <h2>{{ dimension.name }}</h2>
+    <p class="muted small">可识别元素明细：{{ dimension.fields.elements.count if dimension.fields.elements.status == "recorded" else "UNKNOWN" }} 条 · 原记录数量 {{ dimension.element_count if dimension.element_count is not none else 'UNKNOWN' }}</p>
+    <details class="dimension-limits"><summary>采集范围与证据边界</summary><p>当前库保存采集器选中的一个层级结构，层级名称未保存，不能代表全部层级。元素属性值和子集成员未完整采集；动态子集 MDX 未求值。这里展示结构记录，不是 Cube 数值切片或计算结果。</p><p class="muted small">证据位置对应本地 dimensions 字段内的原始数组下标；来源变化后需要重新选择。</p></details>
+    {% for warning in dimension.warnings %}<p class="chore-warning">PARTIAL · {{ warning }}</p>{% endfor %}
+    <nav class="dimension-tabs" aria-label="维度详情切换">
+      {% for key, label in [('elements','元素'),('edges','上下级与权重'),('attributes','属性定义'),('subsets','子集定义'),('cubes','使用它的 Cube')] %}<a class="btn ghost btn-sm" href="{{ dimension_url(view=key, detail_page=1, detail_q='', subset_index=none) }}" {% if view == key %}aria-current="page"{% endif %}>{{ label }}{% if key != 'cubes' %} <span class="tag">{{ dimension.fields[key].count if dimension.fields[key].status == 'recorded' else 'UNKNOWN' }}</span>{% endif %}</a>{% endfor %}
+    </nav>
+    {% if needs_index %}
+    <section class="job-progress" id="dimension-index" data-name="{{ dimension.name }}" data-source="{{ source }}" aria-label="维度索引进度">
+      <h3>准备大维度检索</h3><p class="muted small">首次查看时仅索引当前维度，后续搜索与切换视图复用本地索引。原模型保持只读；模型变化后索引失效。</p>
+      <p id="dimension-index-status" role="status" aria-live="polite">正在准备…</p>
+      <progress class="knowledge-progress" id="dimension-index-progress" aria-label="当前索引阶段进度"></progress>
+      <div class="job-progress-foot"><button class="btn ghost btn-sm" id="dimension-index-cancel" type="button" disabled>取消索引</button><button class="btn primary btn-sm" id="dimension-index-retry" type="button" hidden>重试索引</button></div>
+    </section>
+    {% else %}
 
-  {% if dimensions %}
-  <ul class="list">
-    {% for d in dimensions %}
-    <li>
-      <span>{{ d }}</span>
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <div class="empty-state">
-    <div class="empty-title">{% if q %}没有匹配的维度{% else %}暂无维度数据{% endif %}</div>
-    <div class="empty-desc">{% if q %}换个关键词试试，或<a href="/dimensions">清除搜索</a>。{% else %}尚未入库任何维度，请到「连接设置」拉取 TM1 元数据。{% endif %}</div>
-  </div>
-  {% endif %}
-
-  {% if total_pages > 1 %}
-  <div class="pagination">
-    <span class="pagination-info">共 {{ total }} 项 · 第 {{ page }} / {{ total_pages }} 页</span>
-    <div class="pagination-btns">
-      {% if page > 1 %}<a class="btn ghost btn-sm" href="/dimensions?q={{ q|urlencode }}&page={{ page - 1 }}">上一页</a>{% endif %}
-      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/dimensions?q={{ q|urlencode }}&page={{ page + 1 }}">下一页</a>{% endif %}
-    </div>
-  </div>
-  {% endif %}
+    {% if view != 'cubes' %}
+    <form method="get" action="/dimensions#dimension-detail" class="dimension-search">
+      <input type="hidden" name="q" value="{{ q }}"><input type="hidden" name="page" value="{{ listing.page }}"><input type="hidden" name="name" value="{{ dimension.name }}"><input type="hidden" name="view" value="{{ view }}"><input type="hidden" name="source" value="{{ source }}"><input type="hidden" name="element" value="{{ element }}">
+      {% if subset %}<input type="hidden" name="subset_index" value="{{ subset.position }}">{% endif %}
+      <input class="input" type="search" name="detail_q" value="{{ detail_q }}" aria-label="搜索当前维度记录" placeholder="搜索{{ '父项或子项名称' if view == 'edges' else '名称' }}" maxlength="1000"><button class="btn ghost btn-sm" type="submit">搜索全部记录</button>
+      {% if detail_q %}<a href="{{ dimension_url(detail_q='', detail_page=1) }}">清除搜索</a>{% endif %}
+    </form>
+    {% endif %}
+    {% if view == 'edges' %}<p class="muted small">只展示直接父子关系，保留原始权重（包括负数与零）；不展开递归，也不推导最终汇总值。{% if element %}当前邻接记录：<strong>{{ element }}</strong> · <a href="{{ dimension_url(element='', detail_page=1) }}">查看全部关系</a>{% endif %}</p>{% endif %}
+    {% if view == 'attributes' %}<p class="knowledge-disclaimer">这里只能核对属性名称与记录类型。UNKNOWN · 元素属性值未采集，不能据此还原别名或属性映射结果。</p>{% endif %}
+    {% if view == 'subsets' %}
+      <p class="muted small">选择子集查看已保存的表达式。UNKNOWN · 子集成员未采集，空表达式不代表空子集。</p>
+      {% if subset %}<section class="dimension-subset" aria-label="选中子集定义"><h3>{{ subset.name or 'UNKNOWN · 名称缺失' }}</h3><p class="muted small"><code>{{ subset.evidence }}</code></p>{% if subset.expression %}<p>已保存 MDX，未求值，不能把表达式当作成员结果。</p><pre class="code dimension-expression">{{ subset.expression }}</pre>{% if subset.expression_length > 8000 %}<p class="chore-warning">PARTIAL · 表达式共 {{ subset.expression_length }} 字符，此处展示前 8000 字符。</p>{% endif %}{% elif subset.expression == '' %}<p>记录的表达式为空。UNKNOWN · 没有已保存的静态成员清单。</p>{% else %}<p>UNKNOWN · 未保存可识别的子集表达式或成员清单。</p>{% endif %}</section>{% endif %}
+    {% endif %}
+    {% if details['items'] %}
+    <div class="table-wrap"><table class="table dimension-records"><thead><tr>
+      {% if view in ['elements','attributes'] %}<th>{{ '元素名称' if view == 'elements' else '属性名称' }}</th><th>记录类型</th><th>记录依据</th>
+      {% elif view == 'edges' %}<th>父项</th><th>子项</th><th>原始权重</th><th>记录依据</th>
+      {% elif view == 'subsets' %}<th>子集名称</th><th>定义状态</th><th>记录依据</th>
+      {% else %}<th>Cube</th><th>维度序号（原始值）</th><th>记录依据</th>{% endif %}
+    </tr></thead><tbody>
+      {% for item in details['items'] %}<tr>
+      {% if view in ['elements','attributes'] %}<td>{% if view == 'elements' and item.name %}<a href="{{ dimension_url(view='edges', element=item.name, detail_q='', detail_page=1) }}">{{ item.name }}</a>{% else %}{{ item.name or 'UNKNOWN · 名称缺失' }}{% endif %}</td><td>{{ item.recorded_type or 'UNKNOWN · 类型未采集' }}</td><td><code>{{ item.evidence }}</code></td>
+      {% elif view == 'edges' %}<td>{% if item.parent_exists %}<a href="{{ dimension_url(element=item.parent, detail_q='', detail_page=1) }}">{{ item.parent }}</a>{% else %}{{ item.parent or 'UNKNOWN · 父项缺失' }}<small class="dimension-unknown">PARTIAL · 未找到元素记录</small>{% endif %}</td><td>{% if item.component_exists %}<a href="{{ dimension_url(element=item.component, detail_q='', detail_page=1) }}">{{ item.component }}</a>{% else %}{{ item.component or 'UNKNOWN · 子项缺失' }}<small class="dimension-unknown">PARTIAL · 未找到元素记录</small>{% endif %}</td><td>{{ item.weight if item.weight is not none else 'UNKNOWN · 权重缺失' }}{% if item.weight_length and item.weight_length > 240 %}<small class="dimension-unknown">PARTIAL · 原文 {{ item.weight_length }} 字符，展示前 240 字符</small>{% endif %}{% if not item.weight_known and item.weight is not none %}<small class="dimension-unknown">UNKNOWN · 不是可识别的有限数值</small>{% endif %}</td><td><code>{{ item.evidence }}</code></td>
+      {% elif view == 'subsets' %}<td><a href="{{ dimension_url(subset_index=item.position) }}" {% if subset and subset.position == item.position %}aria-current="page"{% endif %}>{{ item.name or 'UNKNOWN · 名称缺失' }}</a></td><td>{{ 'MDX 未求值' if item.expression else 'UNKNOWN · 成员未采集' }}</td><td><code>{{ item.evidence }}</code></td>
+      {% else %}<td>{% if item.exists %}<a href="/explorer/cube/{{ item.name|urlencode }}">{{ item.name }}</a>{% else %}{{ item.name }}<small class="dimension-unknown">PARTIAL · Cube 记录缺失</small>{% endif %}</td><td>{{ item.dim_order if item.dim_order is not none else 'UNKNOWN' }}</td><td><code>cube_has_dimension</code></td>{% endif %}
+      </tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<div class="empty-state"><div class="empty-title">{{ '没有匹配的记录' if detail_q or element else '当前库没有可展示的记录' }}</div><p class="muted">请核对搜索条件、采集范围与上方证据边界；没有记录不证明对象不存在。</p></div>{% endif %}
+    <nav class="audit-pagination" aria-label="维度记录分页"><span class="muted small">筛选结果 {{ details.total }} 条 · 显示 {{ details.start }}–{{ details.end }} · 第 {{ details.page }} / {{ details.pages }} 页 · 每页 50 条</span><div>{% if details.page > 1 %}<a class="btn ghost btn-sm" href="{{ dimension_url(detail_page=details.page-1) }}">上一页记录</a>{% endif %}{% if details.page < details.pages %}<a class="btn ghost btn-sm" href="{{ dimension_url(detail_page=details.page+1) }}">下一页记录</a>{% endif %}</div></nav>
+    {% endif %}
+    {% else %}<div class="empty-state"><div class="empty-title">选择一个维度查看结构</div><p class="muted">左侧可以按名称搜索；也可从 Cube 的维度名称进入。</p></div>{% endif %}
+  </section>
 </div>
 {% endblock %}
+{% block scripts %}<script src="/static/dimension-index.js" defer></script>{% endblock %}

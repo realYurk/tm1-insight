@@ -56,6 +56,8 @@ python -m tm1_insight.cli study-all --root "D:\PrivateTM1Data" --output "E:\Priv
 
 资产与映射列表各按 50 条分页，搜索和风险筛选覆盖全部结果。数据传输草稿按“选择 Cube → 加载维度 → 配置筛选 → 生成”操作；更换 Cube 或数据源后需要重新核对结构。同名维度只作为坐标复用候选，缺失映射明确标为 UNKNOWN。验证与限制见 [本轮交付记录](docs/DELIVERY_ASSETS_CODEGEN.md)。
 
+「维度」现在可搜索元素，查看直接上下级和原始权重、属性定义、子集表达式及使用它的 Cube；也可从 Cube 结构名称直接进入。大维度首次建立可取消的本地检索索引，后续分页复用。缺失层级名称、属性值和子集成员明确保留为 UNKNOWN，MDX 不自动求值。详见 [维度结构交付记录](docs/DELIVERY_DIMENSION_WORKSPACE.md)。
+
 ### 命令行批量生成本地教材
 
 ```powershell
