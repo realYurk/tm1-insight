@@ -1,0 +1,6 @@
+<section id="{{ job }}-progress" class="job-progress" aria-label="{{ job_label }}进度" hidden>
+  <p data-job-stage role="status" aria-live="polite">准备中…</p>
+  <progress data-job-bar class="knowledge-progress" aria-label="{{ job_label }}当前阶段进度"></progress>
+  <div class="job-progress-foot"><span data-job-count class="muted small">正在确定工作量…</span><button data-job-cancel class="btn ghost btn-sm" type="button" hidden>取消任务</button><a data-job-result class="btn ghost btn-sm" hidden href="{{ result_url }}">{{ result_label }}</a></div>
+  <p class="muted small">百分比仅表示当前阶段的对象完成比例；阶段耗时不同，不代表总耗时进度。取消会在当前操作结束后的检查点生效。</p>
+</section>

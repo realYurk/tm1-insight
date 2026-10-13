@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import threading
 from functools import lru_cache
 from pathlib import Path
 
@@ -66,6 +67,7 @@ _USER_DATA_ROOT = _user_data_root()
 # 用户通过 UI 选择本地数据目录后，这里记录绝对路径；Store 连接时优先使用它。
 # 用环境变量 TM1_INSIGHT_DATA_DIR 或 set_data_dir() 设置。
 _DATA_DIR_OVERRIDE: Path | None = None
+_source_selection_lock = threading.RLock()
 
 def _data_dir_state_path() -> Path:
     return _USER_DATA_ROOT / "data_dir_override.txt"
@@ -79,6 +81,19 @@ except OSError:
 
 
 def set_data_dir(path: str | Path | None) -> None:
+    with _source_selection_lock:
+        _persist_data_dir(path)
+
+
+def activate_collected_source(path: Path, expected_db: Path) -> None:
+    """Atomically avoid replacing a source the user selected during collection."""
+    with _source_selection_lock:
+        if get_settings().db_path.resolve() != expected_db.resolve():
+            raise ValueError("Source changed during collection")
+        _persist_data_dir(path)
+
+
+def _persist_data_dir(path: str | Path | None) -> None:
     """设置数据目录覆盖（切换数据源）。None 表示清除覆盖、回到默认。"""
     global _DATA_DIR_OVERRIDE
     candidate = Path(path).resolve() if path else None

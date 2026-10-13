@@ -8,12 +8,12 @@ import re
 import subprocess
 import sys
 
-ROOT_FILES = {".gitignore", ".gitattributes", "README.md", "AI_INSTRUCTIONS.md",
+ROOT_FILES = {".gitignore", ".gitattributes", "README.md", "AI_INSTRUCTIONS.md", "AGENTS.md", "PRODUCT_CONSTITUTION.md",
               "pyproject.toml", "requirements.txt", "LICENSE", "MANIFEST.in", "start.bat",
               "launcher.py", "tm1_insight.spec", "build_portable.bat", "PORTABLE_README.txt", "requirements-build.lock"}
 PUBLIC_ROOTS = {"src", "tests", "scripts", "docs", ".github"}
 TEXT_SUFFIXES = {".py", ".md", ".html", ".css", ".js", ".toml", ".yml", ".yaml", ".txt"}
-PRIVATE_PARTS = {"data", "cache", "imports", "exports", "logs", "release", "dist", "experiences",
+PRIVATE_PARTS = {"data", "cache", "imports", "exports", "logs", "release", "dist", "experiences", "collections",
                  "reference-outputs", "original-tools", ".workbuddy"}
 
 

@@ -45,8 +45,11 @@
         <a href="/cubes" aria-label="Cube 浏览" title="Cube 浏览" class="nav-link {% if path.startswith('/cubes') or path.startswith('/explorer/cube') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>Cube 浏览</span>
         </a>
-        <a href="/processes" aria-label="TI 进程" title="TI 进程" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') or path.startswith('/explorer/chore') %}active{% endif %}">
+        <a href="/processes" aria-label="TI 进程" title="TI 进程" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/process.svg" %}</span><span>TI 进程</span>
+        </a>
+        <a href="/chores" aria-label="Chore 调度" title="Chore 调度" class="nav-link {% if path.startswith('/chores') or path.startswith('/explorer/chore') %}active{% endif %}">
+          <span class="nav-icon">{% include "icons/process.svg" %}</span><span>Chore 调度</span>
         </a>
         <a href="/dimensions" aria-label="维度" title="维度" class="nav-link {% if path.startswith('/dimensions') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>维度</span>
@@ -79,8 +82,9 @@
       </nav>
 
       <div class="sidebar-foot">
-        <div class="datasource-indicator" id="datasource-indicator" title="当前数据源">
-          <span class="ds-dot"></span><span class="ds-label">检测中…</span>
+        {% set active_source = data_source if data_source is defined else current_data_source() %}
+        <div class="datasource-indicator" id="datasource-indicator" data-type="{{ active_source.type }}" title="{{ active_source.error or active_source.location or '当前数据源' }}">
+          <span class="ds-dot"></span><span class="ds-label">{{ active_source.label }}</span>
         </div>
         <div class="sidebar-foot-note">本地元数据仓库<br>DuckDB + Parquet · 离线可用</div>
       </div>
@@ -116,21 +120,25 @@
       var dot = el.querySelector('.ds-dot');
       var label = el.querySelector('.ds-label');
       var labelMap = {
-        'real_local': 'Local Data',
+        'real_local': 'Local TM1 Data',
         'demo': 'Demo Mode',
         'tm1_server': 'TM1 Server',
         'empty': 'No Data'
       };
-      fetch('/api/datasource/status')
+      function refreshSource() { fetch('/api/datasource/status', {cache: 'no-store'})
         .then(function (r) { return r.json(); })
         .then(function (j) {
           label.textContent = labelMap[j.type] || j.label || 'Data';
           el.setAttribute('data-type', j.type);
-          el.title = j.location || '数据源';
+          el.title = j.error || j.location || '数据源';
         })
         .catch(function () {
-          label.textContent = '—';
+          el.title = '状态刷新失败；显示本页加载时的数据源';
         });
+      }
+      refreshSource();
+      window.addEventListener('pageshow', refreshSource);
+      window.addEventListener('tm1-source-change', refreshSource);
     })();
 
   </script>

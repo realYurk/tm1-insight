@@ -16,6 +16,7 @@ from typing import Any, Callable
 from TM1py.Exceptions import TM1pyException
 
 from tm1_insight.config import Settings
+from tm1_insight.ingest.progress import Progress
 from tm1_insight.tm1.client import TM1Client, safe_filename
 
 logger = logging.getLogger(__name__)
@@ -30,10 +31,16 @@ def save_json(data: Any, filepath: Path) -> None:
 
 
 class Exporter:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, progress: Progress | None = None, strict: bool = False):
         self.settings = settings
         self.client = TM1Client(settings)
         self.raw_dir = settings.raw_dir
+        self.progress = progress
+        self.strict = strict
+
+    def _report(self, phase, done=None, total=None):
+        if self.progress:
+            self.progress(phase, done, total)
 
     # ---- 单对象：fetch + 落盘 ----
     def _export_one(self, tm1, obj_type: str, name: str, *args) -> tuple[str, bool, str | None]:
@@ -64,13 +71,16 @@ class Exporter:
                 last_err = e
                 if attempt < 2:
                     time.sleep(0.5 * (attempt + 1))
-        logger.warning("%s 拉取失败: %s → %s", obj_type, name, last_err)
-        return name, False, str(last_err)
+        logger.warning("%s 拉取失败: %s (%s)", obj_type, name, type(last_err).__name__)
+        return name, False, type(last_err).__name__
 
     # ---- 并行调度 ----
-    def _run_parallel(self, obj_type: str, names: list, extra_args: list | None = None) -> None:
+    def _run_parallel(self, obj_type: str, names: list, extra_args: list | None = None,
+                      phase: str | None = None) -> None:
         extra_args = extra_args or []
         total = len(names)
+        phase = phase or obj_type
+        self._report(phase, 0, total)
         if total == 0:
             logger.info("%s: 无对象", obj_type)
             return
@@ -98,6 +108,7 @@ class Exporter:
                         if not result[1]:
                             counter["failed"] += 1
                             local_failed.append((result[0], result[2]))
+                        self._report(phase, counter["done"], total)
                         if counter["done"] % 200 == 0 or counter["done"] == total:
                             logger.info(
                                 "[%s] %d/%d (失败: %d)",
@@ -117,7 +128,9 @@ class Exporter:
                 try:
                     all_failed.extend(f.result())
                 except Exception as e:  # noqa: BLE001
-                    logger.error("线程异常: %s", e)
+                    logger.error("采集线程异常: %s", type(e).__name__)
+                    if self.strict:
+                        raise RuntimeError("Collection worker failed") from None
 
         elapsed = (datetime.now() - start).total_seconds()
         logger.info(
@@ -130,6 +143,8 @@ class Exporter:
             with open(failed_path, "w", encoding="utf-8") as f:
                 for name, err in all_failed:
                     f.write(f"{name}\t{err}\n")
+        if self.strict and counter["failed"]:
+            raise RuntimeError("Collection contains failed objects")
 
     # ---- 主流程 ----
     def export_all(self) -> dict:
@@ -138,6 +153,7 @@ class Exporter:
             (self.raw_dir / sub).mkdir(parents=True, exist_ok=True)
 
         # 1. 对象名 + 安全信息
+        self._report("enumerate")
         logger.info("连接 TM1: %s:%s", self.settings.tm1_address, self.settings.tm1_port)
         names = self.client.list_all_names()
         logger.info(
@@ -145,6 +161,7 @@ class Exporter:
             len(names["cubes"]), len(names["processes"]),
             len(names["dimensions"]), len(names["chores"]),
         )
+        self._report("security")
         groups, clients = self.client.fetch_security()
 
         # 2. 分类型并行导出（各阶段互不阻断，失败只记日志，保证 loader 一定执行）
@@ -155,22 +172,27 @@ class Exporter:
             try:
                 self._run_parallel(phase, *args)
             except Exception as e:  # noqa: BLE001
-                logger.error("导出 %s 异常: %s", phase, e)
+                logger.error("导出 %s 异常: %s", phase, type(e).__name__)
+                if self.strict:
+                    raise
 
         system_dims = [(n, True) for n in names["dimensions"] if n.startswith("}")]
         business_dims = [(n, False) for n in names["dimensions"] if not n.startswith("}")]
         logger.info("业务维度: %d, 系统维度: %d", len(business_dims), len(system_dims))
-        for phase, args in (
-            ("dimensions", (business_dims,)),
-            ("dimensions", (system_dims,)),
-            ("chores", (names["chores"],)),
+        for phase, kind, args in (
+            ("dimensions_business", "dimensions", (business_dims,)),
+            ("dimensions_system", "dimensions", (system_dims,)),
+            ("chores", "chores", (names["chores"],)),
         ):
             try:
-                self._run_parallel(phase, *args)
+                self._run_parallel(kind, *args, phase=phase)
             except Exception as e:  # noqa: BLE001
-                logger.error("导出 %s 异常: %s", phase, e)
+                logger.error("导出 %s 异常: %s", phase, type(e).__name__)
+                if self.strict:
+                    raise
 
         # 3. 安全信息 + 总索引
+        self._report("raw_index")
         save_json(groups, self.raw_dir / "security" / "groups.json")
         save_json(clients, self.raw_dir / "security" / "clients.json")
         index = {

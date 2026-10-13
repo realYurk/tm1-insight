@@ -15,6 +15,7 @@ from pathlib import Path
 import duckdb
 
 from tm1_insight.config import Settings
+from tm1_insight.ingest.progress import Progress
 from tm1_insight.store.db import Store
 from tm1_insight.store.schema import ALL_TABLES
 
@@ -81,9 +82,15 @@ def _load_json_dir(base: Path, subdir: str) -> list[dict]:
 
 
 class Loader:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, progress: Progress | None = None, strict: bool = False):
         self.settings = settings
         self.store = Store(settings)
+        self.progress = progress
+        self.strict = strict
+
+    def _report(self, phase, done=None, total=None):
+        if self.progress:
+            self.progress(phase, done, total)
 
     def load(self, drop: bool = True) -> dict:
         raw = self.settings.raw_dir
@@ -91,6 +98,7 @@ class Loader:
             raise FileNotFoundError(f"raw 目录不存在: {raw}（请先运行 ingest 拉取）")
 
         t0 = time.time()
+        self._report("load_raw")
         cubes = _load_json_dir(raw, "cubes")
         processes = _load_json_dir(raw, "processes")
         chores = _load_json_dir(raw, "chores")
@@ -104,11 +112,13 @@ class Loader:
 
         try:
             t0 = time.time()
+            self._report("load_objects")
             self._insert_objects(con, cubes, processes, chores)
             self._stream_insert_dimensions(con, raw)
             logger.info("对象入库完成 (耗时 %.1fs)", time.time() - t0)
 
             t0 = time.time()
+            self._report("relations")
             self._insert_relations(con, cubes, processes, chores)
             logger.info("关系解析完成 (耗时 %.1fs)", time.time() - t0)
 
@@ -180,11 +190,13 @@ class Loader:
     def _stream_insert_dimensions(self, con: duckdb.DuckDBPyConnection, raw: Path) -> int:
         """维度文件体积很大（近 1GB），流式分批入库，避免整批加载撑爆内存。"""
         path = raw / "dimensions"
+        files = sorted(fn for fn in path.glob("*.json") if not fn.name.startswith("_"))
+        self._report("load_dimensions", 0, len(files))
         if not path.is_dir():
             return 0
         batch: list[tuple] = []
         count = 0
-        for fn in sorted(path.iterdir()):
+        for index, fn in enumerate(files, 1):
             if not fn.suffix == ".json" or fn.name.startswith("_"):
                 continue
             try:
@@ -192,6 +204,8 @@ class Loader:
                     d = json.load(f)
             except Exception as e:  # noqa: BLE001
                 logger.warning("读取维度 %s 失败: %s", fn, e)
+                if self.strict:
+                    raise RuntimeError("Dimension input could not be read") from None
                 continue
             batch.append((
                 d.get("name"),
@@ -203,6 +217,7 @@ class Loader:
                 json.dumps(d.get("subsets", []) or [], ensure_ascii=False),
             ))
             count += 1
+            self._report("load_dimensions", index, len(files))
             if len(batch) >= 500:
                 _bulk(con, "INSERT INTO dimensions VALUES (?,?,?,?,?,?,?)", batch)
                 batch = []
@@ -369,7 +384,7 @@ class Loader:
             for step in ch.get("processes", []) or []:
                 if isinstance(step, dict):
                     pname = step.get("name")
-                    order = step.get("step_order", 0)
+                    order = step.get("step_order")
                     if pname:
                         chore_rows.append((ch.get("name"), pname, order))
         _bulk(con, "INSERT INTO chore_runs_process VALUES (?, ?, ?)", chore_rows)
@@ -386,11 +401,22 @@ class Loader:
         framework_call_rows: list[tuple] = []
 
         total = len(processes)
+        self._report("lineage", 0, total)
         workers = max(1, min(self.settings.tm1_max_workers, os.cpu_count() or 1))
         with ProcessPoolExecutor(max_workers=workers) as pool:
-            for idx, (status, payload) in enumerate(pool.map(_safe_analyze, processes, chunksize=16), 1):
+            def batches():
+                # Do not queue the entire model: cancellation waits for at most this batch.
+                size = workers * 16
+                for offset in range(0, total, size):
+                    self._report("lineage", offset, total)
+                    yield from pool.map(_safe_analyze, processes[offset:offset + size], chunksize=4)
+
+            for idx, (status, payload) in enumerate(batches(), 1):
+                self._report("lineage", idx, total)
                 if status == "err":
                     logger.warning("解析失败: %s", payload)
+                    if self.strict:
+                        raise RuntimeError("Process analysis failed")
                     continue
                 r = payload
                 name = r["name"]
@@ -440,8 +466,10 @@ class Loader:
         out_dir.mkdir(parents=True, exist_ok=True)
         con = self.store.connect(read_only=True)
         try:
-            for table in ALL_TABLES:
+            self._report("parquet", 0, len(ALL_TABLES))
+            for index, table in enumerate(ALL_TABLES, 1):
                 con.execute(f"COPY {table} TO '{out_dir / (table + '.parquet')}' (FORMAT PARQUET)")
+                self._report("parquet", index, len(ALL_TABLES))
         finally:
             con.close()
         logger.info("Parquet 已导出 → %s", out_dir)

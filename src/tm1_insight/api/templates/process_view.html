@@ -10,7 +10,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="page-head">
+<div class="page-head process-page-head">
   <div>
     <h1 class="page-title">{{ proc.name }}</h1>
     <p class="page-sub">
@@ -20,7 +20,9 @@
       {% if proc.calls_process %}| 调用 {{ proc.calls_process|length }} 个子进程{% endif %}
     </p>
   </div>
+  <button type="button" class="btn ghost" id="open-process-switcher" aria-haspopup="dialog">搜索 / 切换 TI</button>
 </div>
+{% include "process_switcher.html" %}
 
 <div class="proc-layout">
   <!-- ============ 左侧主区：分页 Tab ============ -->
@@ -63,14 +65,16 @@
     <div class="tab-pane {% if not proc.parameters %}active{% endif %}" data-pane="vars">
       <div class="card" style="margin:0;">
         <h2>业务变量 <span class="tag">{{ proc.semantic_vars|length }}</span></h2>
-        <p class="muted small">代码中 v 开头的业务语义变量（维度 / 度量 / 业务口径）。</p>
-        <div class="semvar-grid">
+        <p class="muted small">按 v 命名筛选的词法变量，赋值片段可能截断或重复；不代表运行时取值，业务含义需核对源码。</p>
+        <div class="table-wrap">
+          <table class="table semvar-table">
+            <thead><tr><th>变量</th><th>赋值片段（静态文本）</th></tr></thead>
+            <tbody>
           {% for v in proc.semantic_vars %}
-          <div class="semvar-item">
-            <span class="semvar-name">{{ v.name }}</span>
-            {% if v.value %}<span class="semvar-value">= {{ v.value }}</span>{% endif %}
-          </div>
+              <tr><td><code class="semvar-name">{{ v.name }}</code></td><td>{% if v.value %}<code class="semvar-value">{{ v.value }}</code>{% else %}<span class="muted">UNKNOWN · 未提取到赋值</span>{% endif %}</td></tr>
           {% endfor %}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -154,7 +158,7 @@
         </div>
         {% endif %}
         {% if not call_tree.callers and not call_tree.callees %}
-        <span class="muted small">无调用关系（独立 TI）</span>
+        <span class="muted small">未记录静态调用关系；动态调用可能尚未解析。</span>
         {% endif %}
       </div>
     </div>
@@ -184,6 +188,8 @@
 </div>
 {% endmacro %}
 {% block scripts %}
+<script id="process-search-context" type="application/json">{{ {'source': search_source}|tojson }}</script>
+<script src="/static/process-search.js" defer></script>
 <script>
 (function () {
   var tabs = document.querySelectorAll('.tabbar .tab');
@@ -285,18 +291,5 @@
   prevBtn.addEventListener('click', function () { focusHit(cur - 1); });
 })();
 
-// 从列表页进来时，「返回列表」恢复上次的搜索词与页码
-(function () {
-  var a = document.getElementById('back-to-list');
-  if (!a) return;
-  try {
-    var last = JSON.parse(sessionStorage.getItem('processes-last') || '{}');
-    var params = new URLSearchParams();
-    if (last.q) params.set('q', last.q);
-    if (last.page && last.page > 1) params.set('page', last.page);
-    var qs = params.toString();
-    if (qs) a.href = '/processes?' + qs;
-  } catch (e) {}
-})();
 </script>
 {% endblock %}

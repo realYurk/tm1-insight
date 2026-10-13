@@ -1,0 +1,23 @@
+<dialog id="process-switcher" class="process-switcher" aria-labelledby="process-switcher-title">
+  <div class="list-toolbar">
+    <h2 id="process-switcher-title">搜索 / 切换 TI</h2>
+    <button type="button" class="btn ghost btn-sm" id="close-process-switcher">关闭 · Esc</button>
+  </div>
+  <form id="process-switcher-form" class="process-switcher-form">
+    <input id="process-switcher-query" type="search" maxlength="1000" placeholder="按名称搜索全部 TI，如 Cub.Exp Account Balance" aria-label="搜索全部 TI" autocomplete="off">
+    <select id="process-switcher-scope" aria-label="搜索范围">
+      <option value="name">仅名称</option>
+      <option value="code">仅代码</option>
+      <option value="all">名称和代码</option>
+    </select>
+    <button type="submit" class="btn primary btn-sm">搜索</button>
+  </form>
+  <p class="muted small">代码命中包含注释和字符串，只提供文本证据；不证明调用、值流或运行结果。</p>
+  <p id="process-switcher-status" role="status" aria-live="polite"></p>
+  <ul id="process-switcher-results" class="list" aria-label="TI 搜索结果"></ul>
+  <div class="pagination">
+    <button type="button" class="btn ghost btn-sm" id="process-switcher-prev" disabled>上一页</button>
+    <a id="process-switcher-list" class="btn ghost btn-sm" href="/processes">在完整列表中查看</a>
+    <button type="button" class="btn ghost btn-sm" id="process-switcher-next" disabled>下一页</button>
+  </div>
+</dialog>

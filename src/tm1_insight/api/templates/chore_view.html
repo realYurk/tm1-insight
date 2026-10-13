@@ -1,67 +1,30 @@
 {% extends "base.html" %}
-{% block title %}{{ chore.name }} · Chore{% endblock %}
-
-{% block breadcrumb %}
-<nav class="breadcrumb">
-  <a href="/">概览</a><span class="sep">/</span>
-  <a href="/processes" id="back-to-list">TI 进程</a><span class="sep">/</span>
-  <span class="current">{{ chore.name }}</span>
-</nav>
-{% endblock %}
-
+{% block title %}Chore 调度 · TM1 Insight{% endblock %}
+{% block breadcrumb %}<nav class="breadcrumb"><a href="/">首页</a><span class="sep">/</span><a href="/chores">Chore 调度</a>{% if chore %}<span class="sep">/</span><span class="current">{{ chore.name }}</span>{% endif %}</nav>{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1 class="page-title">{{ chore.name }}</h1>
-    <p class="page-sub">定时任务 Chore · {{ chore.process_count }} 个步骤</p>
-  </div>
+<div class="page-head"><div><h1 class="page-title">Chore 调度</h1><p class="page-sub">从已保存的调度步骤进入 TI 源码查证。</p></div><a class="btn ghost" href="/processes">浏览 TI 进程</a></div>
+<div class="chore-workspace">
+  <section class="card chore-browser" aria-label="Chore 列表">
+    <h2>Chore <span class="tag">{{ total }}</span></h2>
+    <form action="/chores" method="get" class="chore-search"><input type="search" name="q" value="{{ q }}" maxlength="1000" aria-label="搜索 Chore 名称" placeholder="搜索 Chore 名称"><button class="btn primary btn-sm" type="submit">搜索</button>{% if q %}<a href="/chores">清除</a>{% endif %}</form>
+    <ul class="list chore-list">
+      {% for item in chores %}<li><a href="/chores?q={{ q|urlencode }}&page={{ page }}&name={{ item.name|urlencode }}" {% if chore and chore.name == item.name %}aria-current="page"{% endif %}><span>{{ item.name }}</span><small class="muted">{{ item.process_count }} 个记录步骤</small></a></li>{% else %}<li class="muted">{% if q %}没有匹配的 Chore{% else %}当前本地库没有 Chore{% endif %}</li>{% endfor %}
+    </ul>
+    {% if total_pages > 1 %}<nav class="pagination" aria-label="Chore 分页"><span class="muted small">{{ page }} / {{ total_pages }}</span>{% if page > 1 %}<a class="btn ghost btn-sm" href="/chores?q={{ q|urlencode }}&page={{ page - 1 }}">上一页</a>{% endif %}{% if page < total_pages %}<a class="btn ghost btn-sm" href="/chores?q={{ q|urlencode }}&page={{ page + 1 }}">下一页</a>{% endif %}</nav>{% endif %}
+  </section>
+  <section class="card chore-detail" aria-label="Chore 详情">
+    {% if chore %}
+    <h2>{{ chore.name }}</h2>
+    <p class="muted small">已保存 {{ chore.step_total }} 条步骤明细 · 原记录数量 {{ chore.process_count }}</p>
+    <p class="knowledge-disclaimer">这里展示离线采集记录，不是执行历史。步骤次序不证明 TI 之间存在值流；启动时间、频率、参数和实际运行结果尚未完整采集。</p>
+    {% for warning in chore.warnings %}<p class="chore-warning">PARTIAL · {{ warning }}</p>{% endfor %}
+    {% if chore.steps %}
+    <div class="table-wrap"><table class="table" id="chore-steps"><thead><tr><th>位置 / 序号</th><th>TI 进程</th><th>记录依据</th></tr></thead><tbody>
+      {% for step in chore.steps %}<tr><td>{% if chore.order_status == 'recorded' %}<span class="tag">执行序号 {{ step.step_order }}</span>{% else %}记录位置 {{ step.position }}{% if step.step_order is not none %}<div class="muted small">原序号 {{ step.step_order }}</div>{% endif %}{% endif %}</td><td>{% if step.exists %}<a href="/explorer/process/{{ step.name|urlencode }}">{{ step.name }}</a>{% else %}{{ step.name or 'UNKNOWN · TI 名称缺失' }}<div class="muted small">当前本地库未找到</div>{% endif %}</td><td><code>{{ step.evidence }}</code></td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if step_pages > 1 %}<nav class="pagination" aria-label="步骤分页"><span class="muted small">步骤第 {{ step_page }} / {{ step_pages }} 页 · 每页最多 100 条</span>{% if step_page > 1 %}<a class="btn ghost btn-sm" href="/chores?q={{ q|urlencode }}&page={{ page }}&name={{ chore.name|urlencode }}&step_page={{ step_page - 1 }}">上一页步骤</a>{% endif %}{% if step_page < step_pages %}<a class="btn ghost btn-sm" href="/chores?q={{ q|urlencode }}&page={{ page }}&name={{ chore.name|urlencode }}&step_page={{ step_page + 1 }}">下一页步骤</a>{% endif %}</nav>{% endif %}
+    {% else %}<div class="empty-state"><div class="empty-title">暂无步骤明细</div><p class="muted">UNKNOWN · 当前记录不足以还原调度步骤，请核对采集范围与权限。</p></div>{% endif %}
+    {% else %}<div class="empty-state"><div class="empty-title">选择一个 Chore 查看步骤</div><p class="muted">在左侧搜索调度名称，再从步骤进入 TI 源码。</p></div>{% endif %}
+  </section>
 </div>
-
-<div class="card">
-  <h2>执行步骤 <span class="tag">{{ chore.process_count }}</span></h2>
-  <p class="muted small">Chore 按顺序执行下列 TI 进程。步骤顺序为 TM1 中的执行次序。</p>
-
-  {% if chore.steps %}
-  <div class="table-wrap">
-  <table class="table">
-    <thead><tr><th style="width:60px;">顺序</th><th>TI 进程</th></tr></thead>
-    <tbody>
-      {% for s in chore.steps %}
-      <tr>
-        <td><span class="tag">{{ s.step_order if s.step_order is not none else loop.index }}</span></td>
-        <td>
-          {% set pname = s.name if s.name is defined else s %}
-          {% if pname %}<a class="tree-node" href="/explorer/process/{{ pname }}">{{ pname }}</a>{% else %}<span class="muted">—</span>{% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% else %}
-  <div class="empty-state">
-    <div class="empty-icon">{% include "icons/process.svg" %}</div>
-    <div class="empty-title">该 Chore 暂无步骤明细</div>
-    <div class="empty-desc">这通常是因为拉取元数据时未展开 Chore 的任务列表（TM1py 的 Chore 对象未返回 <code>tasks</code>）。请在「连接设置」重新拉取元数据后查看。</div>
-  </div>
-  {% endif %}
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// 从列表页进来时，「返回列表」恢复上次的搜索词与页码
-(function () {
-  var a = document.getElementById('back-to-list');
-  if (!a) return;
-  try {
-    var last = JSON.parse(sessionStorage.getItem('processes-last') || '{}');
-    var params = new URLSearchParams();
-    if (last.q) params.set('q', last.q);
-    if (last.page && last.page > 1) params.set('page', last.page);
-    var qs = params.toString();
-    if (qs) a.href = '/processes?' + qs;
-  } catch (e) {}
-})();
-</script>
 {% endblock %}

@@ -258,14 +258,14 @@ class TM1Client:
         tasks = safe_getattr(chore, "tasks", None)
         if tasks is None:
             tasks = safe_getattr(chore, "processes", [])
-        for idx, task in enumerate(tasks or []):
+        for task in tasks or []:
             if isinstance(task, dict):
                 # dict 形态：REST 展开后 Task 的 Process 是 {"Name": ...}
                 proc_ref = task.get("Process") or {}
                 pname = task.get("process_name") or task.get("Name") or task.get("name")
                 if isinstance(proc_ref, dict):
                     pname = pname or proc_ref.get("Name") or proc_ref.get("name")
-                step = task.get("Step") or task.get("step") or idx
+                step = task.get("Step", task.get("step", task.get("step_order")))
                 processes.append({"name": pname, "step_order": step})
             else:
                 # ChoreTask 对象：process_name / step 属性
@@ -278,7 +278,7 @@ class TM1Client:
                 processes.append(
                     {
                         "name": pname,
-                        "step_order": safe_getattr(task, "step", idx),
+                        "step_order": safe_getattr(task, "step", None),
                     }
                 )
 

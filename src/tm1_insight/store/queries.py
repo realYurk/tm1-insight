@@ -975,6 +975,62 @@ def search_processes(con: duckdb.DuckDBPyConnection, keyword: str, limit: int = 
     ).fetchall()]
 
 
+def search_process_page(
+    con: duckdb.DuckDBPyConnection, keyword: str = "", scope: str = "name",
+    offset: int = 0, limit: int = 100,
+) -> dict:
+    """Literal, paginated TI search. Code hits are source text, never execution/data edges.
+
+    Only fetch source text for the returned page and only in code/all mode. The legacy
+    search_processes contract remains available to existing API/graph consumers.
+    """
+    if scope not in {"name", "code", "all"}:
+        raise ValueError("Unsupported process search scope")
+    keyword = keyword.strip()
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    fields = ["name"] if scope == "name" or not keyword else ["prolog", "metadata", "data", "epilog"]
+    if scope == "all" and keyword:
+        fields.insert(0, "name")
+    # strpos treats %, _ and quotes as literal characters; no SQL wildcard surprises.
+    where = " OR ".join(f"strpos(lower(coalesce({field}, '')), lower(?)) > 0" for field in fields)
+    params = [keyword] * len(fields)
+    total = con.execute(f"SELECT count(*) FROM processes WHERE {where}", params).fetchone()[0]
+    offset = min(offset, ((max(total, 1) - 1) // limit) * limit)
+    columns = "name" if scope == "name" or not keyword else "name, prolog, metadata, data, epilog"
+    rows = con.execute(
+        f"SELECT {columns} FROM processes WHERE {where} "
+        "ORDER BY CASE WHEN lower(name) = lower(?) THEN 0 "
+        "WHEN starts_with(lower(name), lower(?)) THEN 1 "
+        "WHEN strpos(lower(name), lower(?)) > 0 THEN 2 ELSE 3 END, lower(name), name "
+        "LIMIT ? OFFSET ?",
+        params + [keyword, keyword, keyword, limit, offset],
+    ).fetchall()
+    items = []
+    source_pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+    for row in rows:
+        match = {"kind": "name"}
+        if keyword and (scope == "code" or keyword.lower() not in row[0].lower()):
+            # One inspectable first occurrence per process, bounded to this page.
+            for section, source in zip(("prolog", "metadata", "data", "epilog"), row[1:]):
+                source = source or ""
+                occurrence = source_pattern.search(source)
+                if occurrence is None:
+                    continue
+                position = occurrence.start()
+                line = source.count("\n", 0, position) + 1
+                line_start = source.rfind("\n", 0, position) + 1
+                column = position - line_start
+                start = max(line_start, position - 60)
+                match = {"kind": "code", "section": section, "line": line,
+                         "column": column + 1,
+                         "excerpt": ("…" if start > line_start else "") + source[start:start + 240].split("\n")[0]}
+                break
+        items.append({"name": row[0], "match": match})
+    return {"items": items, "total": total, "offset": offset, "limit": limit,
+            "q": keyword, "scope": scope}
+
+
 def search_objects(con: duckdb.DuckDBPyConnection, keyword: str, limit: int = 20) -> dict:
     """统一搜索 Cube + TI 进程 + Chore，返回带类型的对象列表（用于工作台/全局搜索）。
 
@@ -1344,34 +1400,80 @@ def list_chores(con: duckdb.DuckDBPyConnection) -> list[dict]:
     ]
 
 
+def search_chore_page(con, keyword: str = "", offset: int = 0, limit: int = 50) -> dict:
+    keyword = keyword.strip()
+    limit = max(1, min(limit, 100))
+    total = con.execute("SELECT count(*) FROM chores WHERE strpos(lower(name), lower(?)) > 0",
+                        [keyword]).fetchone()[0]
+    offset = min(max(offset, 0), ((max(total, 1) - 1) // limit) * limit)
+    items = [{"name": row[0], "process_count": row[1]} for row in con.execute(
+        "SELECT name, process_count FROM chores WHERE strpos(lower(name), lower(?)) > 0 "
+        "ORDER BY lower(name), name LIMIT ? OFFSET ?", [keyword, limit, offset]).fetchall()]
+    return {"items": items, "total": total, "offset": offset, "limit": limit, "q": keyword}
+
+
 def get_chore(con: duckdb.DuckDBPyConnection, name: str) -> dict | None:
-    """单个 Chore 详情：名称 + 步骤列表（按 step_order 排序）。"""
+    """Recorded schedule evidence only: do not invent order for incomplete metadata."""
     row = con.execute(
         "SELECT name, processes, process_count FROM chores WHERE name = ?", [name]
     ).fetchone()
     if not row:
         return None
-    import json
     steps = []
+    warnings = []
+    source_field = "chores.processes"
     try:
         raw = json.loads(row[1] or "[]")
         if isinstance(raw, list):
             steps = raw
+        else:
+            warnings.append("步骤 JSON 不是受支持的列表格式，尝试使用关联表。")
     except (ValueError, TypeError):
-        steps = []
+        warnings.append("步骤 JSON 无法读取，尝试使用已保存的关联表。")
     # 若 processes JSON 为空，回退查 chore_runs_process 关联表
     if not steps:
+        source_field = "chore_runs_process"
         steps = [
             {"name": r[0], "step_order": r[1]}
             for r in con.execute(
                 "SELECT process_name, step_order FROM chore_runs_process "
-                "WHERE chore_name = ? ORDER BY step_order", [name]
+                "WHERE chore_name = ? ORDER BY step_order NULLS LAST, process_name", [name]
             ).fetchall()
         ]
+    normalized = []
+    for index, step in enumerate(steps):
+        item = step if isinstance(step, dict) else {"name": step if isinstance(step, str) else None}
+        order = item.get("step_order")
+        valid_order = isinstance(order, int) and not isinstance(order, bool) and order >= 0
+        normalized.append({**item, "name": item.get("name") if isinstance(item.get("name"), str) else "",
+                           "step_order": order if valid_order else None, "recorded_order": order,
+                           "source_index": index,
+                           "evidence": f"{source_field}[{index}]" if source_field == "chores.processes" else "chore_runs_process.step_order"})
+    orders = [step["step_order"] for step in normalized]
+    explicit_order = bool(normalized) and all(order is not None for order in orders) and len(set(orders)) == len(orders)
+    if explicit_order:
+        normalized.sort(key=lambda step: step["step_order"])
+    elif normalized:
+        warnings.append("执行序号缺失、无效或重复；仅按存储位置展示，不能确认执行次序。")
+    names = [step["name"] for step in normalized if step["name"]]
+    available = set()
+    if names:
+        available = {row[0] for row in con.execute(
+            "SELECT name FROM processes WHERE name IN (" + ",".join("?" for _ in names) + ")", names).fetchall()}
+    for position, step in enumerate(normalized, 1):
+        step["position"] = position
+        step["exists"] = step["name"] in available
+    declared_count = row[2] or 0
+    if declared_count != len(normalized):
+        warnings.append("已保存的步骤数量与明细数量不一致，明细可能不完整。")
+    if any(not step["exists"] for step in normalized):
+        warnings.append("部分步骤的 TI 名称缺失或当前本地库未找到该 TI；这不证明服务器对象已删除。")
     return {
         "name": row[0],
-        "process_count": row[2] if row[2] else len(steps),
-        "steps": steps,
+        "process_count": declared_count,
+        "steps": normalized,
+        "order_status": "recorded" if explicit_order else "unknown",
+        "warnings": warnings,
     }
 
 

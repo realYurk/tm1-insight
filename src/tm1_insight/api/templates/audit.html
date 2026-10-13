@@ -42,13 +42,7 @@
   </table>
   </div>
   <p class="muted small status-inline" id="audit-status" role="status" aria-live="polite">直接填写现有文件夹位置再扫描，无需复制到 C 盘。设置按模型保存；扫描结果进入独立工作区，不改原始模型数据库。当前每张表扫描前 200 行，未命中不能证明不存在引用。</p>
-  <div class="progress-wrap" id="audit-progress">
-    <div class="progress-track"><div class="progress-fill" id="audit-progress-fill"></div></div>
-    <div class="progress-label">
-      <span id="audit-progress-text">准备中…</span>
-      <span class="pct" id="audit-progress-pct"></span>
-    </div>
-  </div>
+  {% with job='audit', job_label='前端扫描', result_url='/audit', result_label='查看扫描结果' %}{% include "job_progress.html" %}{% endwith %}
 </div>
 
 <div class="card">
@@ -130,6 +124,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/job-progress.js"></script>
 <script>
 // 资产表筛选（纯前端）
 function applyAssetFilter() {
@@ -178,83 +173,25 @@ function applyMappingFilter() {
   }
 }
 
-async function runAudit() {
-  const btn = document.getElementById('audit-btn');
-  const status = document.getElementById('audit-status');
-  const wrap = document.getElementById('audit-progress');
-  const fill = document.getElementById('audit-progress-fill');
-  const ptext = document.getElementById('audit-progress-text');
-  const ppct = document.getElementById('audit-progress-pct');
-  btn.disabled = true;
-  btn.textContent = '扫描中…';
-  status.textContent = '正在启动扫描（后台执行，可关闭页面）…';
-  status.className='status-inline muted';
+const auditJob = new TM1JobProgress('audit', 'audit-btn', 'audit-status');
+function runAudit() { return auditJob.start(auditPaths()); }
+function auditPaths() {
+  return {applications: document.getElementById('audit-applications').value,
+    externals: document.getElementById('audit-externals').value,
+    work_dir: document.getElementById('audit-work-dir').value};
+}
+document.getElementById('audit-save-paths').addEventListener('click', async event => {
+  const button = event.currentTarget, status = document.getElementById('audit-status');
+  button.disabled = true;
+  status.textContent = '正在保存目录…';
   try {
-    const r = await fetch('/api/audit', { method: 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(auditPaths()) });
-    const j = await r.json();
-    if (!r.ok) { status.textContent = '扫描失败：' + (j.error || r.status); status.className='status-inline err'; btn.disabled=false; btn.textContent='重新扫描资产'; return; }
-    wrap.classList.add('visible');
-    pollAudit();
-  } catch (e) {
-    status.textContent = '请求失败：' + e;
-    status.className='status-inline err';
-    btn.disabled = false;
-    btn.textContent = '重新扫描资产';
-  }
-}
-
-let auditPolling = false;
-async function pollAudit() {
-  if (auditPolling) return;
-  auditPolling = true;
-  try {
-  const btn = document.getElementById('audit-btn');
-  const status = document.getElementById('audit-status');
-  const wrap = document.getElementById('audit-progress');
-  const fill = document.getElementById('audit-progress-fill');
-  const ptext = document.getElementById('audit-progress-text');
-  const ppct = document.getElementById('audit-progress-pct');
-  while (true) {
-    await new Promise(res => setTimeout(res, 1500));
-    let j;
-    try { const response=await fetch('/api/audit/status'); j=await response.json(); if(!response.ok)throw new Error(j.error || '读取扫描状态失败'); }
-    catch (e) { status.textContent=e.message;status.className='status-inline err';btn.disabled=false;btn.textContent='重新扫描资产';return; }
-    if (j.running && j.progress) {
-      const p = j.progress;
-      const pct = p.total ? Math.round(p.done / p.total * 100) : 0;
-      fill.style.width = pct + '%';
-      ptext.textContent = `正在扫描前端资产… ${p.done}/${p.total}`;
-      ppct.textContent = pct + '%';
-      status.textContent = p.phase || '扫描中';
-      status.className='status-inline muted';
-      continue;
-    }
-    if (j.done) {
-      if (j.error) {
-        status.textContent = '扫描失败：' + j.error;
-        status.className='status-inline err';
-      } else {
-        fill.style.width = '100%';
-        ppct.textContent = '100%';
-        ptext.textContent = '扫描完成';
-        const s = j.stats || {};
-        status.textContent = `扫描完成：${s.excel_assets || 0} 个资产、${s.front_backend_mapping || 0} 条映射，正在刷新…`;
-        status.className='status-inline ok';
-        location.reload();
-      }
-      btn.disabled = false;
-      btn.textContent = '重新扫描资产';
-      return;
-    }
-  }
-}
-finally { auditPolling = false; }
-}
-function auditPaths(){return {applications:document.getElementById('audit-applications').value,externals:document.getElementById('audit-externals').value,work_dir:document.getElementById('audit-work-dir').value};}
-document.getElementById('audit-save-paths').addEventListener('click',async event=>{
-  const button=event.currentTarget,status=document.getElementById('audit-status');button.disabled=true;status.textContent='正在保存目录…';
-  try{const response=await fetch('/api/audit/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(auditPaths())});const result=await response.json();if(!response.ok)throw new Error(result.error);status.textContent='目录已保存，点击重新扫描资产即可开始。';}catch(e){status.textContent=e.message;}finally{button.disabled=false;}
+    const response = await fetch('/api/audit/config', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify(auditPaths())});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || '保存失败。');
+    status.textContent = '目录已保存，点击重新扫描资产即可开始。';
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
 });
-fetch('/api/audit/status').then(r=>r.ok?r.json():null).then(state=>{if(state && state.running){const btn=document.getElementById('audit-btn');btn.disabled=true;btn.textContent='扫描中…';document.getElementById('audit-progress').classList.add('visible');pollAudit();}}).catch(()=>{});
 </script>
 {% endblock %}

@@ -8,7 +8,7 @@ import logging
 import sys
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import shutil
 import json
@@ -16,7 +16,7 @@ import io
 import zipfile
 from functools import lru_cache
 
-from fastapi import Body, FastAPI, File, Request, UploadFile
+from fastapi import Body, FastAPI, File, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -27,6 +27,8 @@ from tm1_insight.config import Settings, get_settings
 from tm1_insight.store.db import Store
 from tm1_insight.store import queries
 from tm1_insight.store.graph_adapter import dependencies_from_store
+from tm1_insight.ingest.progress import INGEST_STAGES, AUDIT_STAGES, stage_progress
+from tm1_insight.tasks import TaskCancelled
 from tm1_insight.api.knowledge_tasks import router as knowledge_router
 from tm1_insight.api.learning import router as learning_router
 from tm1_insight.api.experience import router as experience_router
@@ -98,12 +100,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 # 内存中的 ingest 任务状态（单进程内）
-_ingest_state: dict = {"running": False, "done": False, "error": None, "stats": None}
+_ingest_state: dict = {"running": False, "done": False, "error": None, "stats": None, "progress": None}
 _ingest_lock = threading.Lock()
+_ingest_cancel = threading.Event()
 
 # 内存中的前端资产扫描任务状态
 _audit_state: dict = {"running": False, "done": False, "error": None, "stats": None, "progress": None}
 _audit_lock = threading.Lock()
+_audit_cancel = threading.Event()
 
 
 # ===========================================================================
@@ -115,10 +119,10 @@ _page_cache: dict[str, tuple[str, str]] = {}          # cache_key -> (data_finge
 _page_cache_lock = threading.Lock()
 
 
-def _data_fingerprint() -> str:
+def _data_fingerprint(settings: Settings | None = None) -> str:
     """当前数据目录下主库文件的 mtime 指纹，用于判断数据是否变化。"""
     try:
-        settings = get_settings()
+        settings = settings or get_settings()
         db = Path(settings.db_path) if settings.db_path else None
         if db and db.exists():
             st = db.stat()
@@ -163,10 +167,13 @@ def _run_audit(settings=None) -> None:
         from tm1_insight.ingest.audit import load_audit
 
         def progress(phase, done, total):
+            if _audit_cancel.is_set():
+                raise TaskCancelled()
             with _audit_lock:
-                _audit_state["progress"] = {"phase": phase, "done": done, "total": total}
+                _audit_state["progress"] = stage_progress(AUDIT_STAGES, phase, done, total)
 
         from tm1_insight.audit_workspace import workspace
+        progress("prepare", None, None)
         scan_settings = workspace(settings or get_settings().model_copy(), initialize=True)
         stats = load_audit(scan_settings, progress=progress)
         with _audit_lock:
@@ -174,7 +181,8 @@ def _run_audit(settings=None) -> None:
     except Exception as e:  # noqa: BLE001
         logger.error("本地前端扫描失败：%s", type(e).__name__)
         with _audit_lock:
-            _audit_state.update({"running": False, "done": True, "error": "扫描失败，请检查文件格式、权限和缓存目录空间。", "stats": None})
+            _audit_state.update({"running": False, "done": True, "cancelled": _audit_cancel.is_set(),
+                "error": "扫描已取消，上次完整结果保留。" if _audit_cancel.is_set() else "扫描失败，请检查文件格式、权限和缓存目录空间。", "stats": None})
 
 
 def _coerce_creds(raw: dict) -> dict:
@@ -228,6 +236,15 @@ def _data_source_status() -> dict:
     }
 
 
+templates.env.globals["current_data_source"] = _data_source_status
+
+
+def _process_search_source(settings: Settings | None = None) -> str:
+    """Browser context key: private path is hashed, source updates invalidate locations."""
+    import hashlib
+    return hashlib.sha256(_data_fingerprint(settings).encode("utf-8")).hexdigest()
+
+
 # ---- 页面：首页 ----
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
@@ -255,10 +272,10 @@ def index(request: Request):
     # 数据快照时间：取 duckdb 文件 mtime（无单独元数据表，用它近似「上次拉取」时间）
     snapshot_time = None
     try:
-        if store.db_path.exists():
+        if Path(store.db_path).exists():
             import datetime
             snapshot_time = datetime.datetime.fromtimestamp(
-                store.db_path.stat().st_mtime
+                Path(store.db_path).stat().st_mtime
             ).strftime("%Y-%m-%d %H:%M")
     except Exception:  # noqa: BLE001
         snapshot_time = None
@@ -291,6 +308,8 @@ def settings_page(request: Request):
         has_data = counts.get("cubes", 0) > 0
     except Exception:  # noqa: BLE001
         counts, has_data = {}, False
+    from tm1_insight.audit_workspace import preferences
+    audit_paths = preferences(store.settings)
     return templates.TemplateResponse(request, "settings.html", {
         "has_data": has_data,
         "data_source": _data_source_status(),
@@ -298,8 +317,8 @@ def settings_page(request: Request):
         # 端口与 SSL 非敏感，保留回填。
         "tm1_port": settings.tm1_port,
         "tm1_ssl": settings.tm1_ssl,
-        "input_applications_dir": str(settings.input_applications_dir),
-        "input_externals_dir": str(settings.input_externals_dir),
+        "input_applications_dir": audit_paths["applications"],
+        "input_externals_dir": audit_paths["externals"],
         "ingest_state": _ingest_state,
     })
 
@@ -326,34 +345,26 @@ def cubes_page(request: Request, q: str = "", page: int = 1):
 
 
 @app.get("/processes", response_class=HTMLResponse)
-def processes_page(request: Request, q: str = "", page: int = 1):
+def processes_page(request: Request, q: str = Query("", max_length=1000),
+                   page: int = Query(1, ge=1), scope: Literal["name", "code", "all"] = "name"):
     store = _store()
     con = store.connect(read_only=True)
     try:
-        if q.strip():
-            # 服务端搜索（含代码全文）
-            all_procs = queries.search_processes(con, q, limit=500)
-            total = len(all_procs)
-            per_page = 100
-            offset = max(0, (page - 1)) * per_page
-            processes = all_procs[offset:offset + per_page]
-            chores = []
-        else:
-            per_page = 100
-            offset = max(0, (page - 1)) * per_page
-            processes = [r[0] for r in con.execute(
-                "SELECT name FROM processes ORDER BY name LIMIT ? OFFSET ?",
-                [per_page, offset]).fetchall()]
-            total = con.execute("SELECT count(*) FROM processes").fetchone()[0]
-            chores = queries.list_chores(con)
+        per_page = 100
+        result = queries.search_process_page(con, q, scope, (page - 1) * per_page, per_page)
+        total = result["total"]
+        page = result["offset"] // per_page + 1
+        chore_count = con.execute("SELECT count(*) FROM chores").fetchone()[0]
     finally:
         con.close()
     total_pages = max(1, (total + per_page - 1) // per_page)
     return templates.TemplateResponse(request, "processes.html", {
-        "processes": processes,
-        "chores": chores,
+        "processes": result["items"],
+        "chore_count": chore_count,
         "total": total,
-        "q": q,
+        "q": result["q"],
+        "scope": scope,
+        "search_source": _process_search_source(store.settings),
         "page": page,
         "total_pages": total_pages,
     })
@@ -401,8 +412,11 @@ def explorer(request: Request):
 
 
 @app.get("/explorer/process/{name}", response_class=HTMLResponse)
-def explorer_process(request: Request, name: str):
+def explorer_process(request: Request, name: str, source: str = Query("", max_length=64)):
     store = _store()
+    current_source = _process_search_source(store.settings)
+    if source and source != current_source:
+        return _error_page(request, 409, "源码位置已失效", "数据源或文件已变化，请返回 TI 列表重新搜索；旧行号未用于定位。")
     con = store.connect(read_only=True)
     try:
         proc = queries.get_process(con, name)
@@ -411,20 +425,41 @@ def explorer_process(request: Request, name: str):
         con.close()
     if not proc:
         return _error_page(request, 404, "TI 进程不存在", "未找到名为「" + name + "」的 TI 进程。它可能已被重命名或删除。")
-    return templates.TemplateResponse(request, "process_view.html", {"proc": proc, "call_tree": call_tree})
+    if source and current_source != _process_search_source():
+        return _error_page(request, 409, "源码位置已失效", "数据源或文件已变化，请返回 TI 列表重新搜索；旧行号未用于定位。")
+    return templates.TemplateResponse(request, "process_view.html", {
+        "proc": proc, "call_tree": call_tree, "search_source": current_source})
 
 
 @app.get("/explorer/chore/{name}", response_class=HTMLResponse)
 def explorer_chore(request: Request, name: str):
+    return chores_page(request, q="", page=1, name=name, step_page=1)
+
+
+@app.get("/chores", response_class=HTMLResponse)
+def chores_page(request: Request, q: str = Query("", max_length=1000),
+                page: int = Query(1, ge=1), name: str = "", step_page: int = Query(1, ge=1)):
     store = _store()
     con = store.connect(read_only=True)
     try:
-        chore = queries.get_chore(con, name)
+        result = queries.search_chore_page(con, q, (page - 1) * 50, 50)
+        selected = name or (result["items"][0]["name"] if result["items"] else "")
+        chore = queries.get_chore(con, selected) if selected else None
     finally:
         con.close()
-    if not chore:
-        return _error_page(request, 404, "Chore 不存在", "未找到名为「" + name + "」的 Chore。它可能已被重命名或删除。")
-    return templates.TemplateResponse(request, "chore_view.html", {"chore": chore})
+    if name and not chore:
+        return _error_page(request, 404, "Chore 不存在", "当前本地库未找到所选 Chore，请重新搜索。")
+    step_pages = 1
+    if chore:
+        chore["step_total"] = len(chore["steps"])
+        step_pages = max(1, (chore["step_total"] + 99) // 100)
+        step_page = min(step_page, step_pages)
+        chore["steps"] = chore["steps"][(step_page - 1) * 100:step_page * 100]
+    return templates.TemplateResponse(request, "chore_view.html", {
+        "chore": chore, "chores": result["items"], "q": result["q"],
+        "total": result["total"], "page": result["offset"] // 50 + 1,
+        "total_pages": max(1, (result["total"] + 49) // 50),
+        "step_page": step_page, "step_pages": step_pages})
 
 
 @app.get("/explorer/cube/{name}", response_class=HTMLResponse)
@@ -784,7 +819,7 @@ def status() -> dict:
 @app.get("/api/datasource/status")
 def api_datasource_status() -> dict:
     """返回当前数据源状态（Local / Demo / Empty）。"""
-    return _data_source_status()
+    return JSONResponse(_data_source_status(), headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/datasource/detect")
@@ -860,7 +895,10 @@ def api_datasource_use(body: dict = Body(...)) -> dict:
 
     if source == "demo":
         # load_demo_data 内部已 set_data_dir(demo_dir)，无需再次设置
-        ds.load_demo_data()
+        try:
+            ds.load_demo_data()
+        except ValueError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
         return {"ok": True, "status": _data_source_status()}
 
     if source == "local":
@@ -969,6 +1007,22 @@ def api_search(q: str, limit: int = 50) -> dict:
         con.close()
 
 
+@app.get("/api/processes/search")
+def api_process_search(q: str = Query("", max_length=1000),
+                       scope: Literal["name", "code", "all"] = "name",
+                       offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
+    store = _store()
+    source = _process_search_source(store.settings)
+    con = store.connect(read_only=True)
+    try:
+        result = queries.search_process_page(con, q, scope, offset, limit)
+    finally:
+        con.close()
+    if source != _process_search_source():
+        return JSONResponse({"error": "数据源已变化，请刷新页面后重新搜索。"}, status_code=409)
+    return JSONResponse({**result, "source": source}, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/search-all")
 def api_search_all(q: str, limit: int = 20) -> dict:
     """统一搜索 Cube + TI，返回带类型的结果（工作台全局搜索用）。"""
@@ -1003,23 +1057,45 @@ def api_trace(cube: Optional[str] = None, mdx: Optional[str] = None) -> dict:
         con.close()
 
 
-def _run_ingest(creds: dict | None = None) -> None:
-    global _ingest_state
-    with _ingest_lock:
-        _ingest_state = {"running": True, "done": False, "error": None, "stats": None}
+def _run_ingest(settings: Settings) -> None:
+    """Build a fresh model, validate, then atomically select it. Never rebuild the active DB."""
     try:
+        import tempfile
         from tm1_insight.ingest.exporter import Exporter
         from tm1_insight.ingest.loader import Loader
+        from tm1_insight.config import activate_collected_source
 
-        settings = _settings_with_creds(creds)
-        Exporter(settings).export_all()
-        stats = Loader(settings).load(drop=True)
+        def progress(phase, done=None, total=None):
+            if _ingest_cancel.is_set():
+                raise TaskCancelled()
+            with _ingest_lock:
+                _ingest_state["progress"] = stage_progress(INGEST_STAGES, phase, done, total)
+
+        root = settings.user_data_root / "collections"
+        root.mkdir(parents=True, exist_ok=True)
+        folder = Path(tempfile.mkdtemp(prefix="model-", dir=root))
+        staged = settings.model_copy(update={"data_dir": folder, "database_file": None,
+            "tm1_skip_existing": False, "input_applications_dir": folder / "inputs" / "applications",
+            "input_externals_dir": folder / "inputs" / "externals",
+            "input_process_dir": folder / "inputs" / "process", "input_rux_dir": folder / "inputs" / "rux"})
+        exported = Exporter(staged, progress=progress, strict=True).export_all()
+        stats = Loader(staged, progress=progress, strict=True).load(drop=True)
+        progress("validate")
+        actual = Store(staged).all_rows()
+        if not actual.get("cubes") or any(actual.get(key, 0) != exported[key]
+                                         for key in ("cubes", "processes", "dimensions", "chores")):
+            raise ValueError("Collected object counts did not reconcile")
+        progress("activate")
+        activate_collected_source(staged.db_path, settings.db_path)
         with _ingest_lock:
-            _ingest_state = {"running": False, "done": True, "error": None, "stats": stats}
+            _ingest_state.update({"running": False, "done": True, "error": None, "stats": stats})
     except Exception as e:  # noqa: BLE001
-        logger.exception("ingest 失败")
+        logger.error("采集失败，原数据源未被重建 (%s)", type(e).__name__)
         with _ingest_lock:
-            _ingest_state = {"running": False, "done": True, "error": str(e), "stats": None}
+            _ingest_state.update({"running": False, "done": True,
+                "cancelled": _ingest_cancel.is_set(),
+                "error": "采集已取消，未切换数据源，原模型保留。" if _ingest_cancel.is_set() else "采集或校验未完成，未切换数据源。原模型保留；请检查连接、权限、磁盘空间及是否中途换库。",
+                "stats": None})
 
 
 @app.post("/api/ingest")
@@ -1029,15 +1105,34 @@ def api_ingest(payload: Optional[dict] = Body(default=None)):
     with _ingest_lock:
         if _ingest_state.get("running"):
             return JSONResponse({"error": "已有拉取任务在运行"}, status_code=409)
-    thread = threading.Thread(target=_run_ingest, args=(creds,), daemon=True)
-    thread.start()
+        # Reserve before starting the worker: simultaneous clicks cannot create two jobs.
+        settings = _settings_with_creds(creds).model_copy()
+        _ingest_cancel.clear()
+        _ingest_state.update({"running": True, "done": False, "error": None, "stats": None,
+                              "cancelled": False, "cancel_requested": False,
+                              "progress": stage_progress(INGEST_STAGES, "enumerate")})
+    try:
+        threading.Thread(target=_run_ingest, args=(settings,), daemon=True).start()
+    except RuntimeError:
+        with _ingest_lock:
+            _ingest_state.update({"running": False, "done": True, "error": "无法启动采集任务。"})
+        return JSONResponse({"error": "无法启动采集任务。"}, status_code=503)
     return {"started": True}
 
 
 @app.get("/api/ingest/status")
 def api_ingest_status() -> dict:
     with _ingest_lock:
-        return dict(_ingest_state)
+        return JSONResponse(dict(_ingest_state), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/ingest/cancel")
+def cancel_ingest():
+    with _ingest_lock:
+        if _ingest_state.get("running"):
+            _ingest_cancel.set()
+            _ingest_state["cancel_requested"] = True
+    return {"cancel_requested": _ingest_cancel.is_set()}
 
 
 @app.get("/api/audit/config")
@@ -1070,9 +1165,16 @@ def api_audit(body: Optional[dict] = Body(default=None)) -> dict:
             save_preferences(settings, body or preferences(settings))
         except (ValueError, OSError):
             return JSONResponse({"error":"请指定存在的扫描目录和可写缓存目录；外部仓库可以留空。"}, status_code=400)
-        _audit_state.update({"running": True, "done": False, "error": None, "stats": None, "source":fingerprint(settings), "progress": {"phase": "准备中", "done": 0, "total": 0}})
-    thread = threading.Thread(target=_run_audit, args=(settings,), daemon=True)
-    thread.start()
+        _audit_cancel.clear()
+        _audit_state.update({"running": True, "done": False, "error": None, "stats": None,
+            "cancelled": False, "cancel_requested": False,
+            "source": fingerprint(settings), "progress": stage_progress(AUDIT_STAGES, "prepare")})
+    try:
+        threading.Thread(target=_run_audit, args=(settings,), daemon=True).start()
+    except RuntimeError:
+        with _audit_lock:
+            _audit_state.update({"running": False, "done": True, "error": "无法启动扫描任务。"})
+        return JSONResponse({"error": "无法启动扫描任务。"}, status_code=503)
     return {"started": True}
 
 
@@ -1081,5 +1183,15 @@ def api_audit_status() -> dict:
     with _audit_lock:
         from tm1_insight.api.knowledge_tasks import fingerprint
         if _audit_state.get("source") and _audit_state["source"] != fingerprint():
-            return JSONResponse({"error":"数据源已切换，旧扫描结果仅保存在原模型的独立工作区。"}, status_code=409)
-        return dict(_audit_state)
+            message = "另一数据源的扫描仍在执行，请等待完成后重新开始。" if _audit_state.get("running") else "数据源已切换，旧扫描结果仅保存在原模型的独立工作区。"
+            return JSONResponse({"error": message}, status_code=409)
+        return JSONResponse(dict(_audit_state), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/audit/cancel")
+def cancel_audit():
+    with _audit_lock:
+        if _audit_state.get("running"):
+            _audit_cancel.set()
+            _audit_state["cancel_requested"] = True
+    return {"cancel_requested": _audit_cancel.is_set()}

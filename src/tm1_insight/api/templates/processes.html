@@ -13,22 +13,33 @@
     <h1 class="page-title">TI 进程</h1>
     <p class="page-sub">全部 TI 进程及其读写 Cube / 调用关系</p>
   </div>
+  <a class="btn ghost" href="/chores">Chore 调度 · {{ chore_count }}</a>
 </div>
 
 <div class="card">
   <div class="list-toolbar">
     <h2>TI 进程 <span class="tag">{{ total }}</span></h2>
-    <form class="list-search" method="get" action="/processes">
-      <input type="search" name="q" value="{{ q }}" placeholder="搜索 TI 进程名 / 代码…">
+    <form class="list-search process-list-search" method="get" action="/processes">
+      <input type="search" name="q" value="{{ q }}" maxlength="1000" placeholder="搜索 TI 名称，如 Cub.Exp Account Balance" aria-label="搜索 TI">
+      <select name="scope" aria-label="搜索范围">
+        <option value="name" {% if scope == 'name' %}selected{% endif %}>仅名称</option>
+        <option value="code" {% if scope == 'code' %}selected{% endif %}>仅代码</option>
+        <option value="all" {% if scope == 'all' %}selected{% endif %}>名称和代码</option>
+      </select>
       <button type="submit" class="btn primary btn-sm">搜索</button>
       {% if q %}<a class="btn ghost btn-sm" href="/processes">清除</a>{% endif %}
     </form>
   </div>
+  <p class="muted small">默认仅按名称匹配。代码命中包含注释和字符串，只是文本位置，不证明调用或计算关系。</p>
 
   {% if processes %}
   <ul class="list">
     {% for p in processes %}
-    <li><a href="/explorer/process/{{ p }}">{{ p }}</a></li>
+    <li class="process-search-item">
+      <a href="/explorer/process/{{ p.name|urlencode }}{% if p.match.kind == 'code' %}?source={{ search_source }}#{{ p.match.section }}-L{{ p.match.line }}{% endif %}">{{ p.name }}</a>
+      {% if q %}<span class="tag">{% if p.match.kind == 'code' %}代码 · {{ p.match.section }} : {{ p.match.line }}{% else %}名称匹配{% endif %}</span>{% endif %}
+      {% if p.match.kind == 'code' %}<code class="process-excerpt">{{ p.match.excerpt }}</code>{% endif %}
+    </li>
     {% endfor %}
   </ul>
   {% else %}
@@ -43,30 +54,16 @@
   <div class="pagination">
     <span class="pagination-info">共 {{ total }} 项 · 第 {{ page }} / {{ total_pages }} 页</span>
     <div class="pagination-btns">
-      {% if page > 1 %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&page={{ page - 1 }}">上一页</a>{% endif %}
-      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&page={{ page + 1 }}">下一页</a>{% endif %}
+      {% if page > 1 %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&scope={{ scope }}&page={{ page - 1 }}">上一页</a>{% endif %}
+      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&scope={{ scope }}&page={{ page + 1 }}">下一页</a>{% endif %}
     </div>
   </div>
   {% endif %}
 </div>
 
-{% if chores %}
-<div class="card">
-  <h2>Chores <span class="tag">{{ chores|length }}</span></h2>
-  <ul class="list">
-    {% for ch in chores %}
-    <li><a href="/explorer/chore/{{ ch.name }}">{{ ch.name }}</a> <span class="tag">{{ ch.process_count }} 步</span></li>
-    {% endfor %}
-  </ul>
-</div>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}
-<script>
-// 记录当前列表位置，供详情页「返回列表」恢复搜索词与页码（标签页会话级，不污染下次打开）
-(function () {
-  try { sessionStorage.setItem('processes-last', JSON.stringify({ q: {{ q|tojson }}, page: {{ page }} })); } catch (e) {}
-})();
-</script>
+<script id="process-search-context" type="application/json">{{ {'source': search_source, 'q': q, 'scope': scope, 'page': page, 'is_list': true}|tojson }}</script>
+<script src="/static/process-search.js" defer></script>
 {% endblock %}

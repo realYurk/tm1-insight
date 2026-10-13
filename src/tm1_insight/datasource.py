@@ -39,8 +39,8 @@ from tm1_insight.store.schema import ALL_TABLES
 logger = logging.getLogger(__name__)
 
 # Demo 建库的进程级锁：保证多请求并发触发兜底时只建一次库，
-# 避免 DuckDB 多连接同时 DROP/CREATE 同一表导致事务冲突。
-_demo_lock = threading.Lock()
+# 避免 DuckDB 多连接同时创建同一演示库导致事务冲突。
+_demo_lock = threading.RLock()
 _source_cache: tuple[str, DataSourceStatus] | None = None
 
 
@@ -111,7 +111,7 @@ def detect_current_source() -> DataSourceStatus:
     """检测当前数据目录的数据状态。
 
     规则：
-      1. 当前数据目录 == demo 目录 且 cubes 非空 → DEMO
+      1. 当前数据库 == 内置 Demo 文件 且 cubes 非空 → DEMO
       2. 当前数据目录 db/tm1_insight.duckdb 存在且 cubes 非空 → REAL_LOCAL
       3. 否则 → EMPTY（由上层决定是否落入 Demo 模式）
 
@@ -134,11 +134,11 @@ def detect_current_source() -> DataSourceStatus:
         fp = f"{db_path.resolve()}:missing"
     status = DataSourceStatus(type=DataSourceType.EMPTY, db_path=str(db_path))
 
-    # 识别 Demo 目录（数据目录指针指向 demo/ 时标记为 Demo）
+    # 只有内置 Demo 文件标为 Demo，同目录中的其他数据库仍为 Local。
     try:
-        is_demo_dir = settings.data_dir.resolve() == _demo_data_dir().resolve()
+        is_demo_db = db_path.resolve() == (_demo_data_dir() / "db" / "tm1_insight.duckdb").resolve()
     except OSError:
-        is_demo_dir = False
+        is_demo_db = False
 
     if _is_real_db(db_path):
         store = Store(settings)
@@ -147,7 +147,7 @@ def detect_current_source() -> DataSourceStatus:
         except Exception as e:  # noqa: BLE001
             status.error = str(e)
             return status
-        status.type = DataSourceType.DEMO if is_demo_dir else DataSourceType.REAL_LOCAL
+        status.type = DataSourceType.DEMO if is_demo_db else DataSourceType.REAL_LOCAL
         status.ready = True
         status.counts = counts
         status.location = str(settings.data_dir)
@@ -155,6 +155,8 @@ def detect_current_source() -> DataSourceStatus:
             status.db_size = db_path.stat().st_size
         except OSError:
             pass
+    elif db_path.exists():
+        status.error = "当前数据库不可读或没有 Cube 数据，请检查文件与权限；不会自动切换到 Demo。"
 
     _source_cache = (fp, DataSourceStatus(type=status.type, location=status.location, ready=status.ready,
                                           counts=dict(status.counts), db_path=status.db_path,
@@ -307,6 +309,12 @@ DEMO_MODEL: dict[str, Any] = {
 
 
 def load_demo_data() -> DataSourceStatus:
+    """Switch to the separate Demo store; reuse existing data without rebuilding tables."""
+    with _demo_lock:
+        return _load_demo_data_locked()
+
+
+def _load_demo_data_locked() -> DataSourceStatus:
     """把内置 Demo 模型写入**独立的 demo 数据目录**，返回数据源状态。
 
     关键设计：Demo 数据写入用户数据目录下的 ``demo/`` 子目录，**绝不覆盖
@@ -325,16 +333,22 @@ def load_demo_data() -> DataSourceStatus:
     # 与 Store.db_path 约定一致：<data_dir>/db/tm1_insight.duckdb
     db_path = demo_dir / "db" / "tm1_insight.duckdb"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(db_path))
-    try:
-        # 幂等：先删旧表再重建（避免重复调用报 already exists）
-        for name in ALL_TABLES:
-            con.execute(f"DROP TABLE IF EXISTS {name}")
-        for ddl in ALL_TABLES.values():
-            con.execute(ddl)
-        _write_demo_rows(con)
-    finally:
-        con.close()
+    if db_path.exists():
+        if not _is_real_db(db_path):
+            raise ValueError("现有 Demo 数据库不可读；为保护已有文件，未覆盖或重建。")
+    else:
+        import tempfile
+        # Build separately so a failed initialization leaves no partial active database.
+        with tempfile.TemporaryDirectory(prefix=".demo-build-", dir=db_path.parent) as folder:
+            candidate = Path(folder) / "demo.duckdb"
+            con = duckdb.connect(str(candidate))
+            try:
+                for ddl in ALL_TABLES.values():
+                    con.execute(ddl)
+                _write_demo_rows(con)
+            finally:
+                con.close()
+            candidate.replace(db_path)
 
     # 让当前数据目录指向 demo 目录
     set_data_dir(demo_dir)
@@ -424,10 +438,13 @@ def ensure_demo_if_empty() -> DataSourceStatus:
 
     并发安全：demo 建库是「写一次、后续复用」的操作，用模块级锁保证
     多请求同时触发时只有一个真正建库，其余等待后复用已建好的库，
-    避免 DuckDB 事务冲突（多连接同时 DROP/CREATE 同一表）。
+    避免 DuckDB 事务冲突（多连接同时创建同一演示库）。
     """
     status = detect_current_source()
     if status.type in (DataSourceType.REAL_LOCAL, DataSourceType.DEMO):
+        return status
+    if get_settings().db_path.exists():
+        # Existing unreadable/empty data is not permission to change the selected model.
         return status
     from tm1_insight.config import get_data_dir_override
     selected = get_data_dir_override()

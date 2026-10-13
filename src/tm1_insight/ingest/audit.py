@@ -358,6 +358,8 @@ def scan_audit(settings: Settings, progress: callable | None = None, replace: bo
     扫描大 xlsx 带增量缓存，重复扫描跳过未变化文件，显著加速。
     """
     apps_dir = settings.input_applications_dir
+    if progress:
+        progress("enumerate", None, None)
     ext_dir = settings.input_externals_dir
     store = Store(settings)
 
@@ -385,6 +387,8 @@ def scan_audit(settings: Settings, progress: callable | None = None, replace: bo
                 entries.append((os.path.relpath(root, apps_dir), file, full))
 
     total = len(entries)
+    if progress:
+        progress("scan", 0, total)
     for idx, (menu, file, full) in enumerate(entries):
         lower = file.lower()
 
@@ -410,9 +414,11 @@ def scan_audit(settings: Settings, progress: callable | None = None, replace: bo
             else:
                 assets.append((menu, file, "Invalid Blob", "高", "Parse Failed", "", False, 0))
 
-        if progress and (idx % 50 == 0 or idx == total - 1):
-            progress("扫描中", idx + 1, total)
+        if progress:
+            progress("scan", idx + 1, total)
 
+    if progress:
+        progress("save", None, None)
     _save_scan_cache(settings, cache)
 
     con = store.connect()

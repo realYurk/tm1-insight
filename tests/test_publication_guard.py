@@ -9,7 +9,9 @@ spec.loader.exec_module(guard)
 def test_publication_allows_product_text_only():
     assert guard.inspect("src/tm1_insight/tasks.py", b"# product source", []) == []
     assert guard.inspect("docs/PRODUCT.md", b"# product contract", []) == []
-    for name in ["data/db/model.duckdb", ".env", "exports/report.json", "docs/customer.zip", "imports/data.csv"]:
+    assert guard.inspect("AGENTS.md", b"# repository constraints", []) == []
+    assert guard.inspect("PRODUCT_CONSTITUTION.md", b"# product direction", []) == []
+    for name in ["data/db/model.duckdb", ".env", "exports/report.json", "docs/customer.zip", "imports/data.csv", "collections/model/raw/cubes/private.json"]:
         assert guard.inspect(name, b"private", [])
 
 

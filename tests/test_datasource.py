@@ -65,6 +65,50 @@ def test_empty_when_no_data(isolated):
     assert not s.has_data
 
 
+def test_existing_unreadable_default_database_never_silently_becomes_demo(isolated):
+    database = isolated / "data" / "db" / "tm1_insight.duckdb"
+    database.parent.mkdir(parents=True)
+    database.write_bytes(b"existing unreadable data: preserve")
+    before = database.read_bytes()
+    status = ds.ensure_demo_if_empty()
+    assert status.type == ds.DataSourceType.EMPTY and status.error
+    assert config.get_data_dir_override() is None
+    assert database.read_bytes() == before
+    assert not (isolated / "demo").exists()
+
+
+def test_local_database_beside_demo_is_identified_by_exact_file(isolated):
+    ds.load_demo_data()
+    original = _make_real_db(isolated / "fixture")
+    sibling = isolated / "demo" / "customer.duckdb"
+    sibling.write_bytes(original.read_bytes())
+    set_data_dir(sibling)
+    assert ds.detect_current_source().type == ds.DataSourceType.REAL_LOCAL
+
+
+def test_corrupt_demo_is_preserved_and_active_local_not_changed(isolated):
+    local = _make_real_db(isolated / "local")
+    set_data_dir(local)
+    database = isolated / "demo" / "db" / "tm1_insight.duckdb"
+    database.parent.mkdir(parents=True)
+    database.write_bytes(b"do not overwrite")
+    with pytest.raises(ValueError, match="未覆盖"):
+        ds.load_demo_data()
+    assert database.read_bytes() == b"do not overwrite"
+    assert config.get_settings().db_path == local
+
+
+def test_failed_demo_build_does_not_leave_partial_active_file(isolated, monkeypatch):
+    def fail(connection):
+        raise RuntimeError("synthetic initialization failure")
+    monkeypatch.setattr(ds, "_write_demo_rows", fail)
+    with pytest.raises(RuntimeError):
+        ds.load_demo_data()
+    assert not (isolated / "demo" / "db" / "tm1_insight.duckdb").exists()
+    assert not list((isolated / "demo" / "db").glob(".demo-build-*"))
+    assert config.get_data_dir_override() is None
+
+
 def test_real_local_when_data_exists(isolated):
     """存在真实数据 → REAL_LOCAL，counts 动态读取。"""
     data_dir = isolated / "data"
