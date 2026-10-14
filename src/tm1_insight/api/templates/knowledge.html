@@ -1,11 +1,12 @@
 {% extends "base.html" %}
-{% block title %}知识提炼 · TM1 Insight{% endblock %}
+{% block title %}证据包导出 · TM1 Insight{% endblock %}
 {% block content %}
 <div class="page-head"><div>
-  <h1 class="page-title">知识提炼</h1>
+  <h1 class="page-title">证据包导出</h1>
   <p class="page-sub">将模型关系与代码证据整理成可复查的本地知识包</p>
 </div><span class="tag">离线分析 · 无 AI</span></div>
 
+{% include "task_help.html" %}
 <section class="card" aria-labelledby="scope-title">
   <h2 id="scope-title">选择功能范围</h2>
   <form id="knowledge-form">

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}影响分析 · TM1 Insight{% endblock %}
+{% block title %}改动影响 · TM1 Insight{% endblock %}
 
 {% block breadcrumb %}
 <nav class="breadcrumb">
-  <a href="/">首页</a><span class="sep">/</span><span class="current">影响分析</span>
+  <a href="/">首页</a><span class="sep">/</span><span class="current">改动影响</span>
   {% if source %}<span class="sep">/</span><span class="current">{{ source }}</span>{% endif %}
 </nav>
 {% endblock %}
@@ -11,11 +11,12 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">影响分析</h1>
+    <h1 class="page-title">改动影响</h1>
     <p class="page-sub">检查对象的结构依赖与依赖它的对象，保留每条可达路径</p>
   </div>
 </div>
 
+{% include "task_help.html" %}
 <p class="knowledge-disclaimer">当前展示结构依赖的可达范围。读写、调用和 Rule 引用的方向各有语义；这些路径不能直接证明单元格数据传播、业务影响或运行时执行顺序。</p>
 
 <div class="card">
@@ -42,41 +43,43 @@
 
 <!-- ============ 依赖（下游：它依赖谁） ============ -->
 <div class="card">
-  <h2>依赖对象（Downstream）<span class="tag">{{ result.downstream|length }}</span></h2>
+  <h2>它依赖谁（依赖对象）<span class="tag">{{ result.downstream|length }}</span></h2>
   {% if result.downstream %}
   <ul class="list">
     {% for lin in result.downstream[:100] %}
     <li>
       <a href="/impact?source={{ lin.target|urlencode }}">{{ lin.target }}</a>
-      <span class="tag">{{ 'direct' if lin.depth == 1 else 'indirect' }}</span>
-      <span class="tag">depth {{ lin.depth }}</span>
-      <span class="muted small">path: {{ lin.path|join(' → ') }}</span>
+      <span class="tag">{{ '直接' if lin.depth == 1 else '间接' }}</span>
+      {% if lin.target|lower == source|lower %}<span class="tag">自身引用</span>{% endif %}
+      <span class="tag">层级 {{ lin.depth }}</span>
+      <span class="muted small">依赖路径：{{ lin.path|join(' → ') }}</span>
     </li>
     {% endfor %}
   </ul>
   {% if result.downstream|length > 100 %}<p class="muted small">首屏显示前 100 个对象；可继续选择具体对象缩小范围。</p>{% endif %}
   {% else %}
-  <p class="muted small">该对象不依赖任何已确认的对象（无下游依赖）。</p>
+  <p class="muted small">当前已解析目录中没有观察到依赖；动态引用和缺失采集仍需核对。</p>
   {% endif %}
 </div>
 
 <!-- ============ 受影响（上游：谁依赖它） ============ -->
 <div class="card">
-  <h2>结构依赖方（潜在受影响范围）<span class="tag">{{ result.upstream|length }}</span></h2>
+  <h2>谁依赖它（结构依赖方）<span class="tag">{{ result.upstream|length }}</span></h2>
   {% if result.upstream %}
   <ul class="list">
     {% for imp in result.upstream[:100] %}
     <li>
       <a href="/impact?source={{ imp.source|urlencode }}">{{ imp.source }}</a>
-      <span class="tag">{{ 'direct' if imp.depth == 1 else 'indirect' }}</span>
-      <span class="tag">depth {{ imp.depth }}</span>
+      <span class="tag">{{ '直接' if imp.depth == 1 else '间接' }}</span>
+      {% if imp.source|lower == source|lower %}<span class="tag">自身引用</span>{% endif %}
+      <span class="tag">层级 {{ imp.depth }}</span>
       <span class="muted small">依赖证据链：{{ imp.path|join(' → ') }}</span>
     </li>
     {% endfor %}
   </ul>
   {% if result.upstream|length > 100 %}<p class="muted small">首屏显示前 100 个对象；可继续选择具体对象缩小范围。</p>{% endif %}
   {% else %}
-  <p class="muted small">没有对象依赖它（无上游依赖者）。</p>
+  <p class="muted small">当前已解析目录中没有观察到依赖方；不能据此认定修改没有影响。</p>
   {% endif %}
 </div>
 
@@ -85,7 +88,7 @@
 
 {% block scripts %}
 <script>
-// 影响分析自动联想：复用 /api/search-all（Cube + TI），与全站搜索同款下拉样式
+// 改动影响自动联想：复用 /api/search-all（Cube + TI），与全站搜索同款下拉样式
 let impactTimer = null;
 const impactInput = document.getElementById('impact-input');
 const impactResults = document.getElementById('impact-results');

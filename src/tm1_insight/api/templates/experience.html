@@ -2,9 +2,10 @@
 {% block title %}我的经验 · TM1 Insight{% endblock %}
 {% block content %}
 <div class="page-head"><div><h1 class="page-title">我的经验</h1><p class="page-sub">把项目中的线索，整理成有证据、有适用条件的个人方法</p></div><button class="btn ghost" id="experience-export">备份当前项目经验</button></div>
-<p class="knowledge-disclaimer">记录仅存本机，按模型隔离。验证状态是你的人工记录，软件没有执行 TM1 测试；模型更新后会标记证据需要复查。</p>
-<section class="card"><h2>当前项目的经验记录</h2><p>先在「读懂业务 → 关键 TI 与公式」保存一个候选，再回来补充业务含义和验证记录。</p>
-<form id="experience-search" class="knowledge-query"><label>查找经验<input class="input" id="experience-query" placeholder="标题、业务问题或适用条件"></label><label>评审状态<select class="input" id="experience-status-filter"><option value="">全部</option><option value="candidate">候选</option><option value="reviewed">已评审</option><option value="validated">人工确认已验证</option><option value="deprecated">已弃用</option></select></label><button class="btn ghost">查找</button></form>
+<p class="knowledge-disclaimer">这是你的个人经验本，无需审批。记录仅存本机、按模型隔离；“已记录验证”表示你填写了测试记录，软件没有执行 TM1 测试。模型更新后，旧证据会提示复查。</p>
+{% include "task_help.html" %}
+<section class="card"><h2>当前项目的经验记录</h2><p>先在「功能梳理 → 关键 TI 与公式」保存一个候选，再回来补充业务含义和验证记录。</p>
+<form id="experience-search" class="knowledge-query"><label>查找经验<input class="input" id="experience-query" placeholder="标题、业务问题或适用条件"></label><label>整理状态<select class="input" id="experience-status-filter"><option value="">全部</option><option value="candidate">待整理</option><option value="reviewed">已整理</option><option value="validated">已记录验证</option><option value="deprecated">暂不复用</option></select></label><button class="btn ghost">查找</button></form>
 <div id="experience-list" aria-live="polite"></div><div class="knowledge-pagination"><button class="btn ghost" id="experience-previous">上一页</button><span id="experience-page"></span><button class="btn ghost" id="experience-next">下一页</button></div></section>
 <section class="card" id="experience-editor" hidden><h2>把这条经验写清楚</h2><p id="experience-origin" class="muted small"></p>
 <form id="experience-form" class="experience-form">
@@ -14,12 +15,12 @@
 <label>哪些情况不能直接使用？<textarea class="input" id="exp-limitations" maxlength="2000" rows="3" placeholder="零驱动、负数、舍入、重跑、并发和失败恢复的边界。"></textarea></label>
 <label>验证了什么？<textarea class="input" id="exp-validation_notes" maxlength="2000" rows="4" placeholder="记录本地样本或测试文件位置、预期结果、实际结果、对账差异及异常用例；不要填写密码。"></textarea></label>
 <label>归到哪种设计方法？<select class="input" id="exp-method"><option value="custom">待归类 / 自定义</option></select></label>
-<label>这次评审达到哪一步？<select class="input" id="exp-status"><option value="candidate">候选：业务含义还需核对</option><option value="reviewed">已评审：用途和边界已写清</option><option value="validated">人工确认已验证：已有测试记录</option><option value="deprecated">已弃用：保留历史供参考</option></select></label>
-<label>评审人<input class="input" id="exp-reviewer" maxlength="2000"></label><label>本次修改原因<input class="input" id="exp-change_reason" required maxlength="2000"></label>
+<label>这条经验整理到哪一步？<select class="input" id="exp-status"><option value="candidate">待整理：先记下线索</option><option value="reviewed">已整理：用途和边界已写清</option><option value="validated">已记录验证：我已补充测试记录</option><option value="deprecated">暂不复用：保留记录供参考</option></select></label>
+<label>本次修改原因<input class="input" id="exp-change_reason" required maxlength="2000"></label>
 <div><button class="btn primary" id="experience-save">保存新版本</button><button class="btn ghost" type="button" id="experience-history">查看修改历史</button></div></form><div id="experience-history-list"></div></section>
-<section class="card"><h2>我要做分摊，怎样选择实现方式？</h2><p>先说清约束，再查看排除原因与待验证条件。计算方式和规则管理可以组合。</p>
+<details class="card"><summary>需要设计分摊时：比较实现方式</summary><p>先说清约束，再查看排除原因与待验证条件。计算方式和规则管理可以组合。</p>
 <form id="allocation-compare" class="experience-form"><label>什么时候需要更新结果？<select class="input" id="choice-frequency"><option value="scheduled">定时 / 批次更新</option><option value="interactive">交互中随依赖更新</option></select></label>
-<label><input type="checkbox" id="choice-persist_results" checked> 必须保存独立的结果批次</label><label><input type="checkbox" id="choice-multi_stage"> 存在多级 / 多步骤分摊</label><label><input type="checkbox" id="choice-varying_rules" checked> 不同业务的规则会变化</label><label><input type="checkbox" id="choice-audit" checked> 需要审计和对账</label><label><input type="checkbox" id="choice-concurrent"> 多个任务需要同时运行</label><button class="btn primary" id="choice-submit">比较实现方式</button></form><div id="choice-results" aria-live="polite"></div></section>
+<label><input type="checkbox" id="choice-persist_results" checked> 必须保存独立的结果批次</label><label><input type="checkbox" id="choice-multi_stage"> 存在多级 / 多步骤分摊</label><label><input type="checkbox" id="choice-varying_rules" checked> 不同业务的规则会变化</label><label><input type="checkbox" id="choice-audit" checked> 需要审计和对账</label><label><input type="checkbox" id="choice-concurrent"> 多个任务需要同时运行</label><button class="btn primary" id="choice-submit">比较实现方式</button></form><div id="choice-results" aria-live="polite"></div></details>
 <p id="experience-message" role="status" aria-live="polite"></p>
 {% endblock %}
 {% block scripts %}<script src="/static/experience.js" defer></script>{% endblock %}

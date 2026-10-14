@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}知识图谱 · TM1 Insight{% endblock %}
+{% block title %}对象关系图 · TM1 Insight{% endblock %}
 
 {% block breadcrumb %}
 <nav class="breadcrumb">
-  <a href="/">概览</a><span class="sep">/</span><span class="current">知识图谱</span>
+  <a href="/">概览</a><span class="sep">/</span><span class="current">对象关系图</span>
   {% if graph %}<span class="sep">/</span><span class="current">{{ graph.root }}</span>{% endif %}
 </nav>
 {% endblock %}
@@ -11,11 +11,12 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">知识图谱</h1>
+    <h1 class="page-title">对象关系图</h1>
     <p class="page-sub">以 TI 进程为中心，看它往哪个 Cube 的哪个切面写数据；上下游调用链为辅</p>
   </div>
 </div>
 
+{% include "task_help.html" %}
 <!-- ============ TI 搜索（自动联想） ============ -->
 <div class="search-hero">
   <div class="search-box">
@@ -177,7 +178,7 @@
 <div class="graph-node" style="margin-left: {{ (node.depth - 1) * 16 }}px;">
   <div class="gn-head">
     <span class="gn-kind {{ 'up' if kind == 'caller' else 'down' }}">{{ '上游' if kind == 'caller' else '下游' }}</span>
-    <a class="gn-name" href="/graph?ti={{ node.name }}" title="在知识图谱中以此 TI 为中心展开">{{ node.name }}</a>
+    <a class="gn-name" href="/graph?ti={{ node.name }}" title="在对象关系图中以此 TI 为中心展开">{{ node.name }}</a>
     <a class="gn-recenter" href="/graph?ti={{ node.name }}" title="以此为中心重新展开"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M12 15l-4-4M12 15l4-4"/></svg></a>
   </div>
   <div class="gn-flow">

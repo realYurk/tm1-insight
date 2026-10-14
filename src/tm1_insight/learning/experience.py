@@ -1,4 +1,4 @@
-"""Private, transactional review records. Customer model DuckDB stays read-only."""
+"""Private personal notes with revision history. Original models stay read-only."""
 from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime,timezone
@@ -76,7 +76,7 @@ def update(settings,identifier,expected_revision,fields,current_source):
         if row[0]!=expected_revision:raise RuntimeError("经验已被另一页面更新，请重新打开后编辑。")
         if row[0]>=100:raise ValueError("此经验已达到 100 个历史版本上限，请导出备份后建立新的候选。")
         card=json.loads(row[1]);card.update(fields)
-        if card["status"] not in STATUSES:raise ValueError("未知评审状态。")
+        if card["status"] not in STATUSES:raise ValueError("未知整理状态。")
         if card["method"] not in {c["id"] for c in CATALOG}|{"custom"}:raise ValueError("未知设计方法。")
         for key in ("title","problem","applicability","limitations","validation_notes","reviewer","change_reason"):
             if not isinstance(card[key],str) or len(card[key])>2000:raise ValueError("文本字段不能超过 2000 字。")
@@ -84,8 +84,8 @@ def update(settings,identifier,expected_revision,fields,current_source):
         if not card["title"] or not card["change_reason"]:raise ValueError("请填写标题与本次修改原因。")
         if card["status"] in {"reviewed","validated"}:
             if card["source_fingerprint"]!=current_source:raise RuntimeError("模型已变化，请重新分析并保存新候选；旧经验仍可阅读和导出。")
-            if not all(card[key] for key in ("problem","applicability","limitations","reviewer")):
-                raise ValueError("评审前请填写问题、适用条件、限制与评审人。")
+            if not all(card[key] for key in ("problem","applicability","limitations")):
+                raise ValueError("标记已整理前，请写清问题、适用条件与限制。")
         if card["status"]=="validated" and not card["validation_notes"]:
             raise ValueError("请记录测试输入、预期输出、实际结果与异常用例；软件不代替执行验证。")
         card["revision"]+=1;card["updated"]=datetime.now(timezone.utc).isoformat()

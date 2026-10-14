@@ -73,3 +73,44 @@ def test_comparison_explains_hard_constraint_and_rejects_coerced_booleans(client
     assert next(c for c in result['choices'] if c['id']=='rule')['status']=='excluded_as_standalone'
     assert all(not c['reviewed_examples'] for c in result['choices'])
     assert client.post('/api/experience/compare',json={**body,'audit':'yes'}).status_code==422
+
+
+def personal_card(client):
+    from tm1_insight.api.knowledge_tasks import fingerprint
+    client.get('/')
+    return experience.create(get_settings(),fingerprint(),dict(process='Synthetic.Personal',source_hash='a'*64,
+        patterns=[],reads=[],writes=[],calls=[]))
+
+
+def test_personal_notes_need_no_reviewer_but_validation_requires_notes(client):
+    import hashlib
+    card=personal_card(client)
+    source_before=hashlib.sha256(get_settings().db_path.read_bytes()).hexdigest()
+    body=dict(expected_revision=1,title='My method',problem='Synthetic calculation',applicability='One period',
+        limitations='Unknown external inputs',change_reason='Organize my note',method='custom',status='reviewed')
+    result=client.post('/api/experience/cards/'+card['id'],json=body)
+    assert result.status_code==200,result.text
+    assert result.json()['reviewer']=='' and result.json()['revision']==2
+    body.update(expected_revision=2,status='validated')
+    assert client.post('/api/experience/cards/'+card['id'],json=body).status_code==400
+    assert client.get('/api/experience/cards/'+card['id']).json()['revision']==2
+    body['validation_notes']='Synthetic sample: expected 10, actual 10; recorded locally'
+    result=client.post('/api/experience/cards/'+card['id'],json=body)
+    assert result.status_code==200 and result.json()['validation_origin']=='human_record_only'
+    assert len(client.get('/api/experience/cards/'+card['id']+'/history').json())==3
+    assert hashlib.sha256(get_settings().db_path.read_bytes()).hexdigest()==source_before
+
+
+def test_omitted_legacy_fields_and_history_survive_personal_note_edit(client):
+    card=personal_card(client)
+    body=dict(expected_revision=1,title='Old note',problem='P',applicability='A',limitations='L',
+        validation_notes='Existing local test record',reviewer='Legacy author',change_reason='Initial note',
+        method='custom',status='reviewed')
+    assert client.post('/api/experience/cards/'+card['id'],json=body).status_code==200
+    edit=dict(expected_revision=2,title='Updated personal note',change_reason='Clarify title',status='reviewed')
+    result=client.post('/api/experience/cards/'+card['id'],json=edit)
+    assert result.status_code==200,result.text
+    assert result.json()['reviewer']=='Legacy author'
+    assert result.json()['validation_notes']=='Existing local test record'
+    records=client.get('/api/experience/cards/'+card['id']+'/history').json()
+    assert records[1]['title']=='Old note' and records[1]['reviewer']=='Legacy author'

@@ -11,7 +11,7 @@
     // 页面加载前应用主题，避免闪烁
     (function () {
       try {
-        var t = localStorage.getItem('tm1-theme');
+        var t = localStorage.getItem('tm1-theme-v2');
         if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
       } catch (e) {}
     })();
@@ -28,57 +28,37 @@
         </div>
         <div class="brand-text">
           <div class="brand-name">TM1 Insight</div>
-          <div class="brand-sub">元数据 · 血缘 · 代码工作台</div>
+          <div class="brand-sub">个人 TM1 工作台</div>
         </div>
         <button class="theme-toggle" id="theme-toggle" type="button" title="切换浅色/深色主题" aria-label="切换主题">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
       </div>
 
-      <nav class="sidebar-nav">
+      <nav class="sidebar-nav" aria-label="工作导航">
         {% set path = request.url.path %}
-        <div class="nav-group-label">工作台</div>
-        <a href="/" aria-label="首页" title="首页" class="nav-link {% if path == '/' %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/home.svg" %}</span><span>首页</span>
-        </a>
-        <div class="nav-group-label">对象</div>
-        <a href="/cubes" aria-label="Cube 浏览" title="Cube 浏览" class="nav-link {% if path.startswith('/cubes') or path.startswith('/explorer/cube') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>Cube 浏览</span>
-        </a>
-        <a href="/processes" aria-label="TI 进程" title="TI 进程" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') or path in ['/calculation','/invocation'] %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/process.svg" %}</span><span>TI 进程</span>
-        </a>
-        <a href="/chores" aria-label="Chore 调度" title="Chore 调度" class="nav-link {% if path.startswith('/chores') or path.startswith('/explorer/chore') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/process.svg" %}</span><span>Chore 调度</span>
-        </a>
-        <a href="/dimensions" aria-label="维度" title="维度" class="nav-link {% if path.startswith('/dimensions') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>维度</span>
-        </a>
-        <div class="nav-group-label">分析</div>
-        <a href="/learn" aria-label="读懂业务" title="读懂业务" class="nav-link {% if path.startswith('/learn') %}active{% endif %}"><span class="nav-icon">{% include "icons/assets.svg" %}</span><span>读懂业务</span></a>
-        <a href="/experience" aria-label="我的经验" title="我的经验" class="nav-link {% if path.startswith('/experience') %}active{% endif %}"><span class="nav-icon">{% include "icons/assets.svg" %}</span><span>我的经验</span></a>
-        <a href="/graph" aria-label="知识图谱" title="知识图谱" class="nav-link {% if path.startswith('/graph') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/graph.svg" %}</span><span>知识图谱</span>
-        </a>
-        <a href="/impact" aria-label="影响分析" title="影响分析" class="nav-link {% if path.startswith('/impact') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/graph.svg" %}</span><span>影响分析</span>
-        </a>
-        <a href="/knowledge" aria-label="知识提炼" title="知识提炼" class="nav-link {% if path.startswith('/knowledge') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>知识提炼</span>
-        </a>
-        <a href="/codegen" aria-label="代码生成" title="代码生成" class="nav-link {% if path.startswith('/codegen') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/codegen.svg" %}</span><span>代码生成</span>
-        </a>
-        <a href="/audit" aria-label="前端资产" title="前端资产" class="nav-link {% if path.startswith('/audit') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>前端资产</span>
-        </a>
+        {% macro nav(href,label,icon,active) -%}<a href="{{ href }}" aria-label="{{ label }}" title="{{ label }}" class="nav-link {{ 'active' if active else '' }}" {% if active %}aria-current="page"{% endif %}><span class="nav-icon">{% include "icons/" ~ icon ~ ".svg" %}</span><span>{{ label }}</span></a>{%- endmacro %}
+        {{ nav('/','首页','home',path == '/') }}
+        <div class="nav-group-label">找逻辑</div>
+        {{ nav('/learn','功能梳理','assets',path.startswith('/learn')) }}
+        {{ nav('/processes','TI 进程','process',path.startswith('/processes') or path.startswith('/explorer/process') or path in ['/calculation','/invocation']) }}
+        {{ nav('/cubes','Cube 浏览','cube',path.startswith('/cubes') or path.startswith('/explorer/cube')) }}
+        {{ nav('/chores','Chore 调度','process',path.startswith('/chores') or path.startswith('/explorer/chore')) }}
+        {{ nav('/dimensions','维度','cube',path.startswith('/dimensions')) }}
+        <div class="nav-group-label">查影响</div>
+        {{ nav('/impact','改动影响','graph',path.startswith('/impact')) }}
+        {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
+        <div class="nav-group-label">留经验与复用</div>
+        {{ nav('/experience','我的经验','assets',path.startswith('/experience')) }}
+        {{ nav('/codegen','代码生成','codegen',path.startswith('/codegen')) }}
         <div class="nav-group-label">系统与数据</div>
-        <a href="/settings" aria-label="连接设置" title="连接设置" class="nav-link {% if path.startswith('/settings') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/settings.svg" %}</span><span>连接设置</span>
-        </a>
-        <a href="/compare" aria-label="快照与版本" title="快照与版本" class="nav-link {% if path.startswith('/compare') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>快照与版本</span>
-        </a>
+        {{ nav('/settings','连接设置','settings',path.startswith('/settings')) }}
+        <details class="nav-more" {% if path in ['/graph','/knowledge','/compare'] %}open{% endif %}>
+          <summary title="对象关系图、证据包导出、快照状态" aria-label="更多工具">更多工具</summary>
+          {{ nav('/graph','对象关系图','graph',path.startswith('/graph')) }}
+          {{ nav('/knowledge','证据包导出','assets',path.startswith('/knowledge')) }}
+          {{ nav('/compare','快照与版本','assets',path.startswith('/compare')) }}
+        </details>
       </nav>
 
       <div class="sidebar-foot">
@@ -105,10 +85,10 @@
         var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
         if (isDark) {
           document.documentElement.removeAttribute('data-theme');
-          try { localStorage.setItem('tm1-theme', 'light'); } catch (e) {}
+          try { localStorage.setItem('tm1-theme-v2', 'light'); } catch (e) {}
         } else {
           document.documentElement.setAttribute('data-theme', 'dark');
-          try { localStorage.setItem('tm1-theme', 'dark'); } catch (e) {}
+          try { localStorage.setItem('tm1-theme-v2', 'dark'); } catch (e) {}
         }
       });
     })();

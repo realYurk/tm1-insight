@@ -1,4 +1,4 @@
-"""Private reviewed experience, deterministic comparison and source isolation."""
+"""Personal experience notes, deterministic comparison and source isolation."""
 from __future__ import annotations
 import json
 import sqlite3
@@ -70,7 +70,7 @@ def save_candidate(body:Candidate):
 
 @router.get("/api/experience/cards")
 def list_cards(offset:int=Query(0,ge=0),limit:int=Query(20,ge=1,le=50),q:str=Query("",max_length=200),status:str=""):
-    if status and status not in experience.STATUSES:raise HTTPException(400,"未知评审状态。")
+    if status and status not in experience.STATUSES:raise HTTPException(400,"未知整理状态。")
     settings=get_settings().model_copy();source=fingerprint(settings)
     total,cards=experience.listing(settings,offset,limit,q,status)
     return {"total":total,"items":[tagged(card,source) for card in cards],"offset":offset,"source_fingerprint":source}
@@ -86,7 +86,7 @@ def get_card(identifier:str):
 def review_card(identifier:str,body:Review):
     settings=get_settings().model_copy();source=fingerprint(settings)
     try:
-        card=experience.update(settings,identifier,body.expected_revision,body.model_dump(exclude={"expected_revision"}),source)
+        card=experience.update(settings,identifier,body.expected_revision,body.model_dump(exclude={"expected_revision"},exclude_unset=True),source)
         return tagged(card,source)
     except KeyError as exc:raise HTTPException(404,"当前项目没有这条经验。") from exc
     except RuntimeError as exc:raise HTTPException(409,str(exc)) from exc
