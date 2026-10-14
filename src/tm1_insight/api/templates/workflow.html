@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}解析工作流 · TM1 Insight{% endblock %}
+{% block content %}
+<header class="page-head"><div><h1 class="page-title">Analyze Workflow — 解析工作流</h1><p class="page-sub">从一个 TI 出发，在同一工作台核对调用、读写、计算与源码。</p></div></header>
+<form id="wf-start" class="workflow-start" data-source="{{ source }}" data-auto="{{ '1' if analyze and name else '0' }}">
+  <label for="wf-name">TI 进程名称</label><div class="workflow-search"><input id="wf-name" class="input" value="{{ name }}" required maxlength="1000" autocomplete="off" placeholder="输入名称片段，选择一个准确的 TI"><button id="wf-submit" class="btn primary">解析工作流</button></div>
+  <div id="wf-options" class="workflow-options" hidden></div>
+  <details class="workflow-budgets"><summary>局部分析范围</summary><label>最多 TI 数量<input id="wf-max" type="number" min="1" max="500" value="200"></label><label>最多调用层数<input id="wf-depth" type="number" min="0" max="64" value="32"></label><span>仅读取发现的 TI；达到边界明确标记 PARTIAL，不自动拉入整个模型。</span></details>
+</form>
+<section id="wf-progress" class="job-progress" hidden><p id="wf-state" role="status" aria-live="polite"></p><progress id="wf-bar" class="knowledge-progress" aria-label="工作流分析进度"></progress><button id="wf-cancel" class="btn ghost">取消分析</button><p class="muted small">调用范围会随源码发现扩大；条目数为已解析 / 已发现，不代表运行执行次数。</p></section>
+<p id="wf-error" class="err" role="alert" hidden></p>
+<section id="wf-workspace" hidden>
+  <div class="workflow-scope"><h2 id="wf-root"></h2><p id="wf-summary" class="muted small"></p></div>
+  <nav class="knowledge-tabs" aria-label="工作流视图">{% for key,label in [('overview','Overview · 概览'),('execution','Execution · 调用'),('data','Data Flow · 数据关系'),('calculation','Calculation · 计算'),('evidence','Evidence · 原始代码'),('export','Export · 导出')] %}<button class="btn ghost" data-wf-view="{{ key }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ label }}</button>{% endfor %}</nav>
+  <div class="workflow-layout">
+    <aside class="workflow-processes" aria-label="相关 TI">
+      <h3>范围内的 TI</h3><form id="wf-filter"><input class="input" id="wf-query" aria-label="在解析范围内查找 TI" placeholder="筛选已解析的 TI"><button class="btn ghost">查找</button></form><ul id="wf-processes" class="list"></ul>
+      <div class="workflow-pager"><button class="btn ghost" id="wf-list-prev">上一页</button><span id="wf-list-page"></span><button class="btn ghost" id="wf-list-next">下一页</button></div>
+    </aside>
+    <section class="workflow-detail" aria-label="工作流证据">
+      <div class="workflow-selection"><span id="wf-selected"></span><label id="wf-only-label"><input type="checkbox" id="wf-only"> 仅看当前 TI</label></div>
+      <div id="wf-content" aria-live="polite"></div>
+      <div id="wf-pager" class="workflow-pager"><button class="btn ghost" id="wf-prev">上一页</button><span id="wf-page"></span><button class="btn ghost" id="wf-next">下一页</button></div>
+    </section>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/workflow.js?v=workflow-1" defer></script>{% endblock %}

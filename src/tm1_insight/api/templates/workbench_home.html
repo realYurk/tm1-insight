@@ -1,6 +1,6 @@
 <section class="workspace-home" aria-label="模型分析工作台">
   <header class="workspace-heading">
-    <div><p class="workspace-eyebrow">TM1 INSIGHT / WORKSPACE</p><h1>从一个计算开始</h1><p class="workspace-intro">找到进程，核对来源与公式，再沿证据理解模型。</p></div>
+    <div><p class="workspace-eyebrow">TM1 INSIGHT / WORKSPACE</p><h1>你想理解哪个 TM1 计算流程？</h1><p class="workspace-intro">选择一个 TI，逐层解析调用、读写、公式与原始代码证据。</p></div>
     <a class="workspace-source" href="/settings" data-type="{{ data_source.type }}"><span class="ds-dot"></span>{{ data_source.label }}<span aria-hidden="true"> ↗</span></a>
   </header>
 
@@ -15,23 +15,23 @@
   {% endif %}
 
   <section class="workspace-start" aria-labelledby="workspace-search-title">
-    <p class="workspace-eyebrow">01 / 定位对象</p><h2 id="workspace-search-title">你想检查哪段逻辑？</h2>
+    <p class="workspace-eyebrow">01 / 定位对象</p><h2 id="workspace-search-title">Analyze Workflow — 解析工作流</h2>
     <div class="search-hero">
-      <label class="workspace-search-label" for="global-search">按名称查找 Cube、TI 或 Chore</label>
-      <div class="search-box"><span aria-hidden="true">⌕</span><input type="search" id="global-search" placeholder="输入名称或名称的一部分…" autocomplete="off" aria-controls="search-results"></div>
+      <label class="workspace-search-label" for="global-search">TI 进程名称</label>
+      <form action="/workflow" method="get"><input type="hidden" name="analyze" value="1"><div class="search-box"><span aria-hidden="true">⌕</span><input name="name" required maxlength="1000" data-workflow="true" type="search" id="global-search" placeholder="输入名称或名称的一部分…" autocomplete="off" aria-controls="search-results"><button class="btn primary">解析工作流</button></div></form>
       <div class="search-results" id="search-results" aria-live="polite" hidden></div>
     </div>
-    <p class="workspace-search-note">找到 TI 后，进入「计算检查」逐项核对写入值的定义、读取依赖和目标坐标。</p>
+    <p class="workspace-search-note">v1 从 TI 开始。源码调用、结构索引和静态表达式依赖分开标记；动态目标保留 UNKNOWN。</p>
     <div class="workspace-shortcuts"><a href="/processes">浏览 TI 进程 →</a><a href="/cubes">查看 Cube 结构 →</a><a href="/chores">检查 Chore 调度 →</a></div>
   </section>
 
   <div class="workspace-columns">
     <section class="workspace-route" aria-labelledby="workspace-route-title">
-      <p class="workspace-eyebrow">02 / 沿证据推进</p><h2 id="workspace-route-title">按你要做的事进入</h2>
+      <p class="workspace-eyebrow">02 / 沿证据推进</p><h2 id="workspace-route-title">一条工作流，一处核对</h2>
       <ul class="workspace-steps">
-        <li><span>理解</span><div><a href="/learn">读一块功能 ↗</a><p>输入关键词找到实际 TI，再打开计算检查，核对公式与坐标。</p></div></li>
-        <li><span>修改</span><div><a href="/impact">改动前查依赖 ↗</a><p>选中要改的 TI 或 Cube，列出需要回归检查的对象和路径。</p></div></li>
-        <li><span>记录</span><div><a href="/experience">保存自己的经验 ↗</a><p>记下用途、限制与测试结果，留给下一次复用；无需审批。</p></div></li>
+        <li><span>调用</span><div><strong>逐层看执行关系</strong><p>保留每个调用点的 Section、参数、条件与未知边界，不用两层限制截断流程。</p></div></li>
+        <li><span>计算</span><div><strong>核对值从哪里来</strong><p>把读写事实与表达式依赖分开，追踪受支持的赋值链和维度坐标。</p></div></li>
+        <li><span>证据</span><div><strong>在同一工作台打开原代码</strong><p>逐条回到源码位置，按需查看四个 Section，并导出私有 JSON / Markdown。</p></div></li>
       </ul>
       <p class="workspace-boundary">静态定义不等于运行结果。动态引用与不支持的语义保留 UNKNOWN，业务含义需要人工确认。</p>
     </section>
@@ -44,7 +44,7 @@
         <div class="mdx-actions"><button id="mdx-btn" class="btn primary" onclick="traceMdx()">解析并反查</button><button class="btn ghost" onclick="fillExample()">填入示例</button><button class="btn ghost" onclick="clearMdx()">清空</button></div>
         <div id="mdx-result" hidden></div>
       </details>
-      <div class="workspace-utilities"><h3>准备数据与工具</h3><a href="/audit">前端资产与 Cube 引用 →</a><a href="/codegen">生成 TI 草稿 →</a><a href="/settings">连接与数据源设置 →</a></div>
+      <div class="workspace-utilities"><h3>准备数据与工具</h3><a href="/audit">前端资产与 Cube 引用 →</a><a href="/workflow">进入统一工作台 →</a><a href="/settings">连接与数据源设置 →</a></div>
     </section>
   </div>
 

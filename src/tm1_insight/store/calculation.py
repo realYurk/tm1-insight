@@ -4,15 +4,19 @@ import json
 from tm1_insight.learning.calculation import worksheet
 
 
-def inspect(con, name):
+def inspect(con, name, *, catalogs=None):
     row = con.execute("SELECT prolog,metadata,data,epilog,parameters FROM processes WHERE name=?", [name]).fetchone()
     if row is None: return None
-    catalogs = {kind: {r[0] for r in con.execute(f"SELECT name FROM {table}").fetchall()}
-                for kind,table in (("cube","cubes"),("process","processes"),("dimension","dimensions"))}
+    if catalogs is None:
+        catalogs = {kind: {r[0] for r in con.execute(f"SELECT name FROM {table}").fetchall()}
+                    for kind,table in (("cube","cubes"),("process","processes"),("dimension","dimensions"))}
     try: parameters = json.loads(row[4]) if row[4] else []
     except (ValueError, TypeError): parameters = []
-    names = [p['name'] for p in parameters if isinstance(p, dict) and isinstance(p.get('name'),str)] if isinstance(parameters,list) else []
+    names = [p.get('Name',p.get('name','')) if isinstance(p,dict) else p for p in parameters] if isinstance(parameters,list) else []
+    names = [p for p in names if isinstance(p,str) and p]
     result = worksheet(name, tuple(value or '' for value in row[:4]), catalogs, names)
+    from tm1_insight.learning.calculation import SENSITIVE
+    result['parameter_names'] = [p for p in names if not SENSITIVE.search(p)]
     cubes = {w['cube'] for w in result['writes'] if w['cube']}
     cubes.update(node['cube'] for node in result['nodes'] if node['kind']=='read' and node['cube'])
     structures = {}

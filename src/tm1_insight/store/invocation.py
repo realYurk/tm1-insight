@@ -9,6 +9,23 @@ from tm1_insight.learning.calculation import SENSITIVE
 from tm1_insight.store.calculation import inspect
 
 
+def named_bindings(call, declared):
+    """Shared declaration checks; binding never substitutes an actual value."""
+    counts=Counter(n.casefold() for n in declared)
+    canonical={hashlib.sha256(n.casefold().encode()).hexdigest():n for n in declared}
+    provided=Counter(b['parameter_hash'] for b in call['arguments'])
+    result=[]
+    for binding in call['arguments']:
+        parameter=canonical.get(binding['parameter_hash']);reason=None
+        if not call['argument_pairs_complete']:reason='参数名/值没有完整配对'
+        elif parameter is None:reason='参数名不是可确认的子 TI 声明；原字符串已隐藏'
+        elif SENSITIVE.search(parameter):reason='敏感参数未展开'
+        elif counts[parameter.casefold()]!=1 or provided[binding['parameter_hash']]!=1:reason='重复参数，不能确定有效绑定'
+        result.append(dict(**binding,parameter=parameter if parameter and not SENSITIVE.search(parameter) else None,
+            status='UNKNOWN' if reason else 'EXPLICIT_BINDING',reason=reason))
+    return result
+
+
 def inspect_call(con, name, call_id):
     caller = inspect(con, name)
     if caller is None:
@@ -19,7 +36,7 @@ def inspect_call(con, name, call_id):
     result = dict(schema='ti-invocation-inspection-1', process=name, source_hash=caller['source_hash'],
         runtime_verified=False, status='PARTIAL', scope='one_call_one_child_no_substitution',
         call=call, nodes=caller['nodes'], child=None, bindings=[], omitted_parameters=[], diagnostics=[])
-    if call['operation'].casefold() != 'executeprocess' or call['status'] != 'resolved' or not call['target']:
+    if call['operation'].casefold() != 'executeprocess' or call['status'] != 'resolved' or not call['target'] or call.get('target_resolution','literal')!='literal':
         result['diagnostics'].append('UNKNOWN · 仅展开具有目录内字面目标的 ExecuteProcess；动态目标和 RunProcess 保持独立调用观察。')
         return result
     child = inspect(con, call['target'])
@@ -35,8 +52,8 @@ def inspect_call(con, name, call_id):
         parameters = json.loads(row[0] or '[]')
     except (ValueError, TypeError):
         parameters = []
-    declared = [p['name'] for p in parameters if isinstance(p, dict) and isinstance(p.get('name'), str)] if isinstance(parameters,list) else []
-    counts = Counter(n.casefold() for n in declared)
+    declared = [p.get('Name',p.get('name','')) if isinstance(p,dict) else p for p in parameters] if isinstance(parameters,list) else []
+    declared = [n for n in declared if isinstance(n,str) and n]
     canonical = {hashlib.sha256(n.casefold().encode()).hexdigest(): n for n in declared}
     provided = Counter(b['parameter_hash'] for b in call['arguments'])
     by_id = {n['id']: n for n in child['nodes']}
@@ -83,20 +100,8 @@ def inspect_call(con, name, call_id):
                     usage_count += 1
     if usage_count >= 2000 and not any('2000' in d for d in result['diagnostics']):
         result['diagnostics'].append('PARTIAL · 参数使用位置达到 2000 条预算，可能还有位置未展开。')
-    for binding in call['arguments']:
-        parameter = canonical.get(binding['parameter_hash'])
-        reason = None
-        if not call['argument_pairs_complete']:
-            reason = '参数名/值没有完整配对'
-        elif parameter is None:
-            reason = '参数名不是可确认的子 TI 声明；原字符串已隐藏'
-        elif SENSITIVE.search(parameter):
-            reason = '敏感参数未展开'
-        elif counts[parameter.casefold()] != 1 or provided[binding['parameter_hash']] != 1:
-            reason = '重复参数，不能确定有效绑定'
-        result['bindings'].append(dict(**binding, parameter=parameter if parameter and not SENSITIVE.search(parameter) else None,
-            status='UNKNOWN' if reason else 'EXPLICIT_BINDING', reason=reason,
-            uses=[] if reason else usages.get(parameter.casefold(), [])))
+    for binding in named_bindings(call,declared):
+        result['bindings'].append(dict(**binding,uses=[] if binding['reason'] else usages.get(binding['parameter'].casefold(), [])))
     result['omitted_parameters'] = [n for h,n in canonical.items() if h not in provided and not SENSITIVE.search(n)]
     result['diagnostics'] += ['仅连接源码参数绑定和子 TI 中仍可追踪的参数使用，不替换公式、不证明调用成功或实际数值。',
         '参数类型未验证，缺省参数值未使用或导出；没有使用记录不代表参数未使用。分支、循环、参数覆盖和不支持的语法可能阻断追踪。',

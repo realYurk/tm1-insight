@@ -119,9 +119,15 @@ def analyze(parts, catalogs, parameters=(), *, include_logging=False):
 
     environment={}
     for index,root in enumerate(roots):
+        written=_assigned(root)
         if index in {1,2}:
-            environment={k:v for k,v in environment.items() if k not in _assigned(root)}
+            environment={k:v for k,v in environment.items() if k not in written}
+        incoming=dict(environment)
         environment=visit(root,environment)
+        if index in {1,2}:
+            # Metadata/Data can execute zero or many records. A final row's
+            # assignment is not a guaranteed value entering the next section.
+            environment={k:v for k,v in incoming.items() if k not in written}
     # Any structural failure invalidates conservative name resolution. Retain
     # observations and locations, but do not claim proven object binding.
     if diagnostics:

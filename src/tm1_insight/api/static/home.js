@@ -71,13 +71,14 @@ function renderResults(j) {
   for (const [key, label, kind, badgeText, route] of [
     ['cubes','Cube','cube','C','cube'], ['processes','TI 进程','ti','T','process'], ['chores','Chore','chore','H','chore']
   ]) {
+    if (searchInput.dataset.workflow === 'true' && key !== 'processes') continue;
     const items = j[key] || [];
     if (!items.length) continue;
     const heading = document.createElement('div'); heading.className = 'sr-group'; heading.textContent = label;
     searchResults.append(heading);
     for (const name of items) {
       const link = document.createElement('a'); link.className = 'sr-item';
-      link.href = '/explorer/' + route + '/' + encodeURIComponent(name);
+      link.href = searchInput.dataset.workflow === 'true' ? '/workflow?name='+encodeURIComponent(name)+'&analyze=1' : '/explorer/' + route + '/' + encodeURIComponent(name);
       const badge = document.createElement('span'); badge.className = 'sr-badge ' + kind; badge.textContent = badgeText;
       link.append(badge, document.createTextNode(name)); searchResults.append(link);
     }
@@ -94,7 +95,7 @@ searchInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     if (searchResults.hidden) return;
     const first = searchResults.querySelector('.sr-item');
-    if (first) location.href = first.href;
+    if (first) { e.preventDefault(); location.href = first.href; }
   }
 });
 

@@ -13,7 +13,7 @@ import re
 from tm1_insight.learning.syntax import calls, expression, SECTIONS
 from tm1_insight.learning.understanding import analyze, structure, _assigned
 
-VERSION = "ti-calculation-worksheet-1"
+VERSION = "ti-calculation-worksheet-3"
 MAX_CODE = 250_000
 MAX_NODES = 5000
 SENSITIVE = re.compile(r"password|passwd|secret|token|credential|sso|pin(?:code)?$", re.I)
@@ -44,6 +44,8 @@ class Builder:
         self.nodes = []
         self.parameters = {name.casefold() for name in parameters}
         self.invalid_parameters = set()
+        # Private resolver values are never serialized into the worksheet.
+        self.constant_values = {}
         self.references = {(r["section"], r["line"], r["column"], r["operation"].casefold()): r for r in references}
 
     def add(self, kind, token, **fields):
@@ -177,6 +179,7 @@ def worksheet(name, parts, catalogs, parameters=()):
     report["calls"] = []
     if len(items) > 2000: report["diagnostics"].append("引用观察表只保留前 2000 条，超出部分未导出。")
     builder = Builder(observed["references"], parameters)
+    process_names = {name.casefold():name for name in catalogs['process']}
 
     def visit(nodes, env, context=(), depth=0):
         if depth > 40: raise BudgetExceeded()
@@ -188,6 +191,13 @@ def worksheet(name, parts, catalogs, parameters=()):
                 if token['value'].casefold() in {'executeprocess', 'runprocess'} and len(report['calls']) < 2000:
                     ref = builder.references.get((token['section'], token['line'], token['column'], token['value'].casefold()), {})
                     direct = len(args[0]) == 1 and args[0][0]['kind'] == 'string' if args else False
+                    target_value = None
+                    if direct:
+                        raw=args[0][0]['value'];target_value=raw[1:-1].replace(raw[0]*2,raw[0])
+                    elif args and len(args[0])==1 and args[0][0]['kind']=='id':
+                        target_value=builder.constant_values.get(env.get(args[0][0]['value'].casefold()))
+                    target = process_names.get(target_value.casefold()) if isinstance(target_value,str) and not diagnostics else None
+                    target_node=builder.parse(args[0] if args else [],env)
                     bindings = []
                     for i in range(1, len(args)-1, 2):
                         key = args[i]
@@ -201,8 +211,9 @@ def worksheet(name, parts, catalogs, parameters=()):
                         bindings.append(dict(parameter_hash=hashlib.sha256(literal.casefold().encode()).hexdigest() if literal is not None else None,
                             value_node=value, expression=safe(args[i+1]), evidence=location(key[0] if key else token), **trace))
                     report['calls'].append(dict(id=len(report['calls']), kind='process', operation=token['value'],
-                        target=ref.get('target') if direct and ref.get('status')=='resolved' else None,
-                        status=ref.get('status','unresolved') if direct or ref.get('status')!='resolved' else 'unresolved', **location(token),
+                        target=target, target_node=target_node,
+                        target_resolution='literal' if direct else 'reaching_constant_alias' if target else 'unknown',
+                        status='resolved' if target else 'structure_unknown' if diagnostics else 'missing_object' if target_value is not None else ref.get('status','unresolved') if ref.get('status')!='resolved' else 'unresolved', **location(token),
                         control_context=list(context), arguments=bindings, argument_pairs_complete=bool(len(args)%2),
                         target_expression=safe(args[0]) if args else 'UNKNOWN'))
                 if token["value"].casefold() not in WRITES: continue
@@ -226,7 +237,9 @@ def worksheet(name, parts, catalogs, parameters=()):
                     **trace))
             if node["kind"] == "if":
                 outcomes = [visit(branch, dict(env), context + (dict(kind="if", section=node["section"],
-                    line=node["line"], branch=index, condition="分支路径未求值"),), depth+1)
+                    line=node["line"], branch=index, condition=(safe(tokens[1:]) if index==0 else
+                        safe(branch[0]['tokens'][1:]) if branch and branch[0]['kind']=='condition' else 'ELSE'),
+                    note='分支路径未求值'),), depth+1)
                     for index, branch in enumerate(node["branches"])]
                 if not node["else"]: outcomes.append(dict(env))
                 env = {k:v for k,v in outcomes[0].items() if all(out.get(k) == v for out in outcomes[1:])}
@@ -244,6 +257,15 @@ def worksheet(name, parts, catalogs, parameters=()):
                     index = builder.add("assignment", tokens[0], variable=variable, expression=safe(tokens[2:]))
                     builder.nodes[index]["children"] = [rhs]
                 env[variable.casefold()] = index
+                rhs_tokens=[t for t in tokens[2:] if t['value']!=';']
+                if not SENSITIVE.search(variable) and len(rhs_tokens)==1:
+                    token=rhs_tokens[0]
+                    if token['kind']=='string':
+                        raw=token['value'];builder.constant_values[index]=raw[1:-1].replace(raw[0]*2,raw[0])
+                    elif token['kind']=='id':
+                        rhs_node=builder.nodes[index]['children'][0]
+                        definition=builder.nodes[rhs_node].get('definition')
+                        if definition in builder.constant_values:builder.constant_values[index]=builder.constant_values[definition]
             elif tokens[0]["value"].casefold() in {"itemskip", "itemreject", "processquit", "processbreak", "break"}:
                 env = {}
         return env
@@ -263,6 +285,7 @@ def worksheet(name, parts, catalogs, parameters=()):
     reachable = set()
     pending = [idx for write in report["writes"] for idx in [write["value_node"], write['target_node'], *write["coordinates"]]]
     pending.extend(arg['value_node'] for call in report['calls'] for arg in call['arguments'])
+    pending.extend(call['target_node'] for call in report['calls'])
     while pending:
         index = pending.pop()
         if index in reachable: continue

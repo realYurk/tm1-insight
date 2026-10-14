@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}TM1 Insight{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
-  <link rel="stylesheet" href="/static/workbench.css">
+  <link rel="stylesheet" href="/static/workbench.css?v=workflow-1">
   <script src="/static/syntax.js"></script>
   <script>
     // 页面加载前应用主题，避免闪烁
@@ -39,23 +39,22 @@
         {% set path = request.url.path %}
         {% macro nav(href,label,icon,active) -%}<a href="{{ href }}" aria-label="{{ label }}" title="{{ label }}" class="nav-link {{ 'active' if active else '' }}" {% if active %}aria-current="page"{% endif %}><span class="nav-icon">{% include "icons/" ~ icon ~ ".svg" %}</span><span>{{ label }}</span></a>{%- endmacro %}
         {{ nav('/','首页','home',path == '/') }}
-        <div class="nav-group-label">找逻辑</div>
-        {{ nav('/learn','功能梳理','assets',path.startswith('/learn')) }}
+        {{ nav('/workflow','解析工作流','graph',path == '/workflow') }}
+        <div class="nav-group-label">对象浏览</div>
         {{ nav('/processes','TI 进程','process',path.startswith('/processes') or path.startswith('/explorer/process') or path in ['/calculation','/invocation']) }}
         {{ nav('/cubes','Cube 浏览','cube',path.startswith('/cubes') or path.startswith('/explorer/cube')) }}
         {{ nav('/chores','Chore 调度','process',path.startswith('/chores') or path.startswith('/explorer/chore')) }}
         {{ nav('/dimensions','维度','cube',path.startswith('/dimensions')) }}
-        <div class="nav-group-label">查影响</div>
-        {{ nav('/impact','改动影响','graph',path.startswith('/impact')) }}
-        {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
-        <div class="nav-group-label">留经验与复用</div>
-        {{ nav('/experience','我的经验','assets',path.startswith('/experience')) }}
-        {{ nav('/codegen','代码生成','codegen',path.startswith('/codegen')) }}
         <div class="nav-group-label">系统与数据</div>
         {{ nav('/settings','连接设置','settings',path.startswith('/settings')) }}
-        <details class="nav-more" {% if path in ['/graph','/knowledge','/compare'] %}open{% endif %}>
-          <summary title="对象关系图、证据包导出、快照状态" aria-label="更多工具">更多工具</summary>
-          {{ nav('/graph','对象关系图','graph',path.startswith('/graph')) }}
+        <details class="nav-more" {% if path in ['/learn','/experience','/codegen','/graph','/knowledge','/compare','/impact','/audit'] %}open{% endif %}>
+          <summary aria-label="高级工具">高级工具</summary>
+          {{ nav('/impact','改动影响','graph',path.startswith('/impact')) }}
+          {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
+          {{ nav('/learn','功能梳理（旧版）','assets',path.startswith('/learn')) }}
+          {{ nav('/experience','我的经验','assets',path.startswith('/experience')) }}
+          {{ nav('/codegen','代码生成','codegen',path.startswith('/codegen')) }}
+          {{ nav('/graph','对象关系图（旧版）','graph',path.startswith('/graph')) }}
           {{ nav('/knowledge','证据包导出','assets',path.startswith('/knowledge')) }}
           {{ nav('/compare','快照与版本','assets',path.startswith('/compare')) }}
         </details>
