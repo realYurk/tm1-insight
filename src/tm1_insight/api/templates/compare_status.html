@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}快照与版本 · TM1 Insight{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">快照与版本</h1><p class="page-sub">历史模型的比较，需要两个可选择、可追溯的版本。</p></div></div>
+<section class="workspace-empty" id="comparison-state" aria-label="快照功能状态">
+  <p class="workspace-eyebrow">尚未接入历史版本选择</p><h2>当前页面不能比较两次采集的变化</h2>
+  <p>已有对象级比较引擎，但 Web 尚未接入历史快照的创建、列表和 Before / After 选择。当前目录中的对象不能因此标为「本次新增」。</p>
+  <div class="study-actions"><a class="btn primary" href="/">返回工作台</a><a class="btn ghost" href="/settings">查看当前数据源</a><a class="btn ghost" href="/impact">检查结构依赖</a></div>
+</section>
+<details class="workspace-preview"><summary>开发用比较预览</summary><p>保留原有空快照 → 当前目录的技术预览，用于检查比较引擎和最多 50 个 Cube 的依赖采样。它没有历史基线，不表示本次采集新增或修改了这些对象，也不证明数值影响。</p><a href="/compare?render=true">手动打开技术预览 →</a></details>
+{% endblock %}

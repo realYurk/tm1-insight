@@ -174,14 +174,39 @@ def test_web_opens_selected_port_once_and_supports_no_browser(client,monkeypatch
     assert not opened
 
 
-def test_comparison_has_fast_shell_and_honest_sample_count(client):
-    shell = client.get("/compare")
+def test_comparison_requires_explicit_preview_and_preserves_engine(client, monkeypatch):
+    import importlib
+    api = importlib.import_module('tm1_insight.api.app')
+    with monkeypatch.context() as guard:
+        guard.setattr(api, '_cached_page', lambda *args: pytest.fail('Default status must not build a graph'))
+        shell = client.get("/compare")
     assert "comparison-state" in shell.text
     assert "render=true" in shell.text
+    assert "尚未接入历史版本选择" in shell.text
+    assert "fetch('/compare?render=true'" not in shell.text
+    assert "Changed Objects" not in shell.text
     result = client.get("/compare?render=true")
     assert result.status_code == 200
     assert "已采样 3 个" in result.text
     assert "完整历史比较尚未实现" in result.text
+
+
+def test_workspace_search_is_literal_name_only_and_bounded(client):
+    import importlib
+    api = importlib.import_module('tm1_insight.api.app')
+    store = api._store()
+    con = store.connect()
+    try:
+        for name, code in [('Example_100%', ''), ('ExampleX100Z', ''), ('Caller', "ExecuteProcess('Example_100%');")]:
+            con.execute("INSERT INTO processes VALUES (?, ?, '', '', '', '[]', 'null', ?)", [name, code, len(code)])
+    finally:
+        con.close()
+    result = client.get('/api/search-all', params={'q':'Example_100%'}).json()
+    assert result['processes'] == ['Example_100%']
+    assert client.get('/api/search-all', params={'q':'Example','limit':0}).status_code == 422
+    assert client.get('/api/search-all', params={'q':'Example','limit':51}).status_code == 422
+    assert client.get('/api/search-all', params={'q':'x'*1001}).status_code == 422
+    assert client.get('/api/search-all', params={'q':'   '}).json() == {'cubes':[], 'processes':[], 'chores':[]}
 
 
 def test_impact_distinguishes_dependents_from_dependencies(client):

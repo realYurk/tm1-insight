@@ -1040,35 +1040,16 @@ def search_objects(con: duckdb.DuckDBPyConnection, keyword: str, limit: int = 20
     kw = keyword.strip()
     if not kw:
         return {"cubes": [], "processes": [], "chores": []}
-    like = f"%{kw}%"
-    cubes = [r[0] for r in con.execute(
-        """
-        SELECT name FROM cubes
-        WHERE name ILIKE ?
-        ORDER BY CASE WHEN lower(name) LIKE lower(?) THEN 0 ELSE 1 END, name
-        LIMIT ?
-        """,
-        [like, f"{kw}%", limit],
-    ).fetchall()]
-    procs = [r[0] for r in con.execute(
-        """
-        SELECT name FROM processes
-        WHERE name ILIKE ?
-        ORDER BY CASE WHEN lower(name) LIKE lower(?) THEN 0 ELSE 1 END, name
-        LIMIT ?
-        """,
-        [like, f"{kw}%", limit],
-    ).fetchall()]
-    chores = [r[0] for r in con.execute(
-        """
-        SELECT name FROM chores
-        WHERE name ILIKE ?
-        ORDER BY CASE WHEN lower(name) LIKE lower(?) THEN 0 ELSE 1 END, name
-        LIMIT ?
-        """,
-        [like, f"{kw}%", limit],
-    ).fetchall()]
-    return {"cubes": cubes, "processes": procs, "chores": chores}
+    limit = max(1, min(limit, 50))
+    result = {}
+    for key in ("cubes", "processes", "chores"):
+        result[key] = [row[0] for row in con.execute(
+            f"SELECT name FROM {key} WHERE strpos(lower(name), lower(?)) > 0 "
+            "ORDER BY CASE WHEN lower(name)=lower(?) THEN 0 "
+            "WHEN starts_with(lower(name),lower(?)) THEN 1 ELSE 2 END, lower(name), name LIMIT ?",
+            [kw, kw, kw, limit],
+        ).fetchall()]
+    return result
 
 
 def cube_frontend_pages(con: duckdb.DuckDBPyConnection, cube: str) -> list[dict]:

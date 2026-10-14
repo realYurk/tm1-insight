@@ -1,0 +1,58 @@
+<section class="workspace-home" aria-label="模型分析工作台">
+  <header class="workspace-heading">
+    <div><p class="workspace-eyebrow">TM1 INSIGHT / WORKSPACE</p><h1>从一个计算开始</h1><p class="workspace-intro">找到进程，核对来源与公式，再沿证据理解模型。</p></div>
+    <a class="workspace-source" href="/settings" data-type="{{ data_source.type }}"><span class="ds-dot"></span>{{ data_source.label }}<span aria-hidden="true"> ↗</span></a>
+  </header>
+
+  {% if not has_data %}
+  <section class="workspace-empty" aria-label="开始使用">
+    <h2>准备一份模型数据</h2><p>选择本地模型、导入数据包，或连接 TM1 采集元数据，之后可以离线分析。</p>
+    <a class="btn primary" href="/settings">选择数据源</a>
+    <input type="file" id="import-file" accept=".duckdb,.zip" hidden onchange="importDataPackage(this)">
+    <button type="button" class="btn ghost" id="import-btn" onclick="document.getElementById('import-file').click()">导入数据包</button>
+    <span id="import-status" class="status-inline muted" role="status"></span>
+  </section>
+  {% endif %}
+
+  <section class="workspace-start" aria-labelledby="workspace-search-title">
+    <p class="workspace-eyebrow">01 / 定位对象</p><h2 id="workspace-search-title">你想检查哪段逻辑？</h2>
+    <div class="search-hero">
+      <label class="workspace-search-label" for="global-search">按名称查找 Cube、TI 或 Chore</label>
+      <div class="search-box"><span aria-hidden="true">⌕</span><input type="search" id="global-search" placeholder="输入名称或名称的一部分…" autocomplete="off" aria-controls="search-results"></div>
+      <div class="search-results" id="search-results" aria-live="polite" hidden></div>
+    </div>
+    <p class="workspace-search-note">找到 TI 后，进入「计算检查」逐项核对写入值的定义、读取依赖和目标坐标。</p>
+    <div class="workspace-shortcuts"><a href="/processes">浏览 TI 进程 →</a><a href="/cubes">查看 Cube 结构 →</a><a href="/chores">检查 Chore 调度 →</a></div>
+  </section>
+
+  <div class="workspace-columns">
+    <section class="workspace-route" aria-labelledby="workspace-route-title">
+      <p class="workspace-eyebrow">02 / 沿证据推进</p><h2 id="workspace-route-title">把逻辑核对清楚</h2>
+      <ol class="workspace-steps">
+        <li><span>01</span><div><a href="/processes">核对计算定义 ↗</a><p>选择 TI 的写入点，查看变量定义、来源坐标与源码位置。</p></div></li>
+        <li><span>02</span><div><a href="/learn">检查功能范围 ↗</a><p>按关键词整理入口和引用，再回到计算证据核对。</p></div></li>
+        <li><span>03</span><div><a href="/experience">记录已确认的方法 ↗</a><p>补充业务条件、反例与验证材料，保存为自己的经验。</p></div></li>
+      </ol>
+      <p class="workspace-boundary">静态定义不等于运行结果。动态引用与不支持的语义保留 UNKNOWN，业务含义需要人工确认。</p>
+    </section>
+    <section class="workspace-mdx" aria-label="MDX 反查">
+      <p class="workspace-eyebrow">已有报表切面？</p>
+      <details id="mdx-card"><summary>用 MDX 查找候选写入进程</summary>
+        <p class="muted small">按已解析的 Cube 和坐标匹配写入候选；匹配分数不能证明该值由谁产生。</p>
+        <label for="mdx-input">MDX 表达式</label>
+        <textarea id="mdx-input" rows="6" placeholder="SELECT … FROM [Cube] WHERE (…)" spellcheck="false"></textarea>
+        <div class="mdx-actions"><button id="mdx-btn" class="btn primary" onclick="traceMdx()">解析并反查</button><button class="btn ghost" onclick="fillExample()">填入示例</button><button class="btn ghost" onclick="clearMdx()">清空</button></div>
+        <div id="mdx-result" hidden></div>
+      </details>
+      <div class="workspace-utilities"><h3>准备数据与工具</h3><a href="/audit">前端资产与 Cube 引用 →</a><a href="/codegen">生成 TI 草稿 →</a><a href="/settings">连接与数据源设置 →</a></div>
+    </section>
+  </div>
+
+  {% if has_data %}
+  <footer class="workspace-inventory" aria-label="当前模型目录">
+    <div class="workspace-inventory-head"><h2>当前模型目录</h2><span>{{ '合成示例数据' if is_demo else '本地元数据' }} · 文件修改时间 {{ model_file_time or 'UNKNOWN' }}</span></div>
+    <dl>{% for key, label, href in [('cubes','Cubes','/cubes'),('processes','TI 进程','/processes'),('dimensions','维度','/dimensions'),('chores','Chores','/chores'),('rules','Rule 文本','/cubes')] %}<div><dt><a href="{{ href }}">{{ label }}</a></dt><dd>{{ counts.get(key,0) }}</dd></div>{% endfor %}</dl>
+    <p>目录数量不代表逻辑已理解。文件修改时间不代表服务器采集时间或历史快照版本。</p>
+  </footer>
+  {% endif %}
+</section>

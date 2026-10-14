@@ -252,33 +252,23 @@ def index(request: Request):
     store = _store()
     try:
         counts = store.all_rows()
-        has_data = counts.get("cubes", 0) > 0
+        has_data = any(counts.get(key, 0) > 0 for key in ("cubes", "processes", "dimensions", "chores", "rules"))
     except Exception:  # noqa: BLE001
         counts, has_data = {}, False
 
     # 数据源状态（供 Header / 首页展示）
     data_source = _data_source_status()
 
-    # Snapshots 计数：优先读 SnapshotStore（若已建立快照目录），否则为 0
-    snapshots_count = 0
-    try:
-        from tm1_insight.snapshot import SnapshotStore
-        snap_root = get_settings().data_dir / "snapshots"
-        if snap_root.exists():
-            snapshots_count = len(SnapshotStore(snap_root).list_snapshots())
-    except Exception:  # noqa: BLE001
-        snapshots_count = 0
-
-    # 数据快照时间：取 duckdb 文件 mtime（无单独元数据表，用它近似「上次拉取」时间）
-    snapshot_time = None
+    # File modification time is not proof of collection time or snapshot version.
+    model_file_time = None
     try:
         if Path(store.db_path).exists():
             import datetime
-            snapshot_time = datetime.datetime.fromtimestamp(
+            model_file_time = datetime.datetime.fromtimestamp(
                 Path(store.db_path).stat().st_mtime
             ).strftime("%Y-%m-%d %H:%M")
     except Exception:  # noqa: BLE001
-        snapshot_time = None
+        model_file_time = None
 
     settings = get_settings()
     return templates.TemplateResponse(request, "index.html", {
@@ -286,8 +276,7 @@ def index(request: Request):
         "has_data": has_data,
         "data_source": data_source,
         "is_demo": data_source.get("type") == "demo",
-        "snapshots_count": snapshots_count,
-        "snapshot_time": snapshot_time,
+        "model_file_time": model_file_time,
         "tm1_address": settings.tm1_address,
         "tm1_port": settings.tm1_port,
         "tm1_user": settings.tm1_user,
@@ -661,7 +650,7 @@ def impact_page(request: Request, source: Optional[str] = None):
 def compare_page(request: Request, render: bool = False):
     if not render:
         _store()
-        return templates.TemplateResponse(request, "compare_loading.html", {})
+        return templates.TemplateResponse(request, "compare_status.html", {})
     # 重计算页面（约 1s）：数据未变化时复用缓存结果，切换延迟压到毫秒级。
     def _render() -> str:
         store = _store()
@@ -1184,7 +1173,7 @@ def api_process_search(q: str = Query("", max_length=1000),
 
 
 @app.get("/api/search-all")
-def api_search_all(q: str, limit: int = 20) -> dict:
+def api_search_all(q: str = Query(max_length=1000), limit: int = Query(20, ge=1, le=50)) -> dict:
     """统一搜索 Cube + TI，返回带类型的结果（工作台全局搜索用）。"""
     store = _store()
     con = store.connect(read_only=True)

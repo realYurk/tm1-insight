@@ -45,7 +45,7 @@
         <a href="/cubes" aria-label="Cube 浏览" title="Cube 浏览" class="nav-link {% if path.startswith('/cubes') or path.startswith('/explorer/cube') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>Cube 浏览</span>
         </a>
-        <a href="/processes" aria-label="TI 进程" title="TI 进程" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') %}active{% endif %}">
+        <a href="/processes" aria-label="TI 进程" title="TI 进程" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') or path == '/calculation' %}active{% endif %}">
           <span class="nav-icon">{% include "icons/process.svg" %}</span><span>TI 进程</span>
         </a>
         <a href="/chores" aria-label="Chore 调度" title="Chore 调度" class="nav-link {% if path.startswith('/chores') or path.startswith('/explorer/chore') %}active{% endif %}">
@@ -63,9 +63,6 @@
         <a href="/impact" aria-label="影响分析" title="影响分析" class="nav-link {% if path.startswith('/impact') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/graph.svg" %}</span><span>影响分析</span>
         </a>
-        <a href="/compare" aria-label="快照对比" title="快照对比" class="nav-link {% if path.startswith('/compare') %}active{% endif %}">
-          <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>快照对比</span>
-        </a>
         <a href="/knowledge" aria-label="知识提炼" title="知识提炼" class="nav-link {% if path.startswith('/knowledge') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>知识提炼</span>
         </a>
@@ -75,9 +72,12 @@
         <a href="/audit" aria-label="前端资产" title="前端资产" class="nav-link {% if path.startswith('/audit') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>前端资产</span>
         </a>
-        <div class="nav-group-label">系统</div>
+        <div class="nav-group-label">系统与数据</div>
         <a href="/settings" aria-label="连接设置" title="连接设置" class="nav-link {% if path.startswith('/settings') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/settings.svg" %}</span><span>连接设置</span>
+        </a>
+        <a href="/compare" aria-label="快照与版本" title="快照与版本" class="nav-link {% if path.startswith('/compare') %}active{% endif %}">
+          <span class="nav-icon">{% include "icons/assets.svg" %}</span><span>快照与版本</span>
         </a>
       </nav>
 
