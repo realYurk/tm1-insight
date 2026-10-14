@@ -73,12 +73,20 @@ def learning_result(task_id: str, section: str = "chapters", offset: int = Query
     except (OSError,ValueError,sqlite3.Error) as exc:raise HTTPException(410,"分页缓存不可用，请重新分析。") from exc
     if report.get("version") != VERSION:
         raise HTTPException(400, "这不是项目学习任务。")
+    from tm1_insight.api.app import _process_search_source
+    settings = get_settings().model_copy()
+    expected = fingerprint(settings)
+    if report.get('source_fingerprint') != expected:
+        raise HTTPException(409, "教材来源已变化，请重新分析当前模型。")
+    inspection_source = _process_search_source(settings)
     for item in items:
         if section=="processes":
             ir=item["understanding"]
             ir["reference_total"]=len(ir["references"])
             ir["references"]=ir["references"][:8];ir["controls"]=ir["controls"][:6];ir["call_bindings"]=ir["call_bindings"][:5]
-    return {"summary":report["summary"], "query":report["query"], "sop":report["sop"],"coverage":report["coverage"],
+    if expected != fingerprint() or inspection_source != _process_search_source():
+        raise HTTPException(409, "读取期间模型已变化，请重新分析。")
+    return {"inspection_source":inspection_source, "summary":report["summary"], "query":report["query"], "sop":report["sop"],"coverage":report["coverage"],
             "limitations":report["limitations"], "total":total, "offset":offset,"items":items}
 
 

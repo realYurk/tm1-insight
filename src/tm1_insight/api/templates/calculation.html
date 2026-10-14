@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% macro evidence(loc) -%}<a href="/explorer/process/{{ report.process|urlencode }}?source={{ report.model_fingerprint }}#{{ loc.section }}-L{{ loc.line }}">{{ loc.section }}:{{ loc.line }}:{{ loc.column }}</a>{%- endmacro %}
+{% macro coordinates(mapping) -%}
+<p class="muted small">按当前离线模型记录的维度顺序匹配位置；成员值、别名与层级语义仍需核对。</p>
+{% if mapping.status == 'UNKNOWN' %}<p class="chore-warning">UNKNOWN · 坐标数量或已保存维度顺序不完整，未猜测对应关系。实际 {{ mapping.actual }} 个坐标{% if mapping.expected is not none %}，结构要求 {{ mapping.expected }} 个{% endif %}。</p>{% endif %}
+<div class="table-wrap"><table class="table"><thead><tr><th>位置</th><th>维度</th><th>坐标表达式</th><th>源码依据</th></tr></thead><tbody>
+{% for c in mapping['items'][:50] %}<tr><td>{{ c.position }}</td><td>{% if c.dimension and c.dimension_exists %}<a href="/dimensions?name={{ c.dimension|urlencode }}&amp;source={{ report.model_fingerprint }}">{{ c.dimension }}</a>{% else %}{{ c.dimension or 'UNKNOWN' }}{% if c.dimension and not c.dimension_exists %}<small class="dimension-unknown">维度定义缺失</small>{% endif %}{% endif %}</td><td><code>{{ node_label(nodes[c.node]) }}</code>{% if nodes[c.node].kind == 'unknown' %}<small class="dimension-unknown">UNKNOWN · {{ nodes[c.node].reason }}</small>{% endif %}</td><td>{{ evidence(nodes[c.node].evidence) }}</td></tr>{% endfor %}
+</tbody></table></div>{% if mapping.actual > 50 %}<p class="chore-warning">PARTIAL · 仅展示前 50 个坐标，完整记录见 JSON。</p>{% endif %}
+{%- endmacro %}
+{% block title %}计算检查 · {{ report.process }}{% endblock %}
+{% block breadcrumb %}<nav class="breadcrumb"><a href="/processes">TI 进程</a><span class="sep">/</span><a href="/explorer/process/{{ report.process|urlencode }}?source={{ report.model_fingerprint }}">{{ report.process }}</a><span class="sep">/</span><span class="current">计算检查</span></nav>{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">这次写入的值怎样定义？</h1><p class="page-sub">{{ report.process }} · 单 TI 静态计算检查 · 源码定义 → 读取依赖 → 目标坐标</p></div><a class="btn ghost" href="/explorer/process/{{ report.process|urlencode }}?source={{ report.model_fingerprint }}">返回 TI 源码</a></div>
+<p class="knowledge-disclaimer">沿源码中可解析的定义链核对计算。所有链路都未经过运行验证；字符串常量已隐藏，原值需点源码位置核对。子进程调用单独列出，未将调用当作数据流。</p>
+{% for diagnostic in report.diagnostics %}<p class="chore-warning">PARTIAL · {{ diagnostic.reason|default(diagnostic) }}</p>{% endfor %}
+<div class="calculation-workspace">
+  <aside class="card calculation-browser" aria-label="写入点列表">
+    <h2>选择写入点 <span class="tag">{{ total }}</span></h2>
+    <p class="muted small">按源码位置排列，包含条件路径，不代表执行次序。</p>
+    <p class="muted small">{% if system %}<a href="{{ url(system=false, write=none, page=1) }}">隐藏 } 前缀目标</a>{% else %}已隐藏 {{ hidden }} 条 } 前缀写入 · <a href="{{ url(system=true, write=none, page=1) }}">包含它们</a>{% endif %}</p>
+    <ul class="list calculation-list">{% for w in writes %}<li><a href="{{ url(write=w.id) }}" {% if selected and selected.id == w.id %}aria-current="page"{% endif %}><strong>{{ w.cube or 'UNKNOWN · 动态目标' }}</strong><small>{{ w.operation }} · {{ w.evidence.section }}:{{ w.evidence.line }}:{{ w.evidence.column }}</small><small class="muted">{{ w.trace_status }} · {{ w.value_expression }}</small></a></li>{% else %}<li class="muted">当前范围没有可展示的 CellPutN/S 或 CellIncrementN 写入点；其他写入机制未覆盖。</li>{% endfor %}</ul>
+    {% if pages > 1 %}<nav class="pagination" aria-label="写入点分页"><span>{{ page }} / {{ pages }}</span>{% if page > 1 %}<a href="{{ url(page=page-1, write=none) }}">上一页</a>{% endif %}{% if page < pages %}<a href="{{ url(page=page+1, write=none) }}">下一页</a>{% endif %}</nav>{% endif %}
+  </aside>
+  <section class="card calculation-detail" aria-label="计算定义检查">
+  {% if selected %}
+    <h2>{{ selected.operation }} → {{ selected.cube or 'UNKNOWN · 目标未解析' }}</h2>
+    <p class="muted small">{{ selected.trace_status }} · {{ evidence(selected.evidence) }} · {% if selected.trace_status == 'STATIC' %}可追踪静态定义，尚未验证实际值{% else %}仍有未还原定义或坐标{% endif %}</p>
+    {% if selected.control_context %}<p class="chore-warning">此写入位于条件或循环中；路径、迭代及可达性未求值。{% for context in selected.control_context %}<span class="tag">{{ context.kind }} · {{ context.section }}:{{ context.line }}{% if context.branch is defined %} · 分支 {{ context.branch + 1 }}{% endif %}</span>{% endfor %}</p>{% endif %}
+    <div class="calculation-path" aria-label="静态定义路径"><div><small>读取依赖</small><strong>{% for index in selected.read_nodes[:8] %}{{ nodes[index].cube or 'UNKNOWN' }}{% if not loop.last %}、{% endif %}{% else %}常量 / 参数 / UNKNOWN{% endfor %}</strong></div><div><small>源码计算定义</small><code>{{ selected.formula_expression }}</code></div><div><small>写入目标</small><strong>{{ selected.cube or 'UNKNOWN' }}</strong><small>{{ selected.operation }}</small></div></div>
+    <section class="calculation-step"><h3>① 值表达式与定义链</h3>{% if selected.definition_nodes|length > 50 %}<p class="chore-warning">PARTIAL · 展示前 50 条定义，完整预算内链路见 JSON。</p>{% endif %}<pre class="code calculation-expression">{{ selected.formula_expression }}</pre>
+      {% if selected.definition_nodes %}<div class="table-wrap"><table class="table"><thead><tr><th>变量</th><th>该位置使用的定义</th><th>依据</th></tr></thead><tbody>{% for index in selected.definition_nodes[:50] %}{% set n=nodes[index] %}<tr><td><code>{{ n.variable }}</code></td><td><code>{{ n.expression }}</code></td><td>{{ evidence(n.evidence) }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="muted small">没有可展开的中间变量定义；请核对直接表达式或下方未知项。</p>{% endif %}
+    </section>
+    <section class="calculation-step"><h3>② 此定义链中的读取依赖</h3>{% if selected.read_nodes|length > 20 %}<p class="chore-warning">PARTIAL · 共 {{ selected.read_nodes|length }} 个读取点，概览仅列前 8 个，下方展示前 20 个，完整记录见 JSON。</p>{% elif selected.read_nodes|length > 8 %}<p class="muted small">概览仅列前 8 个读取点，下方保留全部 {{ selected.read_nodes|length }} 个。</p>{% endif %}<p class="muted small">仅列出写入值定义链实际引用的 CellGet；这是静态依赖，不证明运行时数值贡献。坐标取数与数值贡献分别核对。</p>
+      {% for index in selected.read_nodes[:20] %}{% set n=nodes[index] %}<details class="calculation-read" open><summary>{{ n.operation }} · {% if n.cube %}<a href="/explorer/cube/{{ n.cube|urlencode }}">{{ n.cube }}</a>{% else %}UNKNOWN · 动态读取目标{% endif %} · {{ evidence(n.evidence) }}</summary>{{ coordinates(n.coordinate_mapping) }}</details>{% else %}<p class="muted small">没有可确认的直接读取依赖。可能是常量/参数，也可能在未知定义处停止追踪；不据此判定“无来源”。</p>{% endfor %}
+    </section>
+    <section class="calculation-step"><h3>③ 写入坐标与操作</h3><p>{% if selected.operation|lower == 'cellincrementn' %}源码使用累加写入；原单元格值及执行次数未验证。{% else %}源码使用赋值写入；覆盖顺序、目标原值和 Rule/Feeder 影响未验证。{% endif %}</p>{{ coordinates(selected.coordinate_mapping) }}</section>
+    <section class="calculation-step"><h3>④ 仍需查证的定义</h3>{% if selected.unknown_nodes|length > 50 %}<p class="chore-warning">PARTIAL · 展示前 50 个未知项，完整记录见 JSON。</p>{% endif %}{% for index in selected.unknown_nodes[:50] %}{% set n=nodes[index] %}<p class="chore-warning">UNKNOWN · {{ n.name|default('') }} · {{ n.reason|default('对象绑定或结构未解析') }} · {{ evidence(n.evidence) }}</p>{% else %}<p class="muted small">受支持的局部定义链未遇到未知节点；仍需验证实际输入、坐标成员、分支、零分母和运行输出。</p>{% endfor %}</section>
+  {% else %}<div class="empty-state"><div class="empty-title">选择一个写入点，或核对子进程边界</div><p class="muted">本页只解释当前 TI，不自动展开整个模型。</p></div>{% endif %}
+  </section>
+</div>
+<section class="card"><h2>子进程调用 · 独立边界</h2><p class="muted small">以下是源码观察，未证明运行、完成次序或跨过程值流。最多展示前 50 条；导出保留预算内的调用记录。</p><div class="table-wrap"><table class="table"><thead><tr><th>操作</th><th>被调用过程</th><th>状态 / 依据</th></tr></thead><tbody>{% for call in report.calls[:50] %}<tr><td>{{ call.operation }}</td><td>{% if call.target and call.status == 'resolved' %}<a href="/calculation?name={{ call.target|urlencode }}&amp;source={{ report.model_fingerprint }}">{{ call.target }}</a>{% else %}UNKNOWN{% endif %}</td><td>{{ call.status }} · {{ evidence(call) }}</td></tr>{% else %}<tr><td colspan="3">当前解释范围未观察到已支持的调用语句。</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="card"><h2>保存核对材料</h2><p class="muted small">导出当前 TI 全部预算内的写入点（包含 } 前缀），提供表达式 DAG、位置、坐标和 UNKNOWN。包含私有模型对象名，请本地保管；没有运行结果或等价声明。</p><div class="study-actions"><a class="btn ghost" href="/api/calculation/export?name={{ report.process|urlencode }}&amp;source={{ report.model_fingerprint }}&amp;format=json">下载 JSON</a><a class="btn ghost" href="/api/calculation/export?name={{ report.process|urlencode }}&amp;source={{ report.model_fingerprint }}&amp;format=markdown">下载 Markdown</a></div><details class="dimension-limits"><summary>支持范围与未验证事项</summary><ul>{% for limit in report.get('limits',[]) %}<li>{{ limit }}</li>{% endfor %}</ul></details></section>
+{% endblock %}

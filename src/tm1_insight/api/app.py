@@ -553,6 +553,54 @@ def explorer_cube(request: Request, name: str):
                                                                "dimension_source": source})
 
 
+def _calculation_report(name, source):
+    from tm1_insight.store import calculation
+    store = _store()
+    current = _process_search_source(store.settings)
+    if source and source != current:
+        raise StarletteHTTPException(409, "模型已变化，请从当前 TI 重新打开计算检查。")
+    con = store.connect(read_only=True)
+    try: report = calculation.inspect(con, name)
+    finally: con.close()
+    if current != _process_search_source(store.settings) or current != _process_search_source():
+        raise StarletteHTTPException(409, "查询期间模型已变化，请重新打开计算检查。")
+    if report is None: raise StarletteHTTPException(404, "当前模型中没有这个 TI。")
+    report['model_fingerprint'] = current
+    return report
+
+
+@app.get("/calculation", response_class=HTMLResponse)
+def calculation_page(request: Request, name: str = Query(..., min_length=1, max_length=1000),
+                     source: str = Query("", max_length=64), page: int = Query(1, ge=1),
+                     write: Optional[int] = Query(None, ge=0), system: bool = False):
+    from urllib.parse import urlencode
+    from tm1_insight.store.calculation import node_label
+    report = _calculation_report(name, source)
+    items = [w for w in report['writes'] if system or not (w['cube'] or '').startswith('}')]
+    pages = max(1, (len(items)+49)//50); page = min(page,pages)
+    selected = next((w for w in items if w['id']==write), None) if write is not None else (items[(page-1)*50] if items else None)
+    if write is not None and selected is None: raise StarletteHTTPException(404, "写入点不存在或被前缀筛选隐藏。")
+    def url(**updates):
+        params = dict(name=name, source=report['model_fingerprint'], page=page, write=selected['id'] if selected else None, system=system)
+        params.update(updates)
+        return '/calculation?'+urlencode({k:v for k,v in params.items() if v is not None})
+    return templates.TemplateResponse(request, "calculation.html", dict(report=report, selected=selected,
+        writes=items[(page-1)*50:page*50], hidden=len(report['writes'])-len(items), total=len(items), pages=pages, page=page,
+        system=system, url=url, nodes={n['id']:n for n in report['nodes']}, node_label=node_label))
+
+
+@app.get("/api/calculation/export")
+def calculation_export(name: str = Query(..., min_length=1, max_length=1000),
+                       source: str = Query(..., min_length=64, max_length=64), format: Literal['json','markdown']='json'):
+    from fastapi.responses import Response
+    from tm1_insight.store.calculation import markdown
+    report = _calculation_report(name, source)
+    content = markdown(report) if format=='markdown' else json.dumps(report,ensure_ascii=False,indent=2)
+    suffix, media = ('md','text/markdown') if format=='markdown' else ('json','application/json')
+    return Response(content, media_type=media, headers={'Content-Disposition':f'attachment; filename=TI_Calculation.{suffix}',
+                                                        'Cache-Control':'no-store'})
+
+
 # ---- 页面：Graph（知识图谱：以 TI 为中心的操作 cube + 调用链） ----
 @app.get("/graph", response_class=HTMLResponse)
 def graph(request: Request, ti: Optional[str] = None):

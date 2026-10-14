@@ -9,20 +9,24 @@ TOKEN = re.compile(r"(?P<comment>\#[^\n]*)|(?P<string>'(?:[^']|'')*'|\"(?:[^\"]|
 SECTIONS = ("prolog", "metadata", "data", "epilog")
 
 
-def statements(parts):
+def statements(parts, *, include_logging=False):
     for section, code in zip(SECTIONS, parts):
-        pending, line, logging = [], 1, False
+        pending, line, logging, line_start = [], 1, False, 0
         for match in TOKEN.finditer(code or ""):
             value, kind = match.group(), match.lastgroup
             if kind == "comment":
                 if LOG_REGION_START.search(value) or LOG_REGION_FINAL_START.search(value): logging = True
                 elif LOG_REGION_END.search(value) or LOG_REGION_FINAL_END.search(value): logging = False
-            if not logging and kind not in {"space", "comment"}:
-                pending.append({"value":value, "kind":kind, "line":line, "section":section})
+            if (include_logging or not logging) and kind not in {"space", "comment"}:
+                pending.append({"value":value, "kind":kind, "line":line, "section":section,
+                                "column": match.start() - line_start + 1,
+                                "offset": match.start()})
                 if value == ";":
                     yield pending
                     pending = []
             line += value.count("\n")
+            last_newline = value.rfind("\n")
+            if last_newline >= 0: line_start = match.start() + last_newline + 1
         if pending:
             yield pending
 

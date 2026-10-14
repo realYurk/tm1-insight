@@ -1,4 +1,23 @@
 /* Accessible, bounded-density workbench primitives. No external fonts/assets. */
+.calculation-workspace { display: grid; grid-template-columns: minmax(220px, 27%) minmax(0, 1fr); align-items: start; gap: 20px; }
+.process-page-head > .study-actions { flex: 0 0 auto; margin: 0; }
+.calculation-path { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 14px; padding: 14px 0; border-top: 1px solid var(--border); }
+.calculation-path > div { display: grid; align-content: start; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.calculation-path small { color: var(--muted); }
+.calculation-path code { color: var(--accent-strong); }
+.calculation-browser, .calculation-detail { min-width: 0; }
+.calculation-list { max-height: calc(100dvh - 360px); overflow: auto; }
+.calculation-list li { padding: 0; }
+.calculation-list a { display: grid; gap: 5px; padding: 12px 8px; overflow-wrap: anywhere; border-radius: var(--radius-sm); }
+.calculation-list a[aria-current=page] { background: var(--accent-soft); }
+.calculation-step { padding: 16px 0; border-top: 1px solid var(--border); }
+.calculation-expression { white-space: pre-wrap; overflow-wrap: anywhere; }
+.calculation-read { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin: 12px 0; }
+.calculation-read summary { cursor: pointer; font-weight: 600; }
+.calculation-detail h2, .calculation-detail td { overflow-wrap: anywhere; }
+.calculation-detail code { white-space: pre-wrap; }
+@media (max-width: 1000px) { .calculation-workspace { grid-template-columns: minmax(0,1fr); } .calculation-list { max-height: 200px; } }
+@media (max-width: 560px) { .calculation-path { grid-template-columns: minmax(0,1fr); } }
 .dimension-workspace { display: grid; grid-template-columns: minmax(220px, 25%) minmax(0, 1fr); gap: 20px; align-items: start; }
 .dimension-browser, .dimension-detail { min-width: 0; margin: 0; }
 .dimension-list { max-height: calc(100dvh - 360px); min-height: 180px; overflow: auto; }

@@ -54,6 +54,7 @@
           const ir=item.understanding;node('p',`结构解释：${ir.statements} 条语句 · ${ir.reference_total} 个对象引用。条件未求值，完整记录可下载。`,card);
           ir.references.forEach(ref=>node('p',`${ref.section}:${ref.line} ${ref.operation} → ${ref.target || ref.expression || '未知'}（${statusNames[ref.status] || ref.status}）`,card).className='muted small');
           const actions=node('div','',card);actions.className='study-actions';
+          link(actions,'核对计算定义','/calculation?name='+encodeURIComponent(item.process)+'&source='+encodeURIComponent(report.inspection_source)).className='btn primary';
           const save=node('button','保存为经验候选',actions);save.className='btn ghost';save.addEventListener('click',async()=>{save.disabled=true;save.textContent='正在保存…';try{const value=await(await request('/api/experience/cards',{task_id:task,process:item.process})).json();save.textContent='候选已保存';link(actions,'填写业务含义与验证记录','/experience?card='+encodeURIComponent(value.id));}catch(e){error(e.message);save.disabled=false;save.textContent='保存为经验候选';}});
           const contract=node('button','下载迁移准备说明',actions);contract.className='btn ghost';contract.addEventListener('click',async()=>{contract.disabled=true;try{const response=await request(`/api/learning/tasks/${task}/contract?process=${encodeURIComponent(item.process)}`);const url=URL.createObjectURL(await response.blob());const a=node('a','');a.href=url;a.download='migration-contract.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){error(e.message);}finally{contract.disabled=false;}});
 

@@ -64,6 +64,8 @@ def test_learning_job_results_and_templates(client):
     result=client.get(f'/api/learning/tasks/{task}/result?section=processes&limit=1').json()
     assert len(result['items'])==1
     assert result['items'][0]['process']=='Load_Sales'
+    assert len(result['inspection_source'])==64
+    assert client.get('/calculation',params={'name':'Load_Sales','source':result['inspection_source']}).status_code==200
     exported=client.post(f'/api/learning/tasks/{task}/export')
     with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
         assert 'READ_ME_FIRST.md' in archive.namelist()

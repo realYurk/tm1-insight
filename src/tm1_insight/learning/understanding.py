@@ -32,12 +32,12 @@ def _assigned(nodes):
     return result
 
 
-def structure(parts):
+def structure(parts, *, include_logging=False):
     roots=[]; diagnostics=[]; controls=[]; statement_count=0
     for section_index in range(4):
         pieces=[""]*4;pieces[section_index]=parts[section_index] or ""
         root=[];current=root;stack=[]
-        for tokens in statements(pieces):
+        for tokens in statements(pieces, include_logging=include_logging):
             statement_count+=1
             first=tokens[0];word=first["value"].casefold()
             location={"section":first["section"],"line":first["line"]}
@@ -64,8 +64,8 @@ def structure(parts):
     return roots,controls,diagnostics,statement_count
 
 
-def analyze(parts, catalogs, parameters=()):
-    roots,controls,diagnostics,statement_count=structure(parts)
+def analyze(parts, catalogs, parameters=(), *, include_logging=False):
+    roots,controls,diagnostics,statement_count=structure(parts, include_logging=include_logging)
     references=[];operation_counts=Counter();bindings=[];assignments=0
     canonical={kind:{name.casefold():name for name in names} for kind,names in catalogs.items()}
     parameters={name.casefold() for name in parameters}
@@ -96,7 +96,8 @@ def analyze(parts, catalogs, parameters=()):
                 arg=args[index] if len(args)>index else []
                 status="resolved" if matched else "missing_object" if target is not None else "parameter" if len(arg)==1 and arg[0]["value"].casefold() in parameters else "unresolved"
                 reference={"kind":kind,"target":matched,"status":status,"expression":expression(arg)[:200],
-                           "operation":token["value"],"section":token["section"],"line":token["line"],"control_context":list(context)[-6:]}
+                           "operation":token["value"],"section":token["section"],"line":token["line"],
+                           "column":token.get("column"),"control_context":list(context)[-6:]}
                 references.append(reference)
                 if op in {"executeprocess","runprocess"}:
                     bindings.append({**reference,"arguments":[{"parameter":constant(args[i],{}),"expression":expression(args[i+1])[:200]}

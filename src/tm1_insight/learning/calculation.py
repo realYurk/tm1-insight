@@ -1,0 +1,253 @@
+"""Bounded, non-executing use/definition worksheet for one TI.
+
+Arithmetic is a syntax DAG. Only explicit CellGet values and known definitions
+become static value dependencies. Unknown functions/control merges stop tracing.
+String values are redacted; object names come only from the model catalog.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+
+from tm1_insight.learning.syntax import calls, expression, SECTIONS
+from tm1_insight.learning.understanding import analyze, structure, _assigned
+
+VERSION = "ti-calculation-worksheet-1"
+MAX_CODE = 250_000
+MAX_NODES = 5000
+SENSITIVE = re.compile(r"password|passwd|secret|token|credential|sso|pin(?:code)?$", re.I)
+WRITES = {"cellputn", "cellputs", "cellincrementn"}
+
+
+def safe(tokens):
+    if any(t["kind"] == "id" and SENSITIVE.search(t["value"]) for t in tokens):
+        return "<敏感表达式已隐藏>"
+    text = expression(tokens)
+    return text if len(text)<=600 else text[:600]+' … [表达式显示已截断；完整语法见节点/源码]'
+
+
+def location(token):
+    return {key: token[key] for key in ("section", "line", "column")}
+
+
+class Unsupported(Exception):
+    pass
+
+
+class BudgetExceeded(Exception):
+    pass
+
+
+class Builder:
+    def __init__(self, references, parameters):
+        self.nodes = []
+        self.parameters = {name.casefold() for name in parameters}
+        self.invalid_parameters = set()
+        self.references = {(r["section"], r["line"], r["column"], r["operation"].casefold()): r for r in references}
+
+    def add(self, kind, token, **fields):
+        if len(self.nodes) >= MAX_NODES:
+            raise BudgetExceeded()
+        item = dict(id=len(self.nodes), kind=kind, evidence=location(token), children=[], **fields)
+        self.nodes.append(item)
+        return item["id"]
+
+    def parse(self, tokens, env):
+        tokens = [t for t in tokens if t["value"] != ";"]
+        if not tokens:
+            return self.add("unknown", {"section": "unknown", "line": 0, "column": 0}, reason="表达式缺失")
+        if any(t["kind"] == "id" and SENSITIVE.search(t["value"]) for t in tokens):
+            return self.add("unknown", tokens[0], reason="敏感表达式已隐藏")
+        cursor = 0
+        precedence = {"+": 1, "-": 1, "*": 2, "/": 2, "\\": 2}
+
+        def parse_expr(minimum=0, depth=0):
+            nonlocal cursor
+            if depth > 24 or cursor >= len(tokens):
+                raise Unsupported()
+            token = tokens[cursor]; cursor += 1
+            value = token["value"]
+            if value in {"+", "-"} and token["kind"] == "symbol":
+                child = parse_expr(3, depth + 1)
+                left = self.add("unary", token, operator=value, operands=[child])
+                self.nodes[left]["children"] = [child]
+            elif value == "(":
+                left = parse_expr(0, depth + 1)
+                if cursor >= len(tokens) or tokens[cursor]["value"] != ")": raise Unsupported()
+                cursor += 1
+            elif token["kind"] == "number" and len(value) <= 100:
+                left = self.add("number", token, value=value)
+            elif token["kind"] == "string":
+                left = self.add("redacted_string", token, reason="字符串常量已隐藏；在源码位置核对原值")
+            elif token["kind"] == "id":
+                name = value.casefold()
+                if cursor < len(tokens) and tokens[cursor]["value"] == "(":
+                    cursor += 1; args = []
+                    if cursor < len(tokens) and tokens[cursor]["value"] != ")":
+                        while True:
+                            args.append(parse_expr(0, depth + 1))
+                            if cursor < len(tokens) and tokens[cursor]["value"] == ",": cursor += 1
+                            else: break
+                    if cursor >= len(tokens) or tokens[cursor]["value"] != ")": raise Unsupported()
+                    cursor += 1
+                    if name in {"cellgetn", "cellgets"} and args:
+                        ref = self.references.get((token["section"], token["line"], token["column"], name), {})
+                        left = self.add("read", token, operation=value, cube=ref.get("target"),
+                                        resolution=ref.get("status", "unresolved"), coordinates=args[1:])
+                        self.nodes[left]["children"] = args
+                    else:
+                        left = self.add("unknown", token, reason=f"函数 {value} 的返回值语义未支持；不推导其值流")
+                elif name in env:
+                    left = self.add("variable", token, name=value, definition=env[name])
+                    self.nodes[left]["children"] = [env[name]]
+                elif name in self.parameters and name not in self.invalid_parameters:
+                    left = self.add("parameter", token, name=value)
+                else:
+                    left = self.add("unknown", token, name=value, reason="没有该位置可安全复用的定义；数据源字段、外部状态或分支/循环结果未还原")
+            else:
+                raise Unsupported()
+            while cursor < len(tokens) and tokens[cursor]["value"] in precedence:
+                operator = tokens[cursor]
+                level = precedence[operator["value"]]
+                if level < minimum: break
+                cursor += 1
+                right = parse_expr(level + 1, depth + 1)
+                node = self.add("binary", operator, operator=operator["value"], operands=[left, right])
+                self.nodes[node]["children"] = [left, right]; left = node
+            return left
+        try:
+            root = parse_expr()
+            if cursor != len(tokens): raise Unsupported()
+            return root
+        except Unsupported:
+            return self.add("unknown", tokens[0], reason="表达式超出支持的算术子集或语法不完整", expression=safe(tokens))
+
+    def trace(self, root):
+        seen, reads, unknowns, definitions = set(), [], [], []
+        pending = [root]
+        while pending:
+            index = pending.pop()
+            if index in seen: continue
+            seen.add(index); node = self.nodes[index]
+            if node["kind"] == "unknown": unknowns.append(index); continue
+            if node["kind"] == "read":
+                reads.append(index)
+                if node["resolution"] != "resolved": unknowns.append(index)
+                # Coordinates explain the read location, not additional value contributions.
+                continue
+            if node["kind"] == "assignment": definitions.append(index)
+            pending.extend(reversed(node["children"]))
+        return dict(read_nodes=reads, unknown_nodes=unknowns, definition_nodes=definitions)
+
+
+def worksheet(name, parts, catalogs, parameters=()):
+    report = dict(schema=VERSION, process=name, source_hash=hashlib.sha256(json.dumps(dict(zip(SECTIONS, parts)), sort_keys=True).encode()).hexdigest(),
+                  runtime_verified=False, status="PARTIAL", nodes=[], writes=[], calls=[], observations=[], diagnostics=[],
+                  scope="single_process_no_callee_expansion", strings_redacted=True)
+    if sum(map(len, parts)) > MAX_CODE:
+        report["diagnostics"].append("源码超过 250000 字符预算；请直接查看源码，本页未分析截断片段。")
+        return report
+    roots, _, diagnostics, _ = structure(parts, include_logging=True)
+    pending = [node for root in roots for node in root]
+    while pending:
+        node = pending.pop()
+        if len(node["tokens"]) > 1000:
+            report["diagnostics"].append("单条语句超过 1000 token 预算，本页未继续解释。")
+            return report
+        balance = 0
+        for token in node['tokens']:
+            if token['kind'] != 'symbol': continue
+            if token['value'] in {"'", '"'}:
+                report['diagnostics'].append(dict(reason='存在无法解析的字符串引号，本页未继续解释。', **location(token)))
+                return report
+            if token['value'] == '(': balance += 1
+            elif token['value'] == ')': balance -= 1
+            if balance < 0: break
+        if balance != 0:
+            report['diagnostics'].append(dict(reason='语句括号无法配对，本页未继续解释。', **location(node['tokens'][0])))
+            return report
+        for branch in node.get("branches", []): pending.extend(branch)
+    observed = analyze(parts, catalogs, parameters, include_logging=True)
+    report["diagnostics"] = diagnostics
+    items = [{k:r[k] for k in ("kind", "target", "status", "operation", "section", "line", "column", "control_context")}
+             for r in observed["references"]]
+    report["observation_total"] = len(items)
+    report["observations"] = items[:2000]
+    report["calls"] = [r for r in items if r["kind"] == "process"][:2000]
+    if len(items) > 2000: report["diagnostics"].append("引用观察表只保留前 2000 条，超出部分未导出。")
+    builder = Builder(observed["references"], parameters)
+
+    def visit(nodes, env, context=(), depth=0):
+        if depth > 40: raise BudgetExceeded()
+        for node in nodes:
+            tokens = node["tokens"]
+            if node["kind"] == "while":
+                env = {k:v for k,v in env.items() if k not in _assigned(node["branches"][0])}
+            for token, args in calls(tokens):
+                if token["value"].casefold() not in WRITES: continue
+                ref = builder.references.get((token["section"], token["line"], token["column"], token["value"].casefold()), {})
+                value = builder.parse(args[0] if args else [], env)
+                trace = builder.trace(value)
+                coordinates = [builder.parse(arg, env) for arg in args[2:]]
+                for coordinate in coordinates:
+                    trace['unknown_nodes'].extend(builder.trace(coordinate)['unknown_nodes'])
+                for read in trace['read_nodes']:
+                    for coordinate in builder.nodes[read]['coordinates']:
+                        trace['unknown_nodes'].extend(builder.trace(coordinate)['unknown_nodes'])
+                trace['unknown_nodes'] = list(dict.fromkeys(trace['unknown_nodes']))
+                if diagnostics: trace = dict(read_nodes=[], unknown_nodes=[value], definition_nodes=[])
+                report["writes"].append(dict(id=len(report["writes"]), operation=token["value"],
+                    cube=ref.get("target"), resolution=ref.get("status", "unresolved"), value_node=value,
+                    value_expression=safe(args[0]) if args else "UNKNOWN", evidence=location(token),
+                    coordinates=coordinates, control_context=list(context),
+                    trace_status="UNKNOWN" if diagnostics else "PARTIAL" if trace["unknown_nodes"] or ref.get("status") != "resolved" else "STATIC",
+                    **trace))
+            if node["kind"] == "if":
+                outcomes = [visit(branch, dict(env), context + (dict(kind="if", section=node["section"],
+                    line=node["line"], branch=index, condition="分支路径未求值"),), depth+1)
+                    for index, branch in enumerate(node["branches"])]
+                if not node["else"]: outcomes.append(dict(env))
+                env = {k:v for k,v in outcomes[0].items() if all(out.get(k) == v for out in outcomes[1:])}
+            elif node["kind"] == "while":
+                base = dict(env)
+                visit(node["branches"][0], dict(base), context + (dict(kind="while", section=node["section"],
+                    line=node["line"], condition=safe(tokens[1:]), note="循环与迭代未求值"),), depth+1)
+                env = base
+            elif len(tokens)>2 and tokens[0]["kind"]=="id" and tokens[1]["value"]=="=":
+                variable=tokens[0]["value"]
+                if SENSITIVE.search(variable):
+                    index = builder.add("unknown", tokens[0], reason="敏感定义未展开")
+                else:
+                    rhs = builder.parse(tokens[2:], env)
+                    index = builder.add("assignment", tokens[0], variable=variable, expression=safe(tokens[2:]))
+                    builder.nodes[index]["children"] = [rhs]
+                env[variable.casefold()] = index
+            elif tokens[0]["value"].casefold() in {"itemskip", "itemreject", "processquit", "processbreak", "break"}:
+                env = {}
+        return env
+
+    env = {}
+    try:
+        for index, root in enumerate(roots):
+            written = _assigned(root)
+            builder.invalid_parameters.update(written & builder.parameters)
+            if index in {1, 2}: env = {k:v for k,v in env.items() if k not in written}
+            incoming = dict(env)
+            env = visit(root, env)
+            if index in {1, 2}: env = {k:v for k,v in incoming.items() if k not in written}
+    except BudgetExceeded:
+        report["diagnostics"].append("达到 5000 节点或控制嵌套预算；后续语句未展开。")
+    # Do not export unused definitions or orphan arguments of unsupported functions.
+    reachable = set()
+    pending = [idx for write in report["writes"] for idx in [write["value_node"], *write["coordinates"]]]
+    while pending:
+        index = pending.pop()
+        if index in reachable: continue
+        reachable.add(index); pending.extend(builder.nodes[index]["children"])
+    report["nodes"] = [node for node in builder.nodes if node["id"] in reachable]
+    report["limits"] = ["所有链路是静态定义依赖，不是运行时贡献；分支可达性、循环次数与实际值未验证。",
+        "支持普通加减乘除、反斜杠安全除法的语法与显式 CellGetN/S；不计算数值或承诺安全除法零分母行为。",
+        "未知函数、动态对象、跨记录累加和未确定的分支定义停止值流追踪；子进程保持独立调用边界。",
+        "字符串常量已隐藏，目标成员值需回到源码核对；未验证 Rule/Feeder、合并、清空范围或迁移等价。"]
+    return report

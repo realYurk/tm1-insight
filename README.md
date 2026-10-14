@@ -58,6 +58,8 @@ python -m tm1_insight.cli study-all --root "D:\PrivateTM1Data" --output "E:\Priv
 
 「维度」现在可搜索元素，查看直接上下级和原始权重、属性定义、子集表达式及使用它的 Cube；也可从 Cube 结构名称直接进入。大维度首次建立可取消的本地检索索引，后续分页复用。缺失层级名称、属性值和子集成员明确保留为 UNKNOWN，MDX 不自动求值。详见 [维度结构交付记录](docs/DELIVERY_DIMENSION_WORKSPACE.md)。
 
+TI 详情的「计算检查」和学习手册的「核对计算定义」可按写入点查看局部赋值链、实际引用的 CellGet、读写坐标与源码行列。表达式保留运算结构；动态目标、分支合并和不支持的函数明确停止追踪。子进程调用单独列出，不据此生成跨过程值流；JSON / Markdown 可下载到本机核对。详见 [计算检查交付记录](docs/DELIVERY_CALCULATION_WORKSHEET.md)。
+
 ### 命令行批量生成本地教材
 
 ```powershell

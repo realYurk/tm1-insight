@@ -20,7 +20,7 @@
       {% if proc.calls_process %}| 调用 {{ proc.calls_process|length }} 个子进程{% endif %}
     </p>
   </div>
-  <button type="button" class="btn ghost" id="open-process-switcher" aria-haspopup="dialog">搜索 / 切换 TI</button>
+  <div class="study-actions"><a class="btn ghost" href="/calculation?name={{ proc.name|urlencode }}&amp;source={{ search_source }}">计算检查</a><button type="button" class="btn ghost" id="open-process-switcher" aria-haspopup="dialog">搜索 / 切换 TI</button></div>
 </div>
 {% include "process_switcher.html" %}
 
