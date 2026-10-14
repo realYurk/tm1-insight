@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% macro evidence(process, e) -%}<a href="/explorer/process/{{ process|urlencode }}?source={{ report.model_fingerprint }}#{{ e.section }}-L{{ e.line }}">{{ e.section }}:{{ e.line }}:{{ e.column }}</a>{%- endmacro %}
+{% block title %}子 TI 参数检查 · TM1 Insight{% endblock %}
+{% block content %}
+<nav class="breadcrumb"><a href="/calculation?name={{ report.process|urlencode }}&amp;source={{ report.model_fingerprint }}">{{ report.process }}</a><span>/</span><span>子 TI 参数检查</span></nav>
+<div class="page-head"><div><h1 class="page-title">这次调用传递了什么？</h1><p class="page-sub">{{ report.process }} → {{ report.call.target or 'UNKNOWN · 动态目标' }} · {{ report.call.operation }} · {{ evidence(report.process, report.call) }}</p></div></div>
+<p class="knowledge-disclaimer">一个源码调用点与一个子 TI，参数绑定和子 TI 计算分别展示。未执行、未替换公式，不证明调用成功、完成次序或数值贡献。</p>
+{% for c in report.call.control_context %}<p class="chore-warning">条件边界 · {{ c.kind }} · {{ c.section }}:{{ c.line }} · {{ c.condition }}，未验证可达性或迭代次数。</p>{% endfor %}
+{% if report.child %}
+<div class="study-actions"><a class="btn primary" href="/calculation?name={{ report.child.process|urlencode }}&amp;source={{ report.model_fingerprint }}">检查子 TI 的计算定义 →</a></div>
+<section class="calculation-step"><h2>逐项核对参数</h2><p class="muted small">参数名仅在子 TI 声明中确认后显示。字符串值隐藏；每项最多展示 20 条定义、20 个读取和 20 个使用位置，预算内完整记录可下载 JSON。</p>
+{% if report.bindings|length > 50 %}<p class="chore-warning">PARTIAL · 只展示前 50 个参数，完整预算内记录见 JSON。</p>{% endif %}
+{% for b in report.bindings[:50] %}
+<article class="calculation-read"><h3>{{ b.parameter or 'UNKNOWN · 参数名未确认或敏感' }} ← <code>{{ b.expression }}</code></h3>
+<p>{{ '已确认命名绑定' if b.status == 'EXPLICIT_BINDING' else 'UNKNOWN · 绑定未确认' }} · 调用方参数位置 {{ evidence(report.process,b.evidence) }}{% if b.reason %} · {{ b.reason }}{% endif %}</p>
+<div class="invocation-columns"><div><h4>调用方定义依据</h4>
+{% for i in b.definition_nodes[:20] %}{% set n=nodes[i] %}<p><code>{{ n.variable }} = {{ n.expression }}</code> · {{ evidence(report.process,n.evidence) }}</p>{% endfor %}
+{% for i in b.read_nodes[:20] %}{% set n=nodes[i] %}<p>静态读取：{{ n.cube or 'UNKNOWN' }} · {{ evidence(report.process,n.evidence) }}</p><p class="muted small">读取坐标（{{ '已按离线维度顺序核对' if n.coordinate_mapping.status == 'recorded_order' else 'UNKNOWN' }}）：{% for c in n.coordinate_mapping['items'][:20] %}{{ c.position }} / {{ c.dimension or 'UNKNOWN' }} = <code>{{ node_label(nodes[c.node]) }}</code>{% if nodes[c.node].kind == 'unknown' %} · UNKNOWN{% endif %}；{% endfor %}{% if n.coordinate_mapping['items']|length > 20 %}PARTIAL · 坐标展示已截断{% endif %}</p>{% endfor %}
+{% for i in b.unknown_nodes[:20] %}<p class="chore-warning">UNKNOWN · {{ nodes[i].reason|default('对象尚未解析') }} · {{ evidence(report.process,nodes[i].evidence) }}</p>{% endfor %}
+{% if not b.definition_nodes and not b.read_nodes and not b.unknown_nodes %}<p class="muted">直接表达式；原字符串及实际值需核对源码。</p>{% endif %}
+{% if b.definition_nodes|length > 20 or b.read_nodes|length > 20 or b.unknown_nodes|length > 20 %}<p class="chore-warning">PARTIAL · 此处展示已截断，完整预算内记录见 JSON。</p>{% endif %}
+</div><div><h4>子 TI 中仍可追踪的使用</h4>
+{% set roles={'write_value':'写入值定义','write_coordinate':'目标坐标','write_target':'目标 Cube 表达式','read_coordinate':'读取坐标','read_target':'读取 Cube 表达式'} %}
+{% for u in b.uses[:20] %}<p>{{ roles[u.role] }} · {{ evidence(report.child.process,u.parameter_evidence) }} → <a href="/calculation?name={{ report.child.process|urlencode }}&amp;source={{ report.model_fingerprint }}&amp;write={{ u.write_id }}&amp;system=true">{{ u.operation }} / {{ u.cube or 'UNKNOWN' }} · {{ u.write_evidence.section }}:{{ u.write_evidence.line }}</a>{% if u.control_context %} · 条件/循环内，路径未求值{% endif %}</p>{% if u.role == "write_value" %}<p class="muted small">子 TI 原定义：<code>{{ u.write_expression }}</code></p>{% endif %}{% else %}<p class="chore-warning">UNKNOWN · 没有可确认的使用链，不据此判为未使用。</p>{% endfor %}
+{% if b.uses|length > 20 %}<p class="chore-warning">PARTIAL · 使用位置展示前 20 条。</p>{% endif %}
+</div></div></article>
+{% else %}<p class="muted">该调用没有可列出的完整参数对；请核对源码及缺省参数。</p>{% endfor %}
+<p class="chore-warning">未显式传入的非敏感声明：{{ report.omitted_parameters|join('、') or '无可列出的声明' }}。未展开缺省值，不能推断实际输入。</p>
+</section>
+{% endif %}
+<section class="calculation-step"><h2>未知项与验证边界</h2>{% for d in report.diagnostics %}<p class="chore-warning">{{ d }}</p>{% endfor %}</section>
+<div class="study-actions"><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}">下载私有 JSON</a><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;format=markdown">下载 Markdown</a></div><p class="muted small">材料含私有对象名称与静态证据，仅供本地保管。不是运行结果或迁移等价声明。</p>
+{% endblock %}

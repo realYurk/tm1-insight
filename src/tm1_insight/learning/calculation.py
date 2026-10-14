@@ -174,7 +174,7 @@ def worksheet(name, parts, catalogs, parameters=()):
              for r in observed["references"]]
     report["observation_total"] = len(items)
     report["observations"] = items[:2000]
-    report["calls"] = [r for r in items if r["kind"] == "process"][:2000]
+    report["calls"] = []
     if len(items) > 2000: report["diagnostics"].append("引用观察表只保留前 2000 条，超出部分未导出。")
     builder = Builder(observed["references"], parameters)
 
@@ -185,11 +185,32 @@ def worksheet(name, parts, catalogs, parameters=()):
             if node["kind"] == "while":
                 env = {k:v for k,v in env.items() if k not in _assigned(node["branches"][0])}
             for token, args in calls(tokens):
+                if token['value'].casefold() in {'executeprocess', 'runprocess'} and len(report['calls']) < 2000:
+                    ref = builder.references.get((token['section'], token['line'], token['column'], token['value'].casefold()), {})
+                    direct = len(args[0]) == 1 and args[0][0]['kind'] == 'string' if args else False
+                    bindings = []
+                    for i in range(1, len(args)-1, 2):
+                        key = args[i]
+                        literal = key[0]['value'][1:-1].replace(key[0]['value'][0]*2, key[0]['value'][0]) if len(key)==1 and key[0]['kind']=='string' else None
+                        value = builder.parse(args[i+1], env)
+                        trace = builder.trace(value)
+                        for read in trace['read_nodes']:
+                            for coordinate in builder.nodes[read]['coordinates']:
+                                trace['unknown_nodes'].extend(builder.trace(coordinate)['unknown_nodes'])
+                        trace['unknown_nodes'] = list(dict.fromkeys(trace['unknown_nodes']))
+                        bindings.append(dict(parameter_hash=hashlib.sha256(literal.casefold().encode()).hexdigest() if literal is not None else None,
+                            value_node=value, expression=safe(args[i+1]), evidence=location(key[0] if key else token), **trace))
+                    report['calls'].append(dict(id=len(report['calls']), kind='process', operation=token['value'],
+                        target=ref.get('target') if direct and ref.get('status')=='resolved' else None,
+                        status=ref.get('status','unresolved') if direct or ref.get('status')!='resolved' else 'unresolved', **location(token),
+                        control_context=list(context), arguments=bindings, argument_pairs_complete=bool(len(args)%2),
+                        target_expression=safe(args[0]) if args else 'UNKNOWN'))
                 if token["value"].casefold() not in WRITES: continue
                 ref = builder.references.get((token["section"], token["line"], token["column"], token["value"].casefold()), {})
                 value = builder.parse(args[0] if args else [], env)
                 trace = builder.trace(value)
                 coordinates = [builder.parse(arg, env) for arg in args[2:]]
+                target_node = builder.parse(args[1], env) if len(args)>1 else builder.parse([],env)
                 for coordinate in coordinates:
                     trace['unknown_nodes'].extend(builder.trace(coordinate)['unknown_nodes'])
                 for read in trace['read_nodes']:
@@ -200,7 +221,7 @@ def worksheet(name, parts, catalogs, parameters=()):
                 report["writes"].append(dict(id=len(report["writes"]), operation=token["value"],
                     cube=ref.get("target"), resolution=ref.get("status", "unresolved"), value_node=value,
                     value_expression=safe(args[0]) if args else "UNKNOWN", evidence=location(token),
-                    coordinates=coordinates, control_context=list(context),
+                    coordinates=coordinates, target_node=target_node, control_context=list(context),
                     trace_status="UNKNOWN" if diagnostics else "PARTIAL" if trace["unknown_nodes"] or ref.get("status") != "resolved" else "STATIC",
                     **trace))
             if node["kind"] == "if":
@@ -240,7 +261,8 @@ def worksheet(name, parts, catalogs, parameters=()):
         report["diagnostics"].append("达到 5000 节点或控制嵌套预算；后续语句未展开。")
     # Do not export unused definitions or orphan arguments of unsupported functions.
     reachable = set()
-    pending = [idx for write in report["writes"] for idx in [write["value_node"], *write["coordinates"]]]
+    pending = [idx for write in report["writes"] for idx in [write["value_node"], write['target_node'], *write["coordinates"]]]
+    pending.extend(arg['value_node'] for call in report['calls'] for arg in call['arguments'])
     while pending:
         index = pending.pop()
         if index in reachable: continue

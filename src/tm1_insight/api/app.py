@@ -542,18 +542,23 @@ def explorer_cube(request: Request, name: str):
                                                                "dimension_source": source})
 
 
-def _calculation_report(name, source):
+def _calculation_report(name, source, call=None):
     from tm1_insight.store import calculation
     store = _store()
     current = _process_search_source(store.settings)
     if source and source != current:
         raise StarletteHTTPException(409, "模型已变化，请从当前 TI 重新打开计算检查。")
     con = store.connect(read_only=True)
-    try: report = calculation.inspect(con, name)
+    try:
+        if call is None:
+            report = calculation.inspect(con, name)
+        else:
+            from tm1_insight.store.invocation import inspect_call
+            report = inspect_call(con, name, call)
     finally: con.close()
     if current != _process_search_source(store.settings) or current != _process_search_source():
         raise StarletteHTTPException(409, "查询期间模型已变化，请重新打开计算检查。")
-    if report is None: raise StarletteHTTPException(404, "当前模型中没有这个 TI。")
+    if report is None: raise StarletteHTTPException(404, "当前模型中没有这个 TI 或调用点。")
     report['model_fingerprint'] = current
     return report
 
@@ -588,6 +593,27 @@ def calculation_export(name: str = Query(..., min_length=1, max_length=1000),
     suffix, media = ('md','text/markdown') if format=='markdown' else ('json','application/json')
     return Response(content, media_type=media, headers={'Content-Disposition':f'attachment; filename=TI_Calculation.{suffix}',
                                                         'Cache-Control':'no-store'})
+
+
+@app.get('/invocation', response_class=HTMLResponse)
+def invocation_page(request: Request, name: str = Query(..., min_length=1, max_length=1000),
+                    call: int = Query(..., ge=0), source: str = Query(..., min_length=64, max_length=64)):
+    from tm1_insight.store.calculation import node_label
+    report = _calculation_report(name, source, call)
+    return templates.TemplateResponse(request, 'invocation.html', dict(report=report,
+        nodes={n['id']:n for n in report['nodes']}, node_label=node_label))
+
+
+@app.get('/api/invocation/export')
+def invocation_export(name: str = Query(..., min_length=1, max_length=1000), call: int = Query(..., ge=0),
+                      source: str = Query(..., min_length=64, max_length=64), format: Literal['json','markdown']='json'):
+    from fastapi.responses import Response
+    from tm1_insight.store.invocation import markdown
+    report = _calculation_report(name, source, call)
+    content = markdown(report) if format=='markdown' else json.dumps(report,ensure_ascii=False,indent=2)
+    suffix, media = ('md','text/markdown') if format=='markdown' else ('json','application/json')
+    return Response(content, media_type=media, headers={'Content-Disposition':f'attachment; filename=TI_Invocation.{suffix}',
+                                                      'Cache-Control':'no-store'})
 
 
 # ---- 页面：Graph（知识图谱：以 TI 为中心的操作 cube + 调用链） ----

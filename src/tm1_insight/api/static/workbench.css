@@ -1,4 +1,8 @@
 /* Accessible, bounded-density workbench primitives. No external fonts/assets. */
+.invocation-columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
+.invocation-columns > div { min-width: 0; overflow-wrap: anywhere; }
+.invocation-columns code { white-space: pre-wrap; }
+@media (max-width: 900px) { .invocation-columns { grid-template-columns: minmax(0,1fr); } }
 :root { --side-bg: #e8eeed; --side-bg-2: #dce6e3; --side-text: #4c6560; --side-text-strong: #203e38; --side-border: #cbd8d3; --side-active: #d5e3dd; }
 [data-theme="dark"] { --side-bg: #1b302f; --side-bg-2: #233e3a; --side-text: #b3cac4; --side-text-strong: #eef6f2; --side-border: #35524c; --side-active: #2b4942; }
 .sidebar .brand-logo { background: #406d60; box-shadow: none; }

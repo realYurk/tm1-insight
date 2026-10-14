@@ -45,7 +45,7 @@
         <a href="/cubes" aria-label="Cube 浏览" title="Cube 浏览" class="nav-link {% if path.startswith('/cubes') or path.startswith('/explorer/cube') %}active{% endif %}">
           <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>Cube 浏览</span>
         </a>
-        <a href="/processes" aria-label="TI 进程" title="TI 进程" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') or path == '/calculation' %}active{% endif %}">
+        <a href="/processes" aria-label="TI 进程" title="TI 进程" class="nav-link {% if path.startswith('/processes') or path.startswith('/explorer/process') or path in ['/calculation','/invocation'] %}active{% endif %}">
           <span class="nav-icon">{% include "icons/process.svg" %}</span><span>TI 进程</span>
         </a>
         <a href="/chores" aria-label="Chore 调度" title="Chore 调度" class="nav-link {% if path.startswith('/chores') or path.startswith('/explorer/chore') %}active{% endif %}">

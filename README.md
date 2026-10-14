@@ -60,6 +60,8 @@ python -m tm1_insight.cli study-all --root "D:\PrivateTM1Data" --output "E:\Priv
 
 TI 详情的「计算检查」和学习手册的「核对计算定义」可按写入点查看局部赋值链、实际引用的 CellGet、读写坐标与源码行列。表达式保留运算结构；动态目标、分支合并和不支持的函数明确停止追踪。子进程调用单独列出，不据此生成跨过程值流；JSON / Markdown 可下载到本机核对。详见 [计算检查交付记录](docs/DELIVERY_CALCULATION_WORKSHEET.md)。
 
+计算检查的调用表新增「核对参数」：限定一个字面 ExecuteProcess 和一个子 TI，分别展示调用方表达式、命名绑定、子 TI 原公式及值/坐标/Cube 表达式中的使用位置。动态目标、重复或未知参数明确保留 UNKNOWN，不自动替换公式或宣称运行结果；支持私有 JSON / Markdown。详见 [子 TI 参数交付记录](docs/DELIVERY_INVOCATION_INSPECTION.md)。
+
 首页现以名称搜索与证据核对步骤为主，目录规模集中在统计带，MDX 反查按需展开。连接设置和快照入口统一归入「系统与数据」，侧栏支持灰绿浅色与深色主题。快照页默认说明历史版本尚未接入，原空基线比较仅保留为手动技术预览，不表示本次采集的变更。详见 [工作台交付记录](docs/DELIVERY_WORKSPACE_HOME.md)。
 
 ### 命令行批量生成本地教材
