@@ -42,6 +42,32 @@ Separate:
 
 Never present a dependency edge as a proven value flow, an invocation edge as data flow, or a static fact as runtime verification. Never infer financial/business purpose solely from object names. Every claimed edge, formula and mapping must link to evidence (object, section, location, expression and snapshot where available).
 
+## Binding four-layer product architecture
+
+### 1. Model Foundation — 模型资产
+
+Cube, Dimension, Hierarchy, Element, Rule, Feeder, TI Process, Chore and external file/database sources form the actual model, not a file inventory. Preserve Cube dimension order and cell grain; recorded hierarchies, elements, attributes, consolidation weights, rules/feeders, readers/writers and schedules. Missing metadata remains missing. Large dimensions require pagination or lazy loading. Every higher-layer claim must be grounded in this foundation.
+
+### 2. Lineage & Relationships — 关系与血缘
+
+Keep distinct structural relations, read/write references, execution invocations, source-backed static value dependencies, runtime-confirmed value flow and other static inferences. Include Cube transformations, TI calls, Chore schedules, Rule dependencies, Cube dimensions, external source bindings and configuration/data dependencies with their own evidence and limitations. Co-reading and co-writing never establishes value flow. Default summaries explain relationships rather than listing parser events.
+
+### 3. Architecture Explorer — 系统架构探索器
+
+This is the central user-facing product capability. Starting from a Cube, TI, Chore, prefix or keyword, discover a bounded candidate module and expand by evidence; a prefix is a discovery filter, never a reason to exclude an actual dependency. Implement supported entry types incrementally and state unavailable types explicitly.
+
+Organize **data objects → processing steps → result objects**, with key Cube structures, inputs, intermediates, outputs, processes/rules, scheduling/call entry points, parameters, conditions, mappings, supported calculations, external interfaces and migration boundaries. Phases are an explanatory organization, not invented execution order. Preserve cycles and repeated call sites. Do not flatten a large model into an unreadable canvas.
+
+Fold technical helpers into their owning steps using actual implementation and parameter evidence. CLEAR/ZEROOUT, VIEW_PREPARATION, SUBSET_PREPARATION, COPY/TRANSFER, DATA_TRANSFORMATION, DIMENSION_MAINTENANCE, LOGGING, CLEANUP and OTHER are operation categories, not inferred business meanings. Bedrock names alone do not establish effects. Preparation/cleanup does not prove transfer; core copying/calculation effects must survive folding. All underlying calls remain inspectable.
+
+Default views show useful inputs, processing and outputs; parser statuses, hashes, log fields and helper calls belong in expandable implementation/diagnostics. Explain unresolved facts in concrete language; never show a meaningless UNKNOWN formula as business output. Cube Profiles retain actual dimension order, grain, hierarchy/consolidation, Rule/Feeder boundaries, mappings, clear/overwrite/increment effects, sparsity/zero/null risks. Never automatically equate one Cube with one relational table.
+
+Architecture exports use a versioned deterministic schema containing module, entry_points, cubes, dimensions, processes, rules, chores, execution_relationships, data_relationships, transformation_steps, input_outputs, evidence, unresolved_dependencies and migration_notes. Preserve technical evidence separately from the default presentation. Navigation prioritizes model assets, lineage, architecture and code generation; retain legacy tools and data in advanced tools.
+
+### 4. Business Interpretation — 业务解释
+
+Defer large-scale development. Users may later attach business names, purposes, calculation conventions, human-confirmed rules and validated module knowledge to reconstructed architecture. These annotations must remain distinguishable from source facts. Export structured architecture for user-controlled external analysis if requested. **Do not integrate LLM, RAG, vector databases, AI agents or external AI services into the product.**
+
 ## Architecture boundaries
 
 TM1 Server / offline exports → Collector / Existing Store → Immutable Snapshot → Parser & Symbol Resolver → Execution and Data-Flow Semantics → Calculation IR → Workflow / Module Reconstruction → Migration Specification → Equivalence Evidence.
@@ -78,7 +104,7 @@ If these cannot be answered, defer or reject the feature.
 
 ## Non-negotiables
 
-- **Deterministic, explainable core; no mandatory LLM, RAG, agents or vector database.** AI may later consume compact verified context, never replace source truth.
+- **Deterministic, explainable core; no integrated LLM, RAG, AI agents, vector database or external AI service.** Users may export structured context themselves; external interpretation never replaces source truth.
 - **Software/data separation**: Portable binaries contain no real TM1, DuckDB, snapshots, credentials or corporate data. Runtime data stays in a separate user directory.
 - **Offline-first and Windows Portable**: no Python/pip/Node/Git/admin required for end users.
 - **Read-only by default**: no mutation of live TM1 or real offline data during analysis; explicit separate authorization for write operations.

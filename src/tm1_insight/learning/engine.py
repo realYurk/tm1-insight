@@ -10,7 +10,7 @@ from tm1_insight.learning.catalog import CATALOG, SOP, SOURCES
 from tm1_insight.learning.syntax import signals, statements
 from tm1_insight.learning.understanding import analyze, call_components,analyze_rule
 
-VERSION = "study-4"
+VERSION = "study-5"
 
 
 def build_report(con, query="*", progress=None):

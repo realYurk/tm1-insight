@@ -78,7 +78,7 @@ function renderResults(j) {
     searchResults.append(heading);
     for (const name of items) {
       const link = document.createElement('a'); link.className = 'sr-item';
-      link.href = searchInput.dataset.workflow === 'true' ? '/workflow?name='+encodeURIComponent(name)+'&analyze=1' : '/explorer/' + route + '/' + encodeURIComponent(name);
+      link.href = searchInput.dataset.workflow === 'true' ? (searchInput.dataset.architecture === 'true' ? '/architecture?name=' : '/workflow?name=')+encodeURIComponent(name)+'&analyze=1' : '/explorer/' + route + '/' + encodeURIComponent(name);
       const badge = document.createElement('span'); badge.className = 'sr-badge ' + kind; badge.textContent = badgeText;
       link.append(badge, document.createTextNode(name)); searchResults.append(link);
     }

@@ -121,7 +121,11 @@ def process_detail(task:str,process:str=Query(...,min_length=1,max_length=1000))
 @router.get('/api/workflow/tasks/{task}/evidence')
 def evidence(task:str,process:str=Query(...,min_length=1,max_length=1000),
              section:Literal['prolog','metadata','data','epilog']='data',start:int=Query(1,ge=1),limit:int=Query(80,ge=1,le=200)):
-    report=workflow.detail(path(task),process)
+    return source_evidence(path(task),lambda:state(task),process,section,start,limit)
+
+
+def source_evidence(artifact,guard,process,section,start,limit):
+    report=workflow.detail(artifact,process)
     if report is None:raise HTTPException(404,'该 TI 不在已解析范围内。')
     if not report.get('source_hash'):raise HTTPException(409,'该 TI 超过分析预算，没有已核对的源码证据。请单独解析或使用原 TI 浏览。')
     with closing(Store(get_settings()).connect(read_only=True)) as con:
@@ -130,7 +134,7 @@ def evidence(task:str,process:str=Query(...,min_length=1,max_length=1000),
     parts=tuple(p or '' for p in row)
     digest=hashlib.sha256(json.dumps(dict(zip(SECTIONS,parts)),sort_keys=True).encode()).hexdigest()
     if digest!=report['source_hash']:raise HTTPException(409,'原始代码与分析证据不匹配，请重新解析。')
-    state(task)
+    guard()
     lines=parts[SECTIONS.index(section)].splitlines()
     if start>max(len(lines),1):raise HTTPException(404,'原代码没有该行。')
     return JSONResponse(dict(process=process,section=section,source_hash=digest,total=len(lines),start=start,

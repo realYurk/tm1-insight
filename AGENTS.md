@@ -2,6 +2,8 @@
 
 Before planning or editing, read `PRODUCT_CONSTITUTION.md` in full. Treat it as the product-level source of truth; repository reality and explicit user instructions govern implementation details. Do not silently reinterpret the North Star as generic AI summaries, documentation generation, or an admin dashboard.
 
+Preserve its four layers: Model Foundation → Lineage & Relationships → Architecture Explorer → human-confirmed Business Interpretation. Default architecture is data objects → processing steps → results, with technical evidence expandable. Fold helpers by source-backed effects, never by invented semantics or simple name filtering. Code generation remains a primary navigation entry. No integrated AI services.
+
 ## Required operating loop
 
 1. **Inspect** relevant source, tests, README, data contracts, and git status. Do not assume README describes implemented behavior.

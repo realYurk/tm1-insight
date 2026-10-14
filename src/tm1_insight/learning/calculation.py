@@ -13,7 +13,7 @@ import re
 from tm1_insight.learning.syntax import calls, expression, SECTIONS
 from tm1_insight.learning.understanding import analyze, structure, _assigned
 
-VERSION = "ti-calculation-worksheet-3"
+VERSION = "ti-calculation-worksheet-4"
 MAX_CODE = 250_000
 MAX_NODES = 5000
 SENSITIVE = re.compile(r"password|passwd|secret|token|credential|sso|pin(?:code)?$", re.I)

@@ -15,7 +15,11 @@ OBJECT_ARGUMENTS = {
     "executeprocess":("process",0), "runprocess":("process",0),
     "attrs":("dimension",0), "attrn":("dimension",0),
     "viewcreate":("cube",0), "viewzeroout":("cube",0), "viewdestroy":("cube",0),
+    "cubecleardata":("cube",0), "viewsubsetassign":("cube",0),
+    "viewextractskipzeroesset":("cube",0), "viewextractskipcalcsset":("cube",0),
+    "viewextractskiprulevaluesset":("cube",0), "viewtitleelementset":("cube",0),
     "subsetcreate":("dimension",0), "subsetcreatebymdx":("dimension",2),
+    "subsetelementinsert":("dimension",0), "subsetdestroy":("dimension",0),
     "dimensionelementinsert":("dimension",0), "dimensionelementcomponentadd":("dimension",0),
     "dimensionelementexists":("dimension",0), "dimix":("dimension",0),
 }

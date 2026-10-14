@@ -272,19 +272,19 @@ def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_ro
     return result
 
 
-def artifact(report, root):
+def artifact(report, root, *, sections=SECTIONS):
     temporary=tempfile.TemporaryDirectory(dir=root)
     try:
         path=Path(temporary.name)/'workflow.json'
-        path.write_text(json.dumps(report,ensure_ascii=False),encoding='utf-8')
+        path.write_text(json.dumps(report,ensure_ascii=False,sort_keys=True),encoding='utf-8')
         with closing(sqlite3.connect(index_path(path))) as con:
             con.execute('CREATE TABLE meta(key TEXT PRIMARY KEY,payload TEXT)')
             con.execute('CREATE TABLE items(section TEXT,position INTEGER,payload TEXT,search TEXT,PRIMARY KEY(section,position))')
             con.execute('CREATE TABLE processes(name TEXT PRIMARY KEY,payload TEXT)')
-            header={k:v for k,v in report.items() if k not in SECTIONS|{'details'}}
+            header={k:v for k,v in report.items() if k not in set(sections)|{'details'}}
             stat=path.stat()
             con.executemany('INSERT INTO meta VALUES (?,?)',[('header',json.dumps(header,ensure_ascii=False)),('file',json.dumps([stat.st_size,stat.st_mtime_ns]))])
-            for section in SECTIONS:
+            for section in sections:
                 con.executemany('INSERT INTO items VALUES (?,?,?,?)',[(section,i,json.dumps(item,ensure_ascii=False),item.get('process','').casefold()) for i,item in enumerate(report[section])])
             con.executemany('INSERT INTO processes VALUES (?,?)',[(name,json.dumps(data,ensure_ascii=False)) for name,data in report['details'].items()])
             con.commit()
@@ -296,11 +296,11 @@ def connection(path):
     return sqlite3.connect(index_path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=2)
 
 
-def page(path,section='processes',offset=0,limit=50,process='',q=''):
-    if section not in SECTIONS:raise ValueError('Unknown workflow view')
+def page(path,section='processes',offset=0,limit=50,process='',q='',*,sections=SECTIONS,version=VERSION):
+    if section not in sections:raise ValueError('Unknown workflow view')
     with closing(connection(path)) as con:
         header=json.loads(con.execute("SELECT payload FROM meta WHERE key='header'").fetchone()[0])
-        if header.get('version')!=VERSION:raise ValueError('Not a workflow report')
+        if header.get('version')!=version:raise ValueError('Not a compatible report')
         where='section=?';args=[section]
         if process:where+=' AND search=?';args.append(process.casefold())
         if q:where+=' AND instr(search,?)>0';args.append(q.casefold())

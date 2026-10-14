@@ -220,3 +220,21 @@ details summary { cursor: pointer; padding: 12px 0; }
 .job-progress-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 .chore-detail td { vertical-align: top; overflow-wrap: anywhere; }
 @media (max-width: 1000px) { .chore-workspace { grid-template-columns: 1fr; } .chore-list { min-height: 0; max-height: 240px; } }
+
+/* Architecture uses the existing palette and bounded, evidence-first sections. */
+.architecture-entry { overflow-wrap: anywhere; font-weight: 600; }
+.architecture-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 20px 0; }
+.architecture-filter .input { flex: 1 1 240px; min-width: 0; width: auto; margin: 0; }
+.architecture-filter label { font-size: 12px; color: var(--muted); }
+.architecture-step { padding: 24px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; min-width: 0; }
+.architecture-step h3 { margin: 0 0 16px; }
+.architecture-step details { margin: 14px 0; }
+.architecture-step summary { cursor: pointer; color: var(--accent-strong); }
+.architecture-chain { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); gap: 16px; align-items: center; padding: 18px 0; border-block: 1px solid var(--border); }
+.architecture-chain span:nth-child(2) { color: var(--muted); font-size: 12px; }
+.architecture-source { min-width: 0; margin: 16px 0; }
+@media(max-width:560px) { .architecture-chain { grid-template-columns: minmax(0,1fr); } }
+
+.architecture-members { max-height: 420px; overflow: auto; }
+
+[data-ar-view][aria-pressed="true"] { color: var(--accent-strong); background: var(--accent-soft); border-color: var(--accent); }
