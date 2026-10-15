@@ -38,28 +38,50 @@
       <nav class="sidebar-nav" aria-label="工作导航">
         {% set path = request.url.path %}
         {% macro nav(href,label,icon,active) -%}<a href="{{ href }}" aria-label="{{ label }}" title="{{ label }}" class="nav-link {{ 'active' if active else '' }}" {% if active %}aria-current="page"{% endif %}><span class="nav-icon">{% include "icons/" ~ icon ~ ".svg" %}</span><span>{{ label }}</span></a>{%- endmacro %}
-        {{ nav('/','首页','home',path == '/') }}
-        {{ nav('/cubes','模型资产','cube',path.startswith('/cubes') or path.startswith('/explorer/cube') or path.startswith('/dimensions') or path.startswith('/processes') or path.startswith('/chores')) }}
-        {{ nav('/graph','数据血缘','graph',path == '/graph') }}
-        {{ nav('/architecture','系统架构','graph',path == '/architecture') }}
-        {{ nav('/codegen','代码生成','codegen',path.startswith('/codegen')) }}
-        <details class="nav-more" {% if path.startswith('/processes') or path.startswith('/dimensions') or path.startswith('/chores') %}open{% endif %}><summary>浏览模型对象</summary>
-        {{ nav('/processes','TI 进程','process',path.startswith('/processes') or path.startswith('/explorer/process')) }}
-        {{ nav('/dimensions','维度','cube',path.startswith('/dimensions')) }}
-        {{ nav('/chores','Chore 调度','process',path.startswith('/chores')) }}
+
+        {# 模型资产分组是否展开 / 是否处于该分组内 #}
+        {% set model_asset_paths = ['/cubes','/dimensions','/processes','/chores','/codegen'] %}
+        {% set in_model_assets = path in model_asset_paths or path.startswith('/explorer/cube') or path.startswith('/explorer/process') or path.startswith('/explorer/chore') %}
+        {% set advanced_paths = ['/learn','/experience','/workflow','/knowledge','/compare','/impact','/audit'] %}
+        {% set in_advanced = path in advanced_paths %}
+
+        {{ nav('/','工作台','home',path == '/') }}
+
+        <details class="nav-group" {% if in_model_assets %}open{% endif %}>
+          <summary class="nav-group-summary" aria-label="模型资产">
+            <span class="nav-icon">{% include "icons/cube.svg" %}</span><span>模型资产</span><span class="nav-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="nav-group-body">
+            {{ nav('/cubes','Cube','cube',path.startswith('/cubes') or path.startswith('/explorer/cube')) }}
+            {{ nav('/dimensions','Dimension','dimension',path.startswith('/dimensions')) }}
+            {{ nav('/processes','TI 进程','process',path.startswith('/processes') or path.startswith('/explorer/process')) }}
+            {{ nav('/chores','Chore 调度','chore',path.startswith('/chores') or path.startswith('/explorer/chore')) }}
+            <div class="nav-separator" role="separator" aria-hidden="true"></div>
+            {{ nav('/codegen','代码生成','codegen',path.startswith('/codegen')) }}
+          </div>
         </details>
+
+        {{ nav('/graph','数据血缘','graph',path == '/graph') }}
+        {{ nav('/architecture','系统架构','network',path == '/architecture') }}
+
+        <details class="nav-group" {% if in_advanced %}open{% endif %}>
+          <summary class="nav-group-summary" aria-label="高级工具">
+            <span class="nav-icon">{% include "icons/settings.svg" %}</span><span>高级工具</span><span class="nav-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="nav-group-body">
+            {{ nav('/impact','影响分析','graph',path.startswith('/impact')) }}
+            {{ nav('/compare','快照与版本','assets',path.startswith('/compare')) }}
+            {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
+            {{ nav('/workflow','工作流技术检查','graph',path == '/workflow') }}
+            {{ nav('/knowledge','证据包导出','assets',path.startswith('/knowledge')) }}
+            {{ nav('/learn','功能梳理（旧版）','assets',path.startswith('/learn')) }}
+            {{ nav('/experience','我的经验','assets',path.startswith('/experience')) }}
+          </div>
+        </details>
+
         <div class="nav-group-label">系统与数据</div>
         {{ nav('/settings','连接设置','settings',path.startswith('/settings')) }}
-        <details class="nav-more" {% if path in ['/learn','/experience','/workflow','/knowledge','/compare','/impact','/audit'] %}open{% endif %}>
-          <summary aria-label="高级工具">高级工具</summary>
-          {{ nav('/impact','改动影响','graph',path.startswith('/impact')) }}
-          {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
-          {{ nav('/learn','功能梳理（旧版）','assets',path.startswith('/learn')) }}
-          {{ nav('/experience','我的经验','assets',path.startswith('/experience')) }}
-          {{ nav('/workflow','工作流技术检查','graph',path == '/workflow') }}
-          {{ nav('/knowledge','证据包导出','assets',path.startswith('/knowledge')) }}
-          {{ nav('/compare','快照与版本','assets',path.startswith('/compare')) }}
-        </details>
+        <a class="nav-link" href="/settings#data-source" aria-label="数据源管理" title="数据源管理"><span class="nav-icon">{% include "icons/assets.svg" %}</span><span>数据源管理</span></a>
       </nav>
 
       <div class="sidebar-foot">

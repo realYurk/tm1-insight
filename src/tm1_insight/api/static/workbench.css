@@ -47,6 +47,47 @@
 .btn.primary:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
 .nav-more { border-top: 1px solid var(--side-border); margin-top: 14px; padding-top: 8px; }
 .nav-more summary { color: var(--side-text); font-size: 12px; padding: 10px; cursor: pointer; }
+/* 模型资产 / 高级工具：可展开收起的一级导航分组 */
+.nav-group { margin: 2px 0; }
+.nav-group-summary {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--side-text);
+  font-weight: 500;
+  font-size: 13.5px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.nav-group-summary::-webkit-details-marker { display: none; }
+.nav-group-summary:hover { background: var(--side-bg-2); color: var(--side-text-strong); }
+.nav-group-summary .nav-icon { width: 18px; height: 18px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; opacity: 0.9; }
+.nav-group-summary .nav-icon svg { width: 17px; height: 17px; }
+.nav-chevron {
+  margin-left: auto;
+  width: 12px; height: 12px;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+  color: var(--side-text);
+  opacity: 0.6;
+}
+.nav-chevron::before {
+  content: "";
+  display: block;
+  width: 7px; height: 7px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+.nav-group[open] > .nav-group-summary .nav-chevron { transform: rotate(90deg); }
+/* 分组处于当前路由时，父级标题弱高亮，便于定位 */
+.nav-group[open] > .nav-group-summary { color: var(--side-text-strong); }
+.nav-group-body { display: flex; flex-direction: column; padding-left: 14px; }
+.nav-separator { height: 1px; background: var(--side-border); margin: 4px 6px 4px 10px; }
+.nav-group-body .nav-link { padding-left: 14px; font-size: 13px; }
 .task-help { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 24px; padding: 16px 0 22px; margin: 0 0 22px; border-bottom: 1px solid var(--border); }
 .task-help h2 { font-size: 12px; font-weight: 600; color: var(--accent-strong); margin: 0 0 6px; }
 .task-help p { font-size: 13px; color: var(--text-2); margin: 0; line-height: 1.7; }
@@ -139,6 +180,57 @@
 .dimension-records td { vertical-align: top; overflow-wrap: anywhere; }
 .dimension-records code { white-space: pre-wrap; }
 @media (max-width: 1000px) { .dimension-workspace { grid-template-columns: minmax(0, 1fr); } .dimension-list { min-height: 0; max-height: 200px; } }
+
+/* ============ Dimension 元素层级树（浏览核心） ============ */
+.dimension-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dimension-head h2 { margin: 0; }
+.dimension-head .muted { flex: 1; min-width: 200px; }
+.dimension-tree-panel { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.dimension-tree-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.dimension-tree-toolbar h3 { margin: 0; font-size: 14px; }
+.dimension-tree-search { display: flex; align-items: center; gap: 8px; }
+.dimension-tree-search .input { width: min(100%, 260px); margin: 0; }
+.dimension-tree-scroll { max-height: calc(100dvh - 420px); min-height: 160px; overflow: auto; padding: 4px 0; }
+.dim-tree { list-style: none; margin: 0; padding: 0; }
+.dim-tree ul { list-style: none; margin: 0; padding-left: 22px; }
+.dim-tree-node { margin: 0; }
+.dim-tree-row { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 6px; }
+.dim-tree-row:hover { background: var(--side-bg-2); }
+.dim-tree-toggle { width: 20px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; border-radius: 4px; }
+.dim-tree-toggle:hover { background: var(--border); color: var(--text); }
+.dim-tree-toggle.leaf { cursor: default; }
+.dim-tree-name { border: none; background: transparent; color: var(--text); font-weight: 550; font-size: 13.5px; cursor: pointer; padding: 2px 4px; border-radius: 4px; text-align: left; overflow-wrap: anywhere; }
+.dim-tree-name:hover { color: var(--accent-strong); text-decoration: underline; }
+.dim-elem-type { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 10px; background: var(--side-bg-2); color: var(--muted); flex-shrink: 0; }
+.dim-elem-type.consolidated { background: #e7ecff; color: #3652c9; }
+.dim-elem-type.numeric { background: #e4f4ec; color: #1f7a4d; }
+.dim-elem-type.string { background: #fdeeee; color: #b04a3a; }
+[data-theme="dark"] .dim-elem-type.consolidated { background: #25355e; color: #aac3ff; }
+[data-theme="dark"] .dim-elem-type.numeric { background: #1d3a2b; color: #7fd2a8; }
+[data-theme="dark"] .dim-elem-type.string { background: #432a28; color: #f0a899; }
+.dim-weight { font-size: 11px; color: var(--muted); font-family: var(--font-mono, monospace); }
+.dim-child-count { font-size: 10.5px; color: var(--muted); background: var(--border); border-radius: 10px; padding: 1px 7px; }
+.dim-tree-loading, .dim-tree-error { padding: 4px 6px; color: var(--muted); font-size: 12.5px; }
+.dim-tree-error { color: var(--amber, #b7791f); }
+.dim-tree-retry { border: 1px solid var(--border-strong); background: var(--card); color: var(--text); border-radius: 4px; cursor: pointer; padding: 1px 8px; font-size: 12px; }
+.dim-search-results { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.dim-search-results li { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.dim-search-results li:last-child { border-bottom: none; }
+.dim-search-hit { border: none; background: transparent; color: var(--accent-strong); cursor: pointer; padding: 2px 4px; font-size: 13px; }
+.dim-search-hit:hover { text-decoration: underline; }
+.dim-search-ancestors { margin-left: 10px; }
+.dimension-element-detail { margin-top: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; }
+.dimension-element-detail summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.dimension-element-detail dl { display: grid; grid-template-columns: 100px 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 13px; }
+.dimension-element-detail dt { color: var(--muted); font-weight: 600; }
+.dimension-element-detail dd { margin: 0; overflow-wrap: anywhere; }
+.dimension-aux { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+.dimension-aux summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--text); }
+.dimension-aux summary .muted { font-weight: 400; }
+.dimension-aux-body { margin-top: 10px; }
+.dimension-evidence { border-top: 1px dashed var(--border-strong); }
+.dim-attr { display: inline-block; margin: 0 6px 6px 0; padding: 3px 10px; border: 1px solid var(--border); border-radius: 14px; font-size: 12px; background: var(--bg); }
+.dim-attr em { font-style: normal; color: var(--muted); font-size: 11px; margin-left: 4px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .main-area { min-width: 0; }
 .btn, .nav-link, select { min-height: 36px; }

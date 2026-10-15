@@ -11,17 +11,9 @@
 <div class="page-head">
   <div>
     <h1 class="page-title">代码生成</h1>
-    <p class="page-sub">从设计方法选择教材骨架，或按模型维度生成 TI 草稿；配置并验证后使用</p>
+    <p class="page-sub">根据 TM1 模型结构生成常用 TI 代码草稿。生成后请核对参数、数据源和目标维度，并在测试环境验证。</p>
   </div>
 </div>
-
-<section class="card" id="teaching-templates">
-  <h2>可复用的设计方法 · 教材模板</h2>
-  <p>先在<a href="/learn">读懂业务</a>查看本地项目中的匹配证据，再选择同类方法。这里提供通用骨架，不复制客户源码。</p>
-  <div class="knowledge-query"><label>选择设计方法<select id="teaching-pattern" class="input" aria-label="选择设计方法"></select></label><button class="btn primary" id="teaching-generate">生成教材骨架</button></div>
-  <p id="teaching-status" role="status" aria-live="polite"></p>
-  <div id="teaching-output" hidden><p id="teaching-instructions" class="knowledge-disclaimer"></p><ul id="teaching-checks"></ul><button class="btn ghost" id="teaching-copy">复制骨架</button><button class="btn ghost" id="teaching-download">下载文本</button><pre class="code study-formula" id="teaching-code"></pre></div>
-</section>
 
 <p id="cg-action-status" role="status" aria-live="polite"></p>
 <!-- 全局命名空间：日志前缀，四个 Tab 共享 -->
@@ -494,5 +486,4 @@ const pendingCodegen = new Set();
 });
 loadDimList();
 </script>
-<script src="/static/teaching.js" defer></script>
 {% endblock %}

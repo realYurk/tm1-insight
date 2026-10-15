@@ -1026,7 +1026,9 @@ details.card summary:hover { color: var(--accent); }
 .dim-table { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .dim-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  /* 左侧维度名称列由最长名称自然决定（max-content，所有行共享同一列宽），
+     右侧元素示例占剩余空间。超长名称受 max-width 兜底省略，不会挤压右侧。 */
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
   border-bottom: 1px solid var(--border);
   min-height: 44px;
@@ -1040,6 +1042,7 @@ details.card summary:hover { color: var(--accent); }
   gap: 9px;
   padding: 8px 16px;
   min-width: 0;
+  max-width: 360px;
   background: #f5f6fa;
   border-right: 1px solid var(--border);
   font-family: var(--font-sans);
@@ -1062,8 +1065,9 @@ details.card summary:hover { color: var(--accent); }
   font-size: 13.5px;
   color: var(--text);
   min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.5;
 }
 .dim-total {

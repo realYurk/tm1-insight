@@ -420,6 +420,68 @@ def dimensions_page(request: Request, q: str = Query("", max_length=1000),
     })
 
 
+@app.get("/api/dimensions/{name}/tree")
+def api_dimension_tree(name: str, source: str = Query("", max_length=64)):
+    """维度元素层级树概览：顶层元素 + 元数据，子节点懒加载。"""
+    from tm1_insight.store import dimension_tree
+    store = _store()
+    current_source = _process_search_source(store.settings)
+    if source and source != current_source:
+        return JSONResponse({"error": "数据源已变化，请重新打开维度页。"}, status_code=409)
+    con = store.connect(read_only=True)
+    try:
+        summary = dimension_tree.tree_summary(con, name)
+    finally:
+        con.close()
+    if summary is None:
+        return JSONResponse({"error": "维度不存在。"}, status_code=404)
+    if current_source != _process_search_source():
+        return JSONResponse({"error": "数据源已变化，请重新打开维度页。"}, status_code=409)
+    summary["source"] = current_source
+    return JSONResponse(summary, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/dimensions/{name}/children/{element}")
+def api_dimension_children(name: str, element: str, source: str = Query("", max_length=64)):
+    """某元素的直接子项（含原始权重），供元素树懒加载展开。"""
+    from tm1_insight.store import dimension_tree
+    store = _store()
+    current_source = _process_search_source(store.settings)
+    if source and source != current_source:
+        return JSONResponse({"error": "数据源已变化，请重新打开维度页。"}, status_code=409)
+    con = store.connect(read_only=True)
+    try:
+        result = dimension_tree.children(con, name, element)
+    finally:
+        con.close()
+    if current_source != _process_search_source():
+        return JSONResponse({"error": "数据源已变化，请重新打开维度页。"}, status_code=409)
+    result["source"] = current_source
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/dimensions/{name}/search")
+def api_dimension_search(name: str, q: str = Query("", max_length=1000),
+                         source: str = Query("", max_length=64)):
+    """全维度元素搜索（覆盖全部已索引元素，非当前页），返回匹配项及祖先路径。"""
+    from tm1_insight.store import dimension_tree
+    store = _store()
+    current_source = _process_search_source(store.settings)
+    if source and source != current_source:
+        return JSONResponse({"error": "数据源已变化，请重新打开维度页。"}, status_code=409)
+    if not q.strip():
+        return JSONResponse({"keyword": q, "matches": [], "total": 0})
+    con = store.connect(read_only=True)
+    try:
+        result = dimension_tree.search_elements(con, name, q)
+    finally:
+        con.close()
+    if current_source != _process_search_source():
+        return JSONResponse({"error": "数据源已变化，请重新打开维度页。"}, status_code=409)
+    result["source"] = current_source
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/dimensions/index", status_code=202)
 def start_dimension_index(body: dict = Body(...)):
     from tm1_insight.store import dimensions, dimension_index
