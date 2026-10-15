@@ -219,6 +219,8 @@
 .dim-search-hit { border: none; background: transparent; color: var(--accent-strong); cursor: pointer; padding: 2px 4px; font-size: 13px; }
 .dim-search-hit:hover { text-decoration: underline; }
 .dim-search-ancestors { margin-left: 10px; }
+.dim-flat-count { margin: 6px 0 2px; }
+.dim-flat-more { margin-top: 10px; }
 .dimension-element-detail { margin-top: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; }
 .dimension-element-detail summary { cursor: pointer; font-weight: 600; font-size: 13px; }
 .dimension-element-detail dl { display: grid; grid-template-columns: 100px 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 13px; }

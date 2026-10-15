@@ -131,3 +131,88 @@ def test_cycle_bounded_by_lazy_loading(con):
 
 def test_missing_dimension_returns_none(con):
     assert dimension_tree.tree_summary(con, 'DoesNotExist') is None
+
+
+def test_search_full_ancestor_paths(con):
+    # Product 003 is a multi-parent leaf under Group 1 and Group 2.
+    r = dimension_tree.search_elements(con, 'Tree', 'Product 003')
+    m = r['matches'][0]
+    assert m['name'] == 'Product 003'
+    # Two distinct full ancestor lineages: Total > Brand A > Group 1 and Total > Brand B > Group 2
+    paths = [tuple(p) for p in m['paths']]
+    assert ('Total', 'Brand A', 'Group 1') in paths
+    assert ('Total', 'Brand B', 'Group 2') in paths
+    assert m['path_count'] == 2
+    # parents field stays backward-compatible (direct parents only)
+    assert set(m['parents']) == {'Group 1', 'Group 2'}
+
+
+def test_search_multi_level_path(con):
+    # Product 001 has a single lineage Total > Brand A > Group 1
+    r = dimension_tree.search_elements(con, 'Tree', 'Product 001')
+    m = r['matches'][0]
+    assert m['paths'] == [['Total', 'Brand A', 'Group 1']]
+    assert m['parents'] == ['Group 1']
+
+
+def test_search_total_and_truncation(con):
+    # Many matches beyond limit -> total reflects true count, returned is clipped.
+    r = dimension_tree.search_elements(con, 'Tree', 'Product', limit=2)
+    assert r['total'] == 4          # Product 001..004
+    assert r['returned'] == 2       # limited
+    assert r['truncated'] is True
+    assert len(r['matches']) == 2
+
+
+def test_search_cycle_does_not_loop(con):
+    # Self-cycle on Total must not cause infinite ancestor path generation.
+    con.execute('UPDATE dimensions SET edges=? WHERE name=?', [
+        json.dumps([{'parent': 'Total', 'component': 'Total', 'weight': 1}]), 'Tree'])
+    r = dimension_tree.search_elements(con, 'Tree', 'Total')
+    assert r['total'] >= 1
+    # Paths are bounded; the self-edge must not produce an unbounded chain.
+    for m in r['matches']:
+        for p in m['paths']:
+            assert len(p) <= dimension_tree._MAX_SEARCH_DEPTH
+
+
+def test_search_root_has_empty_path(con):
+    # Top-level element (Total) has no ancestor path.
+    r = dimension_tree.search_elements(con, 'Tree', 'Total')
+    m = next(x for x in r['matches'] if x['name'] == 'Total')
+    assert m['paths'] == []
+    assert m['parents'] == []
+
+
+def test_ancestor_paths_bounded_on_deep_chain(con):
+    # A deep linear chain longer than MAX_SEARCH_DEPTH must not blow up.
+    n = dimension_tree._MAX_SEARCH_DEPTH + 5
+    elements = [{'name': 'N%d' % i, 'type': 'Consolidated' if i < n - 1 else 'Numeric'} for i in range(n)]
+    edges = [{'parent': 'N%d' % i, 'component': 'N%d' % (i + 1), 'weight': 1} for i in range(n - 1)]
+    con.execute('UPDATE dimensions SET elements=?, edges=? WHERE name=?', [
+        json.dumps(elements), json.dumps(edges), 'Tree'])
+    r = dimension_tree.search_elements(con, 'Tree', 'N%d' % (n - 1))
+    assert r['total'] == 1
+    m = r['matches'][0]
+    # Path is truncated at MAX_SEARCH_DEPTH (cycle guard), never longer.
+    assert all(len(p) <= dimension_tree._MAX_SEARCH_DEPTH for p in m['paths'])
+
+
+def test_large_flat_dimension_roots(con):
+    # A 10k-element flat dimension returns its roots bounded (default root_limit=200)
+    # with the full count via root_total/root_truncated, so the front-end paginates
+    # instead of rendering tens of thousands of DOM nodes at once. Search still
+    # covers the full index.
+    n = 10000
+    elements = [{'name': 'E%05d' % i, 'type': 'Numeric'} for i in range(n)]
+    con.execute('UPDATE dimensions SET elements=?, edges=? WHERE name=?', [
+        json.dumps(elements), '[]', 'Tree'])
+    s = dimension_tree.tree_summary(con, 'Tree')
+    assert s['has_hierarchy'] is False
+    assert len(s['roots']) == 200           # bounded page
+    assert s['root_total'] == n             # full count
+    assert s['root_truncated'] is True      # more available
+    # Search still covers the full index (not just the first page).
+    r = dimension_tree.search_elements(con, 'Tree', 'E09999')
+    assert r['total'] == 1
+    assert r['matches'][0]['name'] == 'E09999'

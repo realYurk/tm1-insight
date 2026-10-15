@@ -9,9 +9,23 @@
   const status = document.getElementById('dimension-tree-status');
 
   let summary = null;          // tree_summary payload
-  let loaded = new Set();      // element names whose children are already loaded/known as leaf
-  let childMap = new Map();    // element -> children array (cached)
-  let expanded = new Set();    // element names currently expanded
+  let childMap = new Map();    // element name -> children array (cached; shared across instances)
+  let expanded = new Set();    // node PATH keys currently expanded (per tree instance, not per name)
+
+  // A node's path is its identity within the tree: the chain of names from the
+  // root down to this node. Two occurrences of the same element (multi-parent)
+  // have different paths and thus independent expand/collapse state.
+  function nodePath(li) {
+    let parts = [li.dataset.name];
+    let parent = li.parentElement;
+    while (parent && parent.classList && parent.classList.contains('dim-tree-children')) {
+      const parentNode = parent.closest('.dim-tree-node');
+      if (!parentNode) break;
+      parts.unshift(parentNode.dataset.name);
+      parent = parentNode.parentElement;
+    }
+    return parts.join('/');
+  }
 
   async function api(path) {
     const response = await fetch(path, { cache: 'no-store' });
@@ -53,7 +67,7 @@
     const arrow = hasChildren
       ? '<button class="dim-tree-toggle" type="button" aria-label="' + (isExpanded ? '收起' : '展开') + ' ' + escapeHtml(item.name) + '" aria-expanded="' + isExpanded + '">' + (isExpanded ? '▾' : '▸') + '</button>'
       : '<span class="dim-tree-toggle leaf" aria-hidden="true"></span>';
-    return '<li class="dim-tree-node" data-name="' + escapeHtml(item.name) + '" data-depth="' + depth + '">' +
+    return '<li class="dim-tree-node" data-name="' + escapeHtml(item.name) + '" data-depth="' + depth + '" role="treeitem" aria-expanded="' + (hasChildren ? isExpanded : 'false') + '">' +
       '<div class="dim-tree-row">' + arrow +
       '<button class="dim-tree-name" type="button" data-name="' + escapeHtml(item.name) + '" title="查看 ' + escapeHtml(item.name) + ' 的详情">' +
       escapeHtml(item.name) + '</button>' + typeBadge(item.type) + weightText(item) +
@@ -66,8 +80,9 @@
   function renderChildren(ul, items, depth) {
     ul.innerHTML = '';
     items.forEach(function (item) {
-      const html = nodeTemplate(item, depth, expanded.has(item.name), false);
-      ul.insertAdjacentHTML('beforeend', html);
+      // Expanded state is resolved lazily by path once the node exists in the DOM;
+      // here we always render collapsed; the caller re-applies expansion below.
+      ul.insertAdjacentHTML('beforeend', nodeTemplate(item, depth, false, false));
     });
   }
 
@@ -79,26 +94,38 @@
     return result.children;
   }
 
+  // 最大展开深度：防止含循环/自引用边的异常数据在树上无限展开出重复链条。
+  const MAX_DEPTH = 64;
+
   async function toggle(name, li) {
     const childrenUl = li.querySelector(':scope > .dim-tree-children');
     if (!childrenUl) return; // leaf
-    if (expanded.has(name)) {
-      expanded.delete(name);
+    const path = nodePath(li);
+    const depth = parseInt(li.dataset.depth, 10) || 0;
+    if (expanded.has(path)) {
+      expanded.delete(path);
       childrenUl.hidden = true;
-      const toggle = li.querySelector(':scope > .dim-tree-row .dim-tree-toggle');
-      if (toggle) { toggle.textContent = '▸'; toggle.setAttribute('aria-expanded', 'false'); }
+      const toggleBtn = li.querySelector(':scope > .dim-tree-row .dim-tree-toggle');
+      if (toggleBtn) { toggleBtn.textContent = '▸'; toggleBtn.setAttribute('aria-expanded', 'false'); }
+      li.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    // Cycle/depth guard: never expand beyond MAX_DEPTH.
+    if (depth >= MAX_DEPTH) {
+      setStatus('已达到最大展开深度，无法继续展开（可能存在循环引用）。', true);
       return;
     }
     // expand
-    expanded.add(name);
+    expanded.add(path);
     childrenUl.hidden = false;
-    const toggle = li.querySelector(':scope > .dim-tree-row .dim-tree-toggle');
-    if (toggle) { toggle.textContent = '▾'; toggle.setAttribute('aria-expanded', 'true'); }
+    const toggleBtn = li.querySelector(':scope > .dim-tree-row .dim-tree-toggle');
+    if (toggleBtn) { toggleBtn.textContent = '▾'; toggleBtn.setAttribute('aria-expanded', 'true'); }
+    li.setAttribute('aria-expanded', 'true');
     if (childrenUl.dataset.loaded !== '1') {
       childrenUl.innerHTML = '<li class="dim-tree-loading">加载中…</li>';
       try {
         const children = await loadChildren(name);
-        renderChildren(childrenUl, children, parseInt(li.dataset.depth, 10) + 1);
+        renderChildren(childrenUl, children, depth + 1);
         childrenUl.dataset.loaded = '1';
       } catch (error) {
         childrenUl.innerHTML = '<li class="dim-tree-error">' + escapeHtml(error.message) +
@@ -123,24 +150,50 @@
     container.appendChild(ul);
   }
 
+  // 大型扁平维度：后端已分页返回 roots（默认 200），这里只做有界渲染，
+  // 不再一次生成数万个 DOM 节点；剩余成员通过搜索框覆盖完整索引定位。
+  const FLAT_PAGE_SIZE = 200;
+  let flatItems = [];        // 当前扁平列表的成员（来自 summary.roots，已分页）
+  let flatShown = 0;         // 已渲染数量
+
   function renderFlat(container) {
-    // No hierarchy: a searchable flat list (paginated client-side for display).
-    const items = summary.roots;
+    // No hierarchy: a searchable flat list (bounded by the server-side page).
+    flatItems = summary.roots || [];
+    flatShown = 0;
     container.innerHTML = '';
     const note = document.createElement('p');
     note.className = 'muted small';
-    note.textContent = '当前数据未包含完整层级关系，以下为扁平成员列表。';
+    const rootTotal = summary.root_total != null ? summary.root_total : flatItems.length;
+    const truncated = summary.root_truncated || rootTotal > flatItems.length;
+    note.textContent = truncated
+      ? '当前数据未包含完整层级关系，以下为扁平成员列表的前 ' + flatItems.length +
+        ' 个（共 ' + rootTotal + ' 个）。可用上方搜索框定位任意元素。'
+      : '当前数据未包含完整层级关系，以下为扁平成员列表。';
     container.appendChild(note);
     const ul = document.createElement('ul');
     ul.className = 'dim-tree flat';
-    items.forEach(function (item) {
-      const html = '<li class="dim-tree-node" data-name="' + escapeHtml(item.name) + '">' +
+    ul.setAttribute('role', 'tree');
+    container.appendChild(ul);
+    renderFlatPage(container);
+  }
+
+  function renderFlatPage(container) {
+    const ul = container.querySelector('ul.dim-tree.flat');
+    const batch = flatItems.slice(flatShown, flatShown + FLAT_PAGE_SIZE);
+    batch.forEach(function (item) {
+      const html = '<li class="dim-tree-node" data-name="' + escapeHtml(item.name) + '" role="treeitem">' +
         '<div class="dim-tree-row"><span class="dim-tree-toggle leaf" aria-hidden="true"></span>' +
         '<button class="dim-tree-name" type="button" data-name="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + '</button>' +
         typeBadge(item.type) + '</div></li>';
       ul.insertAdjacentHTML('beforeend', html);
     });
-    container.appendChild(ul);
+    flatShown += batch.length;
+    const more = container.querySelector('.dim-flat-more');
+    if (more) {
+      const remaining = flatItems.length - flatShown;
+      more.hidden = remaining <= 0;
+      if (remaining > 0) more.textContent = '加载更多（剩余 ' + remaining + '）';
+    }
   }
 
   async function init() {
@@ -153,9 +206,9 @@
       const metaEl = document.getElementById('dimension-meta');
       if (metaEl) {
         const total = summary.element_count != null ? summary.element_count : summary.recorded_elements;
-        const hierarchyNote = summary.has_hierarchy
-          ? '包含层级关系'
-          : '未包含完整层级关系（扁平成员）';
+        const hierarchyNote = summary.large_dimension
+          ? '规模过大，仅展示部分元素'
+          : (summary.has_hierarchy ? '包含层级关系' : '未包含完整层级关系（扁平成员）');
         metaEl.textContent = '元素总数 ' + total + ' · ' + hierarchyNote +
           ' · 属性 ' + summary.attributes.length + ' · 子集 ' + summary.subsets.length;
       }
@@ -219,7 +272,7 @@
       const name = retry.dataset.name;
       const li = body.querySelector('.dim-tree-node[data-name="' + CSS.escape(name) + '"]');
       if (li) {
-        expanded.delete(name);
+        expanded.delete(nodePath(li));
         await toggle(name, li);
       }
     }
@@ -243,7 +296,16 @@
       const match = search.matches.find(function (m) { return m.name === name; });
       if (match) {
         type.textContent = match.type || 'UNKNOWN';
-        parents.textContent = match.parents.length ? match.parents.join(' › ') : '（无父项，顶层元素）';
+        // Prefer full ancestor paths; fall back to direct parents.
+        if (match.paths && match.paths.length) {
+          parents.textContent = match.paths.map(function (p) {
+            return p.join(' › ') + ' › ' + name;
+          }).join('；');
+        } else if (match.parents.length) {
+          parents.textContent = match.parents.join(' › ') + ' › ' + name;
+        } else {
+          parents.textContent = '（无父项，顶层元素）';
+        }
       }
       const ch = await api('/api/dimensions/' + encodeURIComponent(dimName) +
         '/children/' + encodeURIComponent(name) + '?source=' + encodeURIComponent(source));
@@ -281,9 +343,12 @@
           ul.className = 'dim-search-results';
           data.matches.slice(0, 200).forEach(function (m) {
             const li = document.createElement('li');
+            const ancestorText = (m.paths && m.paths.length)
+              ? m.paths.map(function (p) { return p.join(' › '); }).join('；')
+              : (m.parents && m.parents.length ? m.parents.join(' › ') : '');
             li.innerHTML = '<button class="dim-search-hit" type="button" data-name="' + escapeHtml(m.name) + '">' +
               escapeHtml(m.name) + typeBadge(m.type) + '</button>' +
-              (m.parents.length ? '<span class="muted small dim-search-ancestors">祖先：' + m.parents.map(escapeHtml).join(' › ') + '</span>' : '');
+              (ancestorText ? '<span class="muted small dim-search-ancestors">祖先路径：' + escapeHtml(ancestorText) + '</span>' : '');
             li.querySelector('.dim-search-hit').addEventListener('click', function () {
               showElementDetail(m.name);
             });
@@ -291,9 +356,12 @@
           });
           results.innerHTML = '';
           results.appendChild(ul);
-          if (data.matches.length > 200) {
-            results.insertAdjacentHTML('beforeend', '<p class="muted small">仅显示前 200 个匹配项，请细化搜索词。</p>');
-          }
+          // 真实总数 vs 当前返回数
+          const total = data.total != null ? data.total : data.matches.length;
+          let note = '共 ' + total + ' 个匹配';
+          if (data.truncated) note += '，仅显示前 ' + data.matches.length + ' 个';
+          results.insertAdjacentHTML('beforeend',
+            '<p class="muted small">' + escapeHtml(note) + '，请细化搜索词定位具体元素。</p>');
         }
       } catch (error) {
         setStatus(error.message, true);

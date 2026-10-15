@@ -1023,18 +1023,37 @@ details.card summary:hover { color: var(--accent); }
 /* ============================================================
    Cube 维度横向表格（严格单行：名称一行，元素右侧溢出隐藏）
    ============================================================ */
-.dim-table { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.dim-row {
+/* 维度结构表：整个表格是单一 Grid，所有 .dim-row 作为子元素共享同一条
+   「名称列」轨道（grid-template-columns: max-content minmax(0,1fr)）。
+   这样左侧列宽由该 Cube 最长维度名统一决定，所有行严格对齐。
+   每行内部再用子 Grid 布局序号+名称+数量，右侧元素示例占剩余空间。 */
+.dim-table {
   display: grid;
-  /* 左侧维度名称列由最长名称自然决定（max-content，所有行共享同一列宽），
-     右侧元素示例占剩余空间。超长名称受 max-width 兜底省略，不会挤压右侧。 */
   grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  border-bottom: 1px solid var(--border);
-  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
-.dim-row:last-child { border-bottom: none; }
-.dim-row:nth-child(even) { background: #fafbfd; }
+.dim-row {
+  display: contents;
+}
+/* 用 .dim-row 的 display:contents 会让子元素直接进入外层 grid，失去行边框/背景。
+   因此把边框与背景下沉到两个 cell 上，保持逐行视觉。 */
+.dim-name-cell {
+  grid-column: 1;
+  border-bottom: 1px solid var(--border);
+}
+.dim-elems-cell {
+  grid-column: 2;
+  border-bottom: 1px solid var(--border);
+}
+/* 偶数行背景：改用伪元素或直接命中，靠 nth-child 定位 .dim-row 再染子 cell 太绕，
+   这里用 .dim-row:nth-child(even) 配合 cell 继承背景不可行（display:contents），
+   改为给 cell 显式设置。 */
+.dim-row:nth-child(even) .dim-name-cell,
+.dim-row:nth-child(even) .dim-elems-cell { background: #fafbfd; }
+.dim-row:last-child .dim-name-cell,
+.dim-row:last-child .dim-elems-cell { border-bottom: none; }
 
 .dim-name-cell {
   display: flex;
@@ -1042,11 +1061,11 @@ details.card summary:hover { color: var(--accent); }
   gap: 9px;
   padding: 8px 16px;
   min-width: 0;
+  /* 最大宽度兜底：超长维度名最多占 360px，超出部分由 .dim-name 省略。 */
   max-width: 360px;
   background: #f5f6fa;
   border-right: 1px solid var(--border);
   font-family: var(--font-sans);
-  align-self: stretch;
 }
 .dim-order {
   display: inline-flex;
@@ -1064,7 +1083,10 @@ details.card summary:hover { color: var(--accent); }
   font-weight: 650;
   font-size: 13.5px;
   color: var(--text);
-  min-width: 0;
+  /* 完整测量名称宽度：min-width 取 max-content 让外层 grid 的 max-content 轨道
+     能读到该名称的自然宽度；超长时由父级 .dim-name-cell 的 max-width 兜底省略。 */
+  min-width: max-content;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1117,8 +1139,11 @@ details.card summary:hover { color: var(--accent); }
 .dim-row:nth-child(even) .dim-more { background: linear-gradient(90deg, transparent, #fafbfd 14px); }
 
 @media (max-width: 800px) {
-  .dim-row { grid-template-columns: minmax(0, 1fr); }
-  .dim-name-cell { border-right: 0; }
+  /* 窄屏：表格降级为单列，名称在上、元素示例在下。 */
+  .dim-table { grid-template-columns: minmax(0, 1fr); }
+  .dim-name-cell { grid-column: 1; border-right: 0; border-bottom: 1px solid var(--border); }
+  .dim-elems-cell { grid-column: 1; }
+  .dim-row:last-child .dim-name-cell { border-bottom: none; }
 }
 
 #assets .list-toolbar, #mappings .list-toolbar { flex-wrap: wrap; }
@@ -1486,7 +1511,8 @@ a.tree-node:hover { color: var(--accent); }
 [data-theme="dark"] .tab.active { background: #232839; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
 [data-theme="dark"] .tab-badge { background: rgba(255, 255, 255, 0.08); color: var(--muted); }
 [data-theme="dark"] .tab.active .tab-badge { background: rgba(79, 110, 247, 0.2); color: var(--accent); }
-[data-theme="dark"] .dim-row:nth-child(even) { background: #181c28; }
+[data-theme="dark"] .dim-row:nth-child(even) .dim-name-cell,
+[data-theme="dark"] .dim-row:nth-child(even) .dim-elems-cell { background: #181c28; }
 [data-theme="dark"] .dim-name-cell { background: #1a1e2b; }
 [data-theme="dark"] .dim-elem { background: var(--card); border-color: var(--border-strong); }
 [data-theme="dark"] .dim-more,

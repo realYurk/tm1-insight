@@ -46,8 +46,13 @@ def test_tree_api_summary_and_children(client):
 
     r = client.get(f'/api/dimensions/TreeDim/search?q=A&source={src}')
     assert r.status_code == 200
-    matches = {m['name']: m for m in r.json()['matches']}
+    data = r.json()
+    matches = {m['name']: m for m in data['matches']}
     assert matches['A']['parents'] == ['Total']
+    # Full ancestor path is present (A is directly under Total).
+    assert matches['A']['paths'] == [['Total']]
+    # total / returned / truncated contract present.
+    assert 'total' in data and 'returned' in data and 'truncated' in data
     # 'A' matches 'Total' too (contains 'a'); both are correct whole-dimension hits.
 
 
