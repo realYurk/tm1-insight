@@ -68,7 +68,9 @@ def test_architecture_model_processing_schedule_and_evidence(con,tmp_path):
     assert any(p['process']=='BusinessChild' for p in report['processes'])
     assert any(c['name']=='Nightly' and c['target']=='Caller' for c in report['chores'])
     assert any(e['process']=='Caller' and e['target']=='Load' for e in report['execution_relationships'])
-    rule=report['rules'][0]
+    assert not report['rules']
+    assert report['downstream_consumers'][0]['cube']=='RuleOutput'
+    rule=architecture.build(con,'Load',include_downstream=True)['rules'][0]
     assert rule['cube']=='RuleOutput' and {r['kind'] for r in rule['references']}=={'rule_read','feeder_reference'}
     ids={e['id'] for e in report['evidence']}
     for relationship in report['data_relationships']+report['execution_relationships']:
@@ -165,6 +167,12 @@ def test_architecture_api_export_lazy_dimensions_and_source_invalidation(client,
     assert client.get(base+'/evidence?process=Load&section=data').status_code==200
     assert client.get(base+'/fact?id='+report['evidence'][0]['id']).status_code==200
     assert client.get(base+'/export?format=markdown').status_code==200
+    assert client.get(base+'/export?format=evidence').json()['items']==report['evidence']
+    assert client.get(base+'/export?format=diagnostics').json()['items']==report['diagnostics']
+    import io,zipfile
+    with zipfile.ZipFile(io.BytesIO(client.get(base+'/export?format=zip').content)) as z:
+        assert json.loads(z.read('Architecture.json'))==report
+    assert len({e['stable_id'] for e in report['evidence']})==len(report['evidence'])
     assert client.get('/architecture').status_code==200
     assert client.get('/codegen').status_code==200
     assert hashlib.sha256(get_settings().db_path.read_bytes()).hexdigest()==before
@@ -192,3 +200,90 @@ def test_architecture_api_cancel_is_cooperative(client,monkeypatch):
         time.sleep(.01)
     assert state['status']=='cancelled'
     assert client.get(base+'/export').status_code==409
+
+
+def test_boundary_shared_helper_never_pulls_maintenance_or_consumers(con,tmp_path):
+    con.execute("UPDATE processes SET prolog=prolog||? WHERE name='}bedrock.synthetic.clear'",["ExecuteProcess('UtilityInternal');"])
+    con.execute("INSERT INTO processes(name,prolog) VALUES ('UtilityInternal', 'LogOutput(''INFO'',''x'');')")
+    con.execute("INSERT INTO chore_runs_process VALUES ('UnrelatedMaintenance','}bedrock.synthetic.clear',0)")
+    con.execute("INSERT INTO chore_runs_process VALUES ('UtilityMaintenance','UtilityInternal',0)")
+    report=architecture.build(con,'Load')
+    assert not any(p['process']=='UtilityInternal' for p in report['processes'])
+    assert any(e['target']=='UtilityInternal' for e in report['execution_relationships'])
+    assert not any(c['name']=='UnrelatedMaintenance' for c in report['chores'])
+    assert not report['rules']
+    assert any(d['cube']=='RuleOutput' for d in report['downstream_consumers'])
+    expanded=architecture.build(con,'Load',include_technical_details=True,include_downstream=True)
+    assert any(p['process']=='UtilityInternal' and p['module_role']=='TECHNICAL_SUPPORT' for p in expanded['processes'])
+    assert expanded['rules'][0]['module_role']=='EXTERNAL_DEPENDENCY'
+    assert not any(c['name']=='UtilityMaintenance' for c in expanded['chores'])
+    artifact=architecture.artifact(report,tmp_path)
+    try:
+        text=''.join(architecture.markdown(artifact.path))
+        assert 'UnrelatedMaintenance' not in text and 'source_hash' not in text and 'rule_read' not in text
+    finally:artifact.cleanup()
+
+
+def test_view_alias_chain_with_unrelated_control_and_reassignment(con):
+    code="c='Cube_A';IF(flag=1);LogOutput('INFO','x');ENDIF;DataSourceType='VIEW';DataSourceNameForServer=c;DataSourceCubeView='V';"
+    con.execute("UPDATE processes SET prolog=? WHERE name='Load'",[code])
+    r=architecture.build(con,'Load');s=r['transformation_summaries'][0]
+    assert s['source_slice']['cube']=='Cube_A' and s['source_slice']['view']=='V'
+    assert len(s['source_slice']['evidence'])==4
+    for suffix in ["c='Cube_B';", "IF(flag=1);c='Cube_B';ENDIF;", "c=UnknownFunction();"]:
+        con.execute("UPDATE processes SET prolog=? WHERE name='Load'",[code+suffix])
+        assert architecture.build(con,'Load')['transformation_summaries'][0]['source_slice'] is None
+
+
+def test_summary_keeps_write_contexts_and_does_not_join_observations(con,tmp_path):
+    con.execute("UPDATE processes SET data=? WHERE name='Load'",["n=CellGetN('Cube_A',vYear,vProduct);CellPutN(10,'Cube_B',vYear,pRegion,pMeasure);IF(n>0);CellPutN(n*3,'Cube_B',vYear,pRegion,pMeasure);ENDIF;"])
+    r=architecture.build(con,'Load');s=r['transformation_summaries'][0]
+    assert len(s['calculation_summary'])==2
+    assert not s['calculation_summary'][0]['source_cubes']
+    assert s['calculation_summary'][1]['condition'] and s['calculation_summary'][1]['expression'] is None
+    assert all('Journal' not in c['source_cubes'] for c in s['calculation_summary'])
+    d=next(d for d in r['dimension_comparisons'] if d['source']=='Cube_A')
+    assert d['shared']==['Year'] and d['source_only']==['Product'] and d['target_only']==['Region','Measure']
+    assert d['mapping_status']=='UNCONFIRMED'
+    a=architecture.artifact(r,tmp_path)
+    try:
+        import zipfile,io
+        from tm1_insight.architecture_extraction import package
+        with zipfile.ZipFile(io.BytesIO(b''.join(package(a.path)))) as z:
+            assert set(z.namelist())=={'Architecture.md','Architecture.json','Evidence.json','Diagnostics.json'}
+            assert json.loads(z.read('Evidence.json'))['items']==r['evidence']
+            assert json.loads(z.read('Architecture.json'))==r
+            assert len(z.read('Architecture.md'))<len(z.read('Architecture.json'))
+    finally:a.cleanup()
+
+
+def test_rule_aggregation_retains_all_evidence(con,tmp_path):
+    rule="['Member1']=N:DB('Cube_A',!Year,'Member1');\n"*600+"FEEDERS;['Member1']=>DB('Cube_A',!Year,'Member1');"
+    con.execute("UPDATE cubes SET rules=?,has_rules=true WHERE name='Cube_B'",[rule])
+    r=architecture.build(con,'Load');groups=r['rules'][0]['groups']
+    assert [(g['kind'],g['count']) for g in groups]==[('rule_read',600),('feeder_reference',1)]
+    assert len(groups[0]['evidence_refs'])==600
+    a=architecture.artifact(r,tmp_path)
+    try:
+        md=''.join(architecture.markdown(a.path))
+        assert '600 处' in md and len(md.splitlines())<120
+        assert 'e1' not in md and 'source_hash' not in md
+    finally:a.cleanup()
+
+
+def test_expansion_controls_and_node_budget(con):
+    r=architecture.build(con,'Load',max_nodes=1)
+    assert len(r['processes'])==1 and not r['cubes'] and not r['dimensions']
+    assert any('预算' in u['message'] for u in r['unresolved_dependencies'])
+    r=architecture.build(con,'Load',allowed_relationship_types=[])
+    assert len(r['processes'])==1 and not r['cubes'] and not r['rules'] and not r['chores']
+    with pytest.raises(ValueError):architecture.build(con,'Load',allowed_relationship_types=['nonsense'])
+
+
+def test_view_final_type_after_null_guard_is_conditional_static_binding(con):
+    prolog="c='Cube_A';IF(flag=1);DataSourceType='NULL';ENDIF;DataSourceType='VIEW';DataSourceNameForServer=c;"
+    con.execute("UPDATE processes SET prolog=? WHERE name='Load'",[prolog])
+    binding=architecture.build(con,'Load')['transformation_summaries'][0]['source_slice']
+    assert binding['cube']=='Cube_A' and '提前退出' in binding['note']
+    con.execute("UPDATE processes SET prolog=? WHERE name='Load'",[prolog+"IF(flag=2);DataSourceType='NULL';ENDIF;"])
+    assert architecture.build(con,'Load')['transformation_summaries'][0]['source_slice'] is None

@@ -3,9 +3,9 @@
 {% block content %}
 <header class="page-head"><div><h1 class="page-title">系统架构</h1><p class="page-sub">数据从哪里来，经过哪些处理，结果写到哪里。</p></div></header>
 <form id="ar-start" class="workflow-start" data-auto="{{ '1' if analyze else '0' }}">
-  <label for="ar-name">入口 TI（v1）</label><div class="workflow-search"><input class="input" id="ar-name" value="{{ name }}" required maxlength="1000" placeholder="搜索 TI 名称或名称片段" autocomplete="off"><button class="btn primary" id="ar-submit">探索架构</button></div>
+  <label for="ar-name">入口 TI</label><div class="workflow-search"><input class="input" id="ar-name" value="{{ name }}" required maxlength="1000" placeholder="搜索 TI 名称或名称片段" autocomplete="off"><button class="btn primary" id="ar-submit">探索架构</button></div>
   <div id="ar-options" class="workflow-options" hidden></div>
-  <details class="workflow-budgets"><summary>分析范围</summary><label>最多 TI<input id="ar-max" type="number" min="1" max="500" value="100"></label><label>调用层数<input id="ar-depth" type="number" min="0" max="64" value="16"></label><p>沿真实调用扩展，不以名称前缀截断依赖。Cube / Chore / 模块关键词入口后续接入；当前可先在模型资产中浏览。</p></details>
+  <details class="workflow-budgets"><summary>分析范围</summary><label>最多 TI<input id="ar-max" type="number" min="1" max="500" value="100"></label><label>调用层数<input id="ar-depth" type="number" min="0" max="64" value="16"></label><label>最多模型节点<input id="ar-nodes" type="number" min="1" max="5000" value="1000"></label><label><input id="ar-downstream" type="checkbox"> 核对外部 Rule 消费者（仍在模块外）</label><label><input id="ar-expand-technical" type="checkbox"> 展开辅助内部调用</label><p>沿真实调用扩展，不以名称前缀截断依赖。Cube / Chore / 模块关键词入口后续接入；当前可先在模型资产中浏览。</p></details>
 </form>
 <p id="ar-error" role="alert" class="err" hidden></p>
 <section id="ar-progress" class="job-progress" hidden><p id="ar-state" role="status"></p><progress id="ar-bar"></progress><button type="button" class="btn ghost" id="ar-cancel">取消</button></section>
@@ -17,4 +17,4 @@
   <div id="ar-pager" class="workflow-pager"><button type="button" class="btn ghost" id="ar-prev">上一页</button><span id="ar-page"></span><button type="button" class="btn ghost" id="ar-next">下一页</button></div>
 </section>
 {% endblock %}
-{% block scripts %}<script src="/static/architecture.js?v=architecture-1.5" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/architecture.js?v=architecture-2.1" defer></script>{% endblock %}

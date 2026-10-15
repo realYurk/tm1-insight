@@ -137,7 +137,7 @@ def reconstruct(report, write):
         coordinate_mapping=write['coordinate_mapping'],shared_coordinate_binding=compact,runtime_verified=False)
 
 
-def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_root=None, cache_source=None):
+def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_root=None, cache_source=None, expand_calls=None):
     if not 1<=max_processes<=500 or not 0<=max_depth<=64:raise ValueError('Invalid scope budget')
     def update(stage,index,current=0,total=None):
         if progress:progress(stage=stage,stage_index=index,stages_total=6,current=current,total=total)
@@ -226,7 +226,10 @@ def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_ro
                 target=call['target'];observed.add(target)
                 edge=dict(**proof,**call,relation_kind='source_invocation',runtime_verified=False,index_present=target in indexed,
                     expansion='UNKNOWN' if not target else 'IN_SCOPE')
-                if target and target not in scheduled:
+                if target and expand_calls is not None and not expand_calls(name,target,depth):
+                    edge['expansion']='MODULE_BOUNDARY'
+                    add('unknowns',dict(**proof,evidence=call,reason='模块边界策略未展开此调用；调用事实保留'))
+                elif target and target not in scheduled:
                     if depth>=max_depth or len(scheduled)>=max_processes:
                         edge['expansion']='BOUNDARY';add('unknowns',dict(**proof,evidence=call,reason='调用展开达到深度或 TI 数量边界'))
                     else:scheduled.add(target);queue.append((target,depth+1))

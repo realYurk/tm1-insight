@@ -11,9 +11,9 @@ from tm1_insight.ingest.hard_extract import LOG_REGION_START, LOG_REGION_END, LO
 from tm1_insight.store import dimensions as dimension_store
 
 VERSION='architecture-1'
-REVISION=2
+REVISION=5
 SECTIONS={'cubes','dimensions','processes','rules','chores','execution_relationships','data_relationships',
-          'transformation_steps','evidence','unresolved_dependencies'}
+          'transformation_steps','evidence','unresolved_dependencies','transformation_summaries','dimension_comparisons','module_objects','downstream_consumers','diagnostics'}
 OPERATIONS={
     'viewzeroout':'CLEAR','cubecleardata':'CLEAR',
     'viewcreate':'VIEW_PREPARATION','viewsubsetassign':'VIEW_PREPARATION',
@@ -54,12 +54,15 @@ def log_lines(parts):
     return found
 
 
-def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=None,cache_source=None):
+def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=None,cache_source=None, max_nodes=1000, allowed_relationship_types=None, include_downstream=False, include_technical_details=False):
     """Reuse workflow truth; assemble only its local model neighborhood."""
     def update(stage,index=5,current=0,total=None):
         if progress:progress(stage=stage,stage_index=index,stages_total=6,current=current,total=total)
-    wf=workflow.build(con,entry,progress=progress,max_processes=max_processes,max_depth=max_depth,
-                      cache_root=cache_root,cache_source=cache_source)
+    from tm1_insight.architecture_extraction import Boundary, datasource, enrich
+    policy=Boundary(entry,max_nodes,allowed_relationship_types,include_downstream,include_technical_details)
+    wf=workflow.build(con,entry,progress=progress,max_processes=min(max_processes,max_nodes),max_depth=max_depth,
+                      cache_root=cache_root,cache_source=cache_source,expand_calls=policy.expand)
+    core_process_names=policy.core_processes(wf)
     result=dict(version=VERSION,engine_revision=REVISION,module=dict(name=entry,kind='process_scope',business_meaning_confirmed=False),
         entry_points=[dict(kind='process',name=entry)],input_outputs={},migration_notes=[
             '维度顺序定义多维坐标粒度，不自动假定一个 Cube 对应一张关系表。',
@@ -68,11 +71,16 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
         boundary=dict(max_processes=max_processes,max_depth=max_depth,complete=False,
             note='仅覆盖已解析的静态调用范围；动态调用、运行路径、外部数据与未采集关系仍需核对。'),
         cycles=wf['cycles'],runtime_verified=False,details=wf['details'],**{s:[] for s in SECTIONS})
-    evidence=result['evidence'];unresolved=result['unresolved_dependencies']
+    evidence=result['evidence'];unresolved=result['unresolved_dependencies'];proof_ids={}
     def proof(process,location,**extra):
         if len(evidence)>=30000:raise ValueError('架构证据超过 30000 条预算，请缩小分析范围。')
-        record=dict(id=f'e{len(evidence)+1}',process=process,**location,**extra)
-        evidence.append(record);return record['id']
+        payload=dict(process=process,**location,**extra)
+        if payload.get('section') and 'source_hash' not in payload:
+            payload['source_hash']=result['details'].get(process,{}).get('source_hash')
+        stable=hashlib.sha256(json.dumps(payload,ensure_ascii=False,sort_keys=True).encode('utf-8')).hexdigest()
+        if stable in proof_ids:return proof_ids[stable]
+        record=dict(id=f'e{len(evidence)+1}',stable_id=stable,**payload)
+        evidence.append(record);proof_ids[stable]=record['id'];return record['id']
     def missing(message,process=entry,**extra):
         unresolved.append(dict(process=process,message=message,**extra))
     catalogs={k:{r[0] for r in con.execute('SELECT name FROM '+t).fetchall()} for k,t in
@@ -102,21 +110,17 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
                     target_parameter=ref['expression'] if ref.get('status')=='parameter' and ref['expression'].casefold() not in assigned else None,
                     arguments=[expression(a)[:300] for a in args],conditions=ref.get('control_context',[]),
                     evidence=[proof(name,pos,operation=token['value'],source_hash=p['source_hash'])]))
-        # Accept only direct literal VIEW bindings with no alternative writes or control blocks.
-        roots,controls,diagnostics,_=structure(parts,include_logging=True)
-        assignments=[t for t in statements(parts,include_logging=True) if len(t)>2 and t[0]['kind']=='id' and t[1]['value']=='=']
-        counts=Counter(t[0]['value'].casefold() for t in assignments)
-        bindings={t[0]['value'].casefold():(literal([x for x in t[2:] if x['value']!=';']),t[0])
-                  for t in assignments if t[0]['section']=='prolog' and counts[t[0]['value'].casefold()]==1}
-        dtype=bindings.get('datasourcetype',(None,None))[0];src,tok=bindings.get('datasourcenameforserver',(None,None))
-        if not controls and not diagnostics and dtype and dtype.casefold()=='view' and src in catalogs['cube']:
-            sources[name]=dict(cube=src,evidence=[proof(name,{k:tok[k] for k in ['section','line','column']},kind='view_datasource_binding')])
-            cube_refs.setdefault(src,[]).append((name,dict(operation='VIEW_DATASOURCE',target=src,section='prolog',line=tok['line'],column=tok['column']),False))
-        elif 'datasourcenameforserver' in bindings:missing('视图数据源绑定含动态表达式或控制路径，尚未确认来源。',name)
+        binding=datasource(parts,catalogs['cube'])
+        if binding:
+            ids=[proof(name,loc,kind='view_datasource_binding') for loc in binding.pop('locations')]
+            sources[name]=dict(**binding,evidence=ids)
+            cube_refs.setdefault(binding['cube'],[]).append((name,dict(operation='VIEW_DATASOURCE',target=binding['cube']),False))
+        elif any(t[0]['value'].casefold()=='datasourcenameforserver' for t in statements(parts,include_logging=True)):
+            missing('视图来源赋值存在多定义、条件赋值或动态表达式；请核对 DataSourceNameForServer 及其变量定义。',name)
     for edge in wf['execution']:
         eid=proof(edge['process'],{k:edge[k] for k in ['section','line','column']},kind='source_invocation',source_hash=edge['source_hash'])
         result['execution_relationships'].append(dict(process=edge['process'],target=edge['target'],kind='source_invocation',
-            technical=technical(edge['target']),parameters=edge['bindings'],conditions=edge['control_context'],evidence=[eid],runtime_verified=False))
+            technical=technical(edge['target']) or (technical(edge['process']) and edge['process']!=entry),parameters=edge['bindings'],conditions=edge['control_context'],evidence=[eid],runtime_verified=False))
         if not edge['target']:missing('有一个调用目标由运行时表达式决定。',edge['process'],evidence=[eid])
     for p in wf['processes']:
         name=p['process'];effects=list(native.get(name,[]));helpers=[]
@@ -171,7 +175,10 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
                 technical=technical(d['target']) or (d['section'],d['line']) in logs.get(d['process'],set()),
                 evidence=[proof(d['process'],{k:d[k] for k in ['section','line','column']},operation=d['operation'])]))
     for name,binding in sources.items():result['data_relationships'].append(dict(process=name,target=binding['cube'],kind='view_datasource_binding',role='read',technical=False,evidence=binding['evidence']))
-    names=sorted(cube_refs)
+    names=sorted(cube_refs, key=lambda n:(technical(n) or all(log for _,_,log in cube_refs[n]),n))
+    available=max(0,max_nodes-len(wf['processes']))
+    if len(names)>available:missing('max_nodes 节点预算不足；部分 Cube 结构未展开，原始关系仍保留。', omitted=len(names)-available)
+    names=names[:available] if 'read_write' in policy.allowed else []
     if len(names)>150:missing('关联 Cube 超过 150 个，数据模型仅组装前 150 个。')
     dim_names=set()
     for i,name in enumerate(names[:150]):
@@ -189,21 +196,34 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
             upstream=sorted({d['source'] for d in result['data_relationships'] if d['kind']=='static_value_dependency' and d['target']==name}),
             downstream=sorted({d['target'] for d in result['data_relationships'] if d['kind']=='static_value_dependency' and d['source']==name and d['target']}),
             evidence=[proof(name,dict(table='cube_has_dimension',cube=name),kind='structure')]))
-    for name in sorted(dim_names)[:600]:
+    dimension_budget=min(600,max(0,max_nodes-len(wf['processes'])-len(result['cubes']))) if 'structure' in policy.allowed else 0
+    for name in sorted(dim_names)[:dimension_budget]:
         update('核对局部维度元数据')
         meta=dimension_store.metadata(con,name)
         result['dimensions'].append(dict(process=name,name=name,metadata=meta,hierarchies=[],
             note='独立 Hierarchy 名称、属性值与指标维角色尚未确认；按需打开维度页查看成员、属性定义和权重。',
             evidence=[proof(name,dict(table='dimensions',name=name),kind='metadata')]))
-    if len(dim_names)>600:missing('关联维度超过 600 个，其余需按需查看。')
+    if 'structure' in policy.allowed and len(dim_names)>dimension_budget:missing('节点或维度预算不足，其余维度结构未展开。', omitted=len(dim_names)-dimension_budget)
     # Find candidate Rule owners through the existing index; verify actual DB calls.
-    selected=names[:150];candidates=set(selected)
-    if selected:
+    selected=[c['name'] for c in result['cubes'] if not c['technical'] and any(p in core_process_names for p in c['readers']+c['writers'])]
+    candidates=set(selected) if 'rule_reference' in policy.allowed else set()
+    if selected and 'rule_reference' in policy.allowed:
         slots=','.join('?' for _ in selected)
-        candidates.update(r[0] for r in con.execute(f'SELECT DISTINCT cube_name FROM rule_references_cube WHERE source_cube IN ({slots}) ORDER BY cube_name LIMIT 101',selected).fetchall())
+        rows=con.execute(f'SELECT DISTINCT cube_name,source_cube FROM rule_references_cube WHERE source_cube IN ({slots}) ORDER BY cube_name,source_cube LIMIT 1001',selected).fetchall()
+        for owner,target in rows[:1000]:
+            if owner in selected:continue
+            result['downstream_consumers'].append(dict(process=owner,cube=owner,target=target,module_role='EXTERNAL_DEPENDENCY',
+                status='INDEX_CANDIDATE',evidence=[proof(owner,dict(table='rule_references_cube',cube=owner,target=target),kind='downstream_index')]))
+            if include_downstream:candidates.add(owner)
+        if len(rows)>1000:missing('下游索引候选超过 1000 条；未自动纳入核心模块。')
     rule_chars=0
     if len(candidates)>150:missing('关联 Rule 所属 Cube 超过 150 个，仅核对前 150 个。')
+    external_rule_nodes=0
     for owner in sorted(candidates)[:150]:
+        if owner not in selected:
+            if len(result['processes'])+len(result['cubes'])+len(result['dimensions'])+external_rule_nodes>=max_nodes:
+                missing('max_nodes 预算不足；外部 Rule 消费者源码未展开。',owner);continue
+            external_rule_nodes+=1
         update('核对局部 Rule 与调度')
         row=con.execute('SELECT length(rules) FROM cubes WHERE name=?',[owner]).fetchone()
         if not row or not row[0]:continue
@@ -220,9 +240,9 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
                 eid=proof(owner,dict(section='rule',line=token['line'],column=token['column']),source_hash=digest,kind='feeder_reference' if feeder else 'rule_read')
                 references.append(dict(target=target,kind='feeder_reference' if feeder else 'rule_read',evidence=[eid]))
         if owner in selected or any(r['target'] in selected for r in references):
-            result['rules'].append(dict(process=owner,cube=owner,references=references,source_hash=digest,
+            result['rules'].append(dict(process=owner,cube=owner,references=references,source_hash=digest,module_role='CORE' if owner in selected else 'EXTERNAL_DEPENDENCY',
                 note='仅确认源码 DB 引用和 Feeder 语句归属，未还原完整规则计算或汇总语义。'))
-    process_names=[p['process'] for p in wf['processes']]
+    process_names=[p['process'] for p in wf['processes'] if p['process'] in core_process_names and 'schedule' in policy.allowed]
     if process_names:
         slots=','.join('?' for _ in process_names)
         rows=con.execute(f'SELECT chore_name,process_name,step_order FROM chore_runs_process WHERE process_name IN ({slots}) ORDER BY chore_name,step_order,process_name LIMIT 501',process_names).fetchall()
@@ -235,6 +255,8 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
     verified_callers=[];caller_chars=0
     from tm1_insight.store.calculation import inspect
     for candidate in wf['callers'][:20]:
+        if len(result['processes'])+len(result['cubes'])+len(result['dimensions'])+len(verified_callers)+external_rule_nodes>=max_nodes:
+            missing('max_nodes 预算不足；入口调用方候选源码未展开。');break
         caller=candidate['process'];update('核对入口调用方源码')
         count=con.execute("SELECT length(coalesce(prolog,''))+length(coalesce(metadata,''))+length(coalesce(data,''))+length(coalesce(epilog,'')) FROM processes WHERE name=?",[caller]).fetchone()
         if not count or count[0]>250000 or caller_chars+count[0]>1000000:
@@ -245,10 +267,10 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
         result['details'][caller]=report;verified_callers.append(caller)
         for call in actual:
             ids=[proof(caller,{k:call[k] for k in ['section','line','column']},source_hash=report['source_hash'],kind='verified_caller')]
-            result['execution_relationships'].append(dict(process=caller,target=entry,kind='source_invocation',technical=technical(caller),parameters=[],conditions=call['control_context'],evidence=ids,runtime_verified=False))
+            result['execution_relationships'].append(dict(process=caller,target=entry,kind='source_invocation',technical=technical(caller),parameters=workflow.bindings(call,wf['details'].get(entry)),conditions=call['control_context'],evidence=ids,runtime_verified=False))
         result['entry_points'].append(dict(kind='caller',name=caller,target=entry,scope='only_call_to_entry_verified'))
     if len(wf['callers'])>20:missing('调用方目录超过 20 个，其余尚未读取源码。')
-    if verified_callers:
+    if verified_callers and 'schedule' in policy.allowed:
         slots=','.join('?' for _ in verified_callers)
         for chore,name,order in con.execute(f'SELECT chore_name,process_name,step_order FROM chore_runs_process WHERE process_name IN ({slots}) ORDER BY chore_name,step_order,process_name LIMIT 100',verified_callers).fetchall():
             result['chores'].append(dict(process=chore,name=chore,target=name,step_order=order,kind='recorded_schedule',
@@ -261,6 +283,8 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
     result['performance']=dict(parsed_processes=wf['summary']['parsed'],source_characters=source_chars)
     result['source_fingerprint']=cache_source or 'synthetic'
     missing('外部文件/SQL 数据源、视图实际成员、独立层级及运行结果尚未完整还原。')
+    result['diagnostics']=wf['unknowns']+[dict(u) for u in unresolved]
+    enrich(result,wf,policy)
     return result
 
 
@@ -272,40 +296,5 @@ def page(path,section='transformation_steps',offset=0,limit=50,q=''):
 
 
 def markdown(path):
-    from html import escape
-    def safe(v):return escape(str(v)).replace('\n',' ').replace('`','\\`')
-    header,_,_=page(path)
-    yield '# 系统架构说明\n\nSchema: '+VERSION+'\n\n入口：'+safe(header['module']['name'])+'\n\n'
-    yield '本资料为静态模型与源码事实，未验证实际执行或迁移等价。\n\n'
-    for section,title in [('cubes','数据模型'),('transformation_steps','数据加工步骤'),('execution_relationships','调用关系'),
-                          ('rules','Rule / Feeder'),('chores','调度定义'),('dimensions','技术附录：维度元数据'),
-                          ('data_relationships','技术附录：分类关系'),('evidence','技术附录：源码与模型证据'),('unresolved_dependencies','待核对依赖')]:
-        yield '## '+title+'\n\n';offset=0
-        while True:
-            _,total,items=page(path,section,offset,50)
-            for item in items:
-                if section=='cubes':
-                    yield '- '+safe(item['name'])+('（技术辅助对象）' if item['technical'] else '')+'：'+safe(' → '.join(d['name'] for d in item['dimensions']))+'\n'
-                    yield '  - '+safe(item['grain'])+'；结构顺序'+('完整' if item['complete_order'] else '待核对')+'。\n'
-                elif section=='transformation_steps':
-                    if item['technical'] and item['process']!=header['module']['name']:continue
-                    yield '### '+safe(item['process'])+'\n\n'
-                    yield safe(', '.join(item['inputs']) or '来源尚未确认')+' → 准备 / 处理 → '+safe(', '.join(item['outputs']) or '结果写入尚未确认')+'\n\n'
-                    yield '输入/输出是源码观察，不据此证明所有输入均参与输出计算。\n\n'
-                    for e in item['effects']:yield '- '+safe(e['label'])+'：'+safe(e['target'] or '目标待核对')+'；证据 '+safe(', '.join(e['evidence']))+'\n'
-                    for c in item['calculations']:yield '- 表达式：'+safe(c['expression'])+'；证据 '+safe(', '.join(c['evidence']))+'\n'
-                    if item['calculation_note']:yield '- '+safe(item['calculation_note'])+'\n'
-                elif section=='execution_relationships':
-                    if item['technical']:continue
-                    yield '- '+safe(item['process'])+' → '+safe(item['target'] or '目标待核对')+'；证据 '+safe(', '.join(item['evidence']))+'\n'
-                    for b in item['parameters']:yield '  - '+safe(b['parameter'] or '参数名待核对')+' ← '+safe(b['expression'])+'\n'
-                elif section=='rules':
-                    yield '- '+safe(item['cube'])+'：'+safe(item['note'])+'\n'
-                    for r in item['references']:yield '  - '+safe(r['kind'])+' → '+safe(r['target'])+'；证据 '+safe(', '.join(r['evidence']))+'\n'
-                elif section=='chores':yield '- '+safe(item['name'])+' → '+safe(item['target'])+'；离线步骤 '+str(item['step_order'])+'；证据 '+safe(', '.join(item['evidence']))+'\n'
-                else:yield '- '+safe(json.dumps(item,ensure_ascii=False,sort_keys=True))+'\n'
-            offset+=len(items)
-            if offset>=total:break
-        yield '\n'
-    yield '## migration_notes\n\n'
-    for note in header['migration_notes']:yield '- '+safe(note)+'\n'
+    from tm1_insight.architecture_extraction import markdown as readable
+    yield from readable(path)

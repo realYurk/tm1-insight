@@ -15,15 +15,15 @@
 2. 在首页搜索一个 TI 名称，点击「探索架构」；TI 详情也提供同一入口。
 3. 在同一工作台查看模块概览、数据模型、加工链路、调用与调度，默认组织为 **数据对象 → 加工步骤 → 结果对象**。
 4. 点击「查看实现」核对真实操作、参数、变量与坐标表达式、技术辅助调用和原代码；成员、属性定义和汇总权重按需分页加载。
-5. 导出 `architecture-1` JSON / Markdown，保存结构化资料供后续迁移评审。
+5. 导出六节人读 `Architecture.md` 或 ZIP（另含完整 `Architecture.json`、`Evidence.json`、`Diagnostics.json`）。保留 `architecture-1` 兼容字段，以 `extraction_version=architecture-extraction-2` 标明新边界与摘要。
 
 四层长期架构为 **Model Foundation → Lineage & Relationships → Architecture Explorer → Business Interpretation**，详见 [产品宪法](PRODUCT_CONSTITUTION.md)。本轮实现 TI 入口，Cube / Chore / 前缀模块入口后续接入；对象浏览与原工作流技术检查保留。
 
 清理、View/Subset 准备等技术操作按实际源码与显式参数绑定归入加工步骤；不会根据 Bedrock 名称猜效果，也不会把准备或共同读写当成传输证明。已确认的静态表达式依赖单独保留。日志区域与系统命名空间项默认折叠，源代码和真实复制/写入效果不会删除。
 
-默认最多 100 个 TI / 16 层，可调整分析边界；循环安全，支持真实阶段进度、协作取消和分页索引。只加载局部 TI 代码，复用现有 Workflow、Calculation、DuckDB 与 Dimension Explorer。动态或不支持的语义以具体待核对提示呈现，技术诊断按需展开。第一版未执行 TI、未证明运行结果、未生成最终关系表，也未集成 AI。
+默认最多 100 个 TI / 16 层 / 1000 个展开模型节点，可调整分析边界；直接辅助源码保留效果，默认不展开辅助内部调用。Rule 消费者留在边界外，Chore 不沿共享辅助反向归属。循环安全，支持真实阶段进度、协作取消和分页索引。只加载局部 TI 代码，复用现有 Workflow、Calculation、DuckDB 与 Dimension Explorer。动态或不支持的语义以具体待核对提示呈现，技术诊断按需展开。第一版未执行 TI、未证明运行结果、未生成最终关系表，也未集成 AI。
 
-主导航为模型资产、数据血缘、系统架构、代码生成；其他分析、知识、经验与快照保留在高级工具中。完整能力、验证和限制见 [Architecture Explorer v1 交付记录](docs/DELIVERY_ARCHITECTURE_V1.md)。
+主导航为模型资产、数据血缘、系统架构、代码生成；其他分析、知识、经验与快照保留在高级工具中。本轮根因、验证和限制见 [Architecture Extraction v2 交付记录](docs/DELIVERY_ARCHITECTURE_V2.md)，人读格式见 [完整合成报告](docs/EXAMPLE_ARCHITECTURE_V2.md)。
 
 ### 0.3：把项目知识留成自己的经验
 

@@ -6,11 +6,19 @@ from typing import Literal
 from fastapi import APIRouter,HTTPException,Query,Request
 from fastapi.responses import FileResponse,JSONResponse,StreamingResponse
 from tm1_insight import architecture,workflow
-from tm1_insight.api.workflow import Start,source_evidence
+from tm1_insight.api.workflow import Start as WorkflowStart,source_evidence
+from pydantic import Field
+from tm1_insight.architecture_extraction import RELATIONSHIPS
 from tm1_insight.api.knowledge_tasks import fingerprint
 from tm1_insight.config import get_settings
 from tm1_insight.store.db import Store
 from tm1_insight.tasks import TaskManager,TaskBusy
+
+class Start(WorkflowStart):
+    max_nodes:int=Field(default=1000,ge=1,le=5000,strict=True)
+    allowed_relationship_types:list[Literal['invocation','read_write','structure','rule_reference','schedule']]=Field(default_factory=lambda:sorted(RELATIONSHIPS))
+    include_downstream:bool=False
+    include_technical_details:bool=False
 
 router=APIRouter();_manager=None;_lock=threading.Lock()
 
@@ -45,7 +53,8 @@ def start(body:Start):
             progress(**values)
         with closing(Store(settings).connect(read_only=True)) as con:
             report=architecture.build(con,name,progress=guarded,max_processes=body.max_processes,max_depth=body.max_depth,
-                cache_root=settings.user_data_root/'cache'/'workflows',cache_source=source)
+                cache_root=settings.user_data_root/'cache'/'workflows',cache_source=source,max_nodes=body.max_nodes,
+                allowed_relationship_types=body.allowed_relationship_types,include_downstream=body.include_downstream,include_technical_details=body.include_technical_details)
         guarded(stage='保存局部架构与导出',stage_index=6)
         root=settings.user_data_root/'cache'/'architecture';root.mkdir(parents=True,exist_ok=True)
         artifact=architecture.artifact(report,root)
@@ -53,7 +62,7 @@ def start(body:Start):
         except BaseException:artifact.cleanup();raise
         return artifact
     key=json.dumps(dict(version=architecture.VERSION,revision=architecture.REVISION,parser=workflow.CALC_VERSION,process=name,
-        max_processes=body.max_processes,max_depth=body.max_depth),sort_keys=True)
+        scope=body.model_dump(exclude={'source'})),sort_keys=True)
     try:return manager().submit(key,work,source=source)
     except TaskBusy as exc:raise HTTPException(429,str(exc)) from exc
 
@@ -121,7 +130,12 @@ def evidence(task:str,process:str=Query(...,max_length=1000),section:Literal['pr
 
 
 @router.get('/api/architecture/tasks/{task}/export')
-def export(task:str,format:Literal['json','markdown']='json'):
+def export(task:str,format:Literal['json','markdown','zip','evidence','diagnostics']='json'):
     artifact=path(task)
     if format=='json':return FileResponse(artifact,media_type='application/json',filename='Architecture.json',headers={'Cache-Control':'no-store'})
+    if format in {'zip','evidence','diagnostics'}:
+        from tm1_insight.architecture_extraction import package, json_section
+        stream=package(artifact) if format=='zip' else json_section(artifact,'evidence' if format=='evidence' else 'diagnostics')
+        filename={'zip':'Architecture.zip','evidence':'Evidence.json','diagnostics':'Diagnostics.json'}[format]
+        return StreamingResponse(stream,media_type='application/zip' if format=='zip' else 'application/json',headers={'Content-Disposition':'attachment; filename='+filename,'Cache-Control':'no-store'})
     return StreamingResponse(architecture.markdown(artifact),media_type='text/markdown',headers={'Content-Disposition':'attachment; filename=Architecture.md','Cache-Control':'no-store'})
