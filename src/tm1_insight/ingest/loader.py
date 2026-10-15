@@ -195,6 +195,7 @@ class Loader:
         if not path.is_dir():
             return 0
         batch: list[tuple] = []
+        meta_batch: list[tuple] = []
         count = 0
         for index, fn in enumerate(files, 1):
             if not fn.suffix == ".json" or fn.name.startswith("_"):
@@ -216,13 +217,29 @@ class Loader:
                 json.dumps(d.get("edges", []) or [], ensure_ascii=False),
                 json.dumps(d.get("subsets", []) or [], ensure_ascii=False),
             ))
+            # 版本化扩展元数据：层级 / 子集定义 / 属性值（可选，无则留空）。
+            # 独立表 dimension_metadata，不污染既有 dimensions 结构。
+            if any(k in d for k in ("hierarchies", "subset_definitions", "attribute_values", "hierarchy_names")):
+                meta_batch.append((
+                    d.get("name"),
+                    json.dumps(d.get("hierarchy_names", []) or [], ensure_ascii=False),
+                    json.dumps(d.get("hierarchies", []) or [], ensure_ascii=False),
+                    json.dumps(d.get("subset_definitions", []) or [], ensure_ascii=False),
+                    json.dumps(d.get("attribute_values", {}) or {}, ensure_ascii=False),
+                    d.get("collected_at"),
+                ))
             count += 1
             self._report("load_dimensions", index, len(files))
             if len(batch) >= 500:
                 _bulk(con, "INSERT INTO dimensions VALUES (?,?,?,?,?,?,?)", batch)
+                if meta_batch:
+                    _bulk(con, "INSERT INTO dimension_metadata VALUES (?,?,?,?,?,?)", meta_batch)
                 batch = []
+                meta_batch = []
         if batch:
             _bulk(con, "INSERT INTO dimensions VALUES (?,?,?,?,?,?,?)", batch)
+        if meta_batch:
+            _bulk(con, "INSERT INTO dimension_metadata VALUES (?,?,?,?,?,?)", meta_batch)
         logger.info("维度入库: %d 个（流式）", count)
         return count
 

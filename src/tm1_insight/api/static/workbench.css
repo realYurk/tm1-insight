@@ -47,44 +47,8 @@
 .btn.primary:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
 .nav-more { border-top: 1px solid var(--side-border); margin-top: 14px; padding-top: 8px; }
 .nav-more summary { color: var(--side-text); font-size: 12px; padding: 10px; cursor: pointer; }
-/* 模型资产 / 高级工具：可展开收起的一级导航分组 */
-.nav-group { margin: 2px 0; }
-.nav-group-summary {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 9px 12px;
-  border-radius: var(--radius-sm);
-  color: var(--side-text);
-  font-weight: 500;
-  font-size: 13.5px;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-.nav-group-summary::-webkit-details-marker { display: none; }
-.nav-group-summary:hover { background: var(--side-bg-2); color: var(--side-text-strong); }
-.nav-group-summary .nav-icon { width: 18px; height: 18px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; opacity: 0.9; }
-.nav-group-summary .nav-icon svg { width: 17px; height: 17px; }
-.nav-chevron {
-  margin-left: auto;
-  width: 12px; height: 12px;
-  flex-shrink: 0;
-  transition: transform 0.18s ease;
-  color: var(--side-text);
-  opacity: 0.6;
-}
-.nav-chevron::before {
-  content: "";
-  display: block;
-  width: 7px; height: 7px;
-  border-right: 1.6px solid currentColor;
-  border-bottom: 1.6px solid currentColor;
-  transform: rotate(45deg) translate(-1px, -1px);
-}
-.nav-group[open] > .nav-group-summary .nav-chevron { transform: rotate(90deg); }
-/* 分组处于当前路由时，父级标题弱高亮，便于定位 */
-.nav-group[open] > .nav-group-summary { color: var(--side-text-strong); }
+/* 模型资产 / 高级工具：永久展开的静态导航分组（不可折叠，无箭头）。
+   .nav-group-label 既作「系统与数据」这类纯文字标签，也作模型资产/高级工具的分组标题。 */
 .nav-group-body { display: flex; flex-direction: column; padding-left: 14px; }
 .nav-separator { height: 1px; background: var(--side-border); margin: 4px 6px 4px 10px; }
 .nav-group-body .nav-link { padding-left: 14px; font-size: 13px; }
@@ -161,7 +125,7 @@
 .calculation-detail code { white-space: pre-wrap; }
 @media (max-width: 1000px) { .calculation-workspace { grid-template-columns: minmax(0,1fr); } .calculation-list { max-height: 200px; } }
 @media (max-width: 560px) { .calculation-path { grid-template-columns: minmax(0,1fr); } }
-.dimension-workspace { display: grid; grid-template-columns: minmax(220px, 25%) minmax(0, 1fr); gap: 20px; align-items: start; }
+.dimension-workspace { display: grid; grid-template-columns: minmax(260px, 300px) minmax(0, 1fr); gap: 20px; align-items: start; }
 .dimension-browser, .dimension-detail { min-width: 0; margin: 0; }
 .dimension-list { max-height: calc(100dvh - 360px); min-height: 180px; overflow: auto; }
 .dimension-list li { padding: 0; }
@@ -332,3 +296,73 @@ details summary { cursor: pointer; padding: 12px 0; }
 .architecture-members { max-height: 420px; overflow: auto; }
 
 [data-ar-view][aria-pressed="true"] { color: var(--accent-strong); background: var(--accent-soft); border-color: var(--accent); }
+
+/* ============ Dimension TreeGrid（v1.2 表格化元素树） ============ */
+.dimension-workbench-tabs { margin: 18px 0 4px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.dimension-workbench-tabs .dim-tab[aria-current="page"] { color: var(--accent-strong); background: var(--accent-soft); }
+.dimension-tab-panel { min-width: 0; }
+.dimension-tab-panel h3 { font-size: 14px; margin: 0 0 8px; }
+.dimension-tab-panel h4 { font-size: 13px; margin: 16px 0 6px; }
+
+/* 表格：固定表头 + 严格列对齐 + 统一行高 */
+.dim-grid { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13.5px; }
+.dim-grid thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--card); color: var(--muted);
+  font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
+  padding: 8px 10px; border-bottom: 2px solid var(--border-strong);
+  text-align: left; white-space: nowrap;
+}
+.dim-grid thead th.dim-grid-weight, .dim-grid thead th.dim-grid-attr { text-align: right; }
+.dim-grid tbody tr { border-bottom: 1px solid var(--border); }
+.dim-grid tbody tr.dim-grid-row:hover { background: var(--side-bg-2); }
+.dim-grid td { padding: 6px 10px; vertical-align: middle; overflow: hidden; }
+.dim-grid-name { width: 62%; }
+.dim-grid-type { width: 64px; text-align: center; }
+.dim-grid-weight { width: 96px; text-align: right; }
+.dim-grid-attr { width: 140px; text-align: right; color: var(--text-2); }
+.dim-grid-unknown { color: var(--muted); font-style: italic; }
+.dim-grid-name .dim-grid-indent { display: inline-block; }
+.dim-grid-name .dim-tree-toggle { vertical-align: middle; }
+.dim-grid-name .dim-tree-name { max-width: calc(100% - 70px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.dim-grid-name .dim-tree-name:hover { text-decoration: underline; }
+.dim-grid-loading-row td { padding: 6px 10px; }
+
+/* 类型 C/N/S 协调标签（取代彩色徽章堆叠） */
+.dim-type { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 4px; font-size: 11px; font-weight: 700; font-family: var(--font-mono, monospace); }
+.dim-type-c { background: #e7ecff; color: #3652c9; }
+.dim-type-n { background: #e4f4ec; color: #1f7a4d; }
+.dim-type-s { background: #fdeeee; color: #b04a3a; }
+.dim-type-unknown { background: var(--side-bg-2); color: var(--muted); }
+[data-theme="dark"] .dim-type-c { background: #25355e; color: #aac3ff; }
+[data-theme="dark"] .dim-type-n { background: #1d3a2b; color: #7fd2a8; }
+[data-theme="dark"] .dim-type-s { background: #432a28; color: #f0a899; }
+
+/* 属性「显示列」选择器 */
+.dimension-attr-columns-wrap { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 12px; }
+.dimension-attr-columns { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.dim-attr-col { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
+.dim-attr-col input { margin: 0; }
+.dim-attr-col em { font-style: normal; }
+
+/* 子集专业浏览面板 */
+.dimension-subset-panel { display: grid; grid-template-columns: minmax(180px, 34%) minmax(0, 1fr); gap: 16px; align-items: start; }
+.dimension-subset-list-wrap { min-width: 0; }
+.dimension-subset-list-wrap .input { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+.dimension-subset-list { max-height: calc(100dvh - 420px); overflow: auto; }
+.dimension-subset-list li { padding: 0; }
+.dimension-subset-item { width: 100%; text-align: left; border: none; background: transparent; color: var(--text); padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.dimension-subset-item:hover { background: var(--side-bg-2); }
+.dimension-subset-detail { min-width: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+.dimension-subset-detail h4 { margin: 0 0 8px; font-size: 14px; }
+.dim-subset-type { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 10px; flex-shrink: 0; }
+.dim-subset-type.dynamic { background: #e7ecff; color: #3652c9; }
+.dim-subset-type.static { background: #e4f4ec; color: #1f7a4d; }
+.dim-subset-type.unknown { background: var(--side-bg-2); color: var(--muted); }
+[data-theme="dark"] .dim-subset-type.dynamic { background: #25355e; color: #aac3ff; }
+[data-theme="dark"] .dim-subset-type.static { background: #1d3a2b; color: #7fd2a8; }
+.dim-subset-status { font-size: 10.5px; color: var(--amber, #b7791f); margin-left: 4px; }
+.dim-subset-elements { display: flex; flex-wrap: wrap; gap: 6px; max-height: 320px; overflow: auto; }
+.dim-subset-element { font-size: 12px; padding: 3px 8px; background: var(--side-bg-2); border-radius: 4px; font-family: var(--font-mono, monospace); }
+
+@media (max-width: 1000px) { .dimension-subset-panel { grid-template-columns: minmax(0, 1fr); } }

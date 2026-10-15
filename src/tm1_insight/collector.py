@@ -108,6 +108,9 @@ def _map_dimension(raw: dict) -> dict:
 
     raw.elements 是 [{"name", "type"}]，canonical 只要 [name]（string list）。
     raw.subsets 是 [{"name", "expression"}]，canonical 只要 [name]。
+
+    注意：subsets 里的 name 可能为 None（旧采集的字符串 `.name` 缺陷），
+    这里只保留真实字符串名称，缺失名称绝不伪造为空串混入 canonical。
     """
     elements = [
         e.get("name") for e in (raw.get("elements") or [])
@@ -115,7 +118,7 @@ def _map_dimension(raw: dict) -> dict:
     ]
     subsets = [
         s.get("name") for s in (raw.get("subsets") or [])
-        if isinstance(s, dict) and s.get("name")
+        if isinstance(s, dict) and isinstance(s.get("name"), str) and s.get("name")
     ]
     return {
         "name": raw.get("name", ""),

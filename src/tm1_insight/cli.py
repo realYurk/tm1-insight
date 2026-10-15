@@ -98,6 +98,53 @@ def status() -> None:
         typer.echo(f"  {table:32s}: {count}")
 
 
+@app.command("recollect-dimension")
+def recollect_dimension(
+    name: str = typer.Argument(..., help="要补采的维度名称（如 'Car Model'）"),
+    attributes: str = typer.Option("", "--attributes", help="逗号分隔的属性名，如 'Power,Brand'；留空则只补采层级与子集定义"),
+    elements: str = typer.Option("", "--elements", help="逗号分隔的元素名（采集属性值范围）；留空则不采集属性值"),
+    no_hierarchies: bool = typer.Option(False, "--no-hierarchies", help="跳过层级元数据补采"),
+    no_subsets: bool = typer.Option(False, "--no-subsets", help="跳过子集定义补采"),
+    reload: bool = typer.Option(False, "--reload", help="补采后重新入库（重建 DuckDB）"),
+) -> None:
+    """对指定维度做增量补采（层级/公共子集/所选属性值），不重采整个模型。"""
+    settings = get_settings()
+    from tm1_insight.ingest.exporter import Exporter
+
+    attr_list = [a.strip() for a in attributes.split(",") if a.strip()] if attributes else None
+    elem_list = [e.strip() for e in elements.split(",") if e.strip()] if elements else None
+    if attr_list and not elem_list:
+        typer.echo("[提示] 指定了属性但未指定元素范围，将不采集任何属性值（避免全量拉取）。", err=True)
+
+    try:
+        summary = Exporter(settings).recollect_dimension(
+            name,
+            include_hierarchies=not no_hierarchies,
+            include_subset_definitions=not no_subsets,
+            attributes=attr_list,
+            elements_for_values=elem_list,
+        )
+    except Exception as e:  # noqa: BLE001
+        typer.echo(f"[错误] 增量补采失败: {e}", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo("增量补采完成：")
+    typer.echo(f"  维度:        {summary['name']}")
+    typer.echo(f"  层级:        {summary['hierarchy_count']} 个 {summary['hierarchy_names']}")
+    typer.echo(f"  子集定义:    {summary['subset_definition_count']} 个")
+    typer.echo(f"  属性值:      {summary['attribute_values'] or '-'}")
+    typer.echo(f"  落盘:        {summary['filepath']}")
+
+    if reload:
+        from tm1_insight.ingest.loader import Loader
+        try:
+            stats = Loader(settings).load(drop=True)
+        except FileNotFoundError as e:
+            typer.echo(f"[错误] {e}", err=True)
+            raise typer.Exit(code=1)
+        typer.echo("已重新入库（dimension_metadata 同步更新）。")
+
+
 @app.command()
 def check() -> None:
     """测试 TM1 连接并打印服务器信息。"""

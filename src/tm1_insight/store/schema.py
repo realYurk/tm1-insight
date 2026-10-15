@@ -40,6 +40,15 @@ OBJECT_TABLES: dict[str, str] = {
             edges TEXT,
             subsets TEXT
         )""",
+    "dimension_metadata": """
+        CREATE TABLE IF NOT EXISTS dimension_metadata (
+            name TEXT PRIMARY KEY,
+            hierarchy_names TEXT,
+            hierarchies TEXT,
+            subset_definitions TEXT,
+            attribute_values TEXT,
+            collected_at TEXT
+        )""",
     "chores": """
         CREATE TABLE chores (
             name TEXT PRIMARY KEY,

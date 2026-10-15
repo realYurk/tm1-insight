@@ -146,6 +146,48 @@ class Exporter:
         if self.strict and counter["failed"]:
             raise RuntimeError("Collection contains failed objects")
 
+    # ---- 单维度增量补采 ----
+    def recollect_dimension(self, name: str, *,
+                            include_hierarchies: bool = True,
+                            include_subset_definitions: bool = True,
+                            attributes: list[str] | None = None,
+                            elements_for_values: list[str] | None = None) -> dict:
+        """对指定维度做增量补采：拉取完整层级/子集定义/所选属性值并落盘。
+
+        只补采单个维度的 raw JSON（``raw_dir/dimensions/<name>.json``），
+        不重采整个大型 TM1 模型。返回补采结果摘要。
+        """
+        self.settings.ensure_dirs()
+        (self.raw_dir / "dimensions").mkdir(parents=True, exist_ok=True)
+        is_system = name.startswith("}")
+        with self.client.connect() as tm1:
+            try:
+                data = self.client.fetch_dimension_incremental(
+                    tm1, name,
+                    include_hierarchies=include_hierarchies,
+                    include_subset_definitions=include_subset_definitions,
+                    attributes=attributes,
+                    elements_for_values=elements_for_values,
+                )
+            finally:
+                try:
+                    tm1.logout()
+                except Exception:  # noqa: BLE001
+                    pass
+        filepath = self.raw_dir / "dimensions" / f"{safe_filename(name)}.json"
+        save_json(data, filepath)
+        summary = {
+            "name": name,
+            "is_system": is_system,
+            "filepath": str(filepath),
+            "hierarchy_names": data.get("hierarchy_names", []),
+            "hierarchy_count": len(data.get("hierarchies", [])),
+            "subset_definition_count": len(data.get("subset_definitions", [])),
+            "attribute_values": list((data.get("attribute_values") or {}).get("attributes", {}).keys()),
+        }
+        logger.info("增量补采完成: %s → %s", name, filepath)
+        return summary
+
     # ---- 主流程 ----
     def export_all(self) -> dict:
         self.settings.ensure_dirs()

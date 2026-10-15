@@ -178,7 +178,8 @@ def tree_summary(con, name: str, root_limit: int = 200) -> dict:
     ).fetchone()
     elem_total = int(elem_total_row[0]) if elem_total_row and elem_total_row[0] is not None else 0
 
-    # Attributes: only names + types are recorded; no attribute values.
+    # Attributes: names + types recorded; attribute values are carried in the
+    # optional versioned metadata layer (dimension_metadata), never fabricated here.
     attributes = []
     attr_rows = con.execute(
         f"SELECT {_name_expr()} AS name, {_type_expr()} AS type "
@@ -198,6 +199,16 @@ def tree_summary(con, name: str, root_limit: int = 200) -> dict:
     for r in subset_rows:
         subsets.append({"name": r[0], "has_expression": bool(r[1])})
 
+    # Versioned metadata overlay: hierarchies / subset definitions / attribute values
+    # (dimension_metadata table). Absent when the dimension has not been incrementally
+    # re-collected — the UI must render the "not collected" state, not fake data.
+    meta_overlay = None
+    try:
+        from tm1_insight.store import dimension_meta
+        meta_overlay = dimension_meta.metadata(con, name)
+    except Exception:  # noqa: BLE001 —— 扩展表缺失时优雅降级
+        meta_overlay = None
+
     return {
         "name": name,
         "is_system": meta["is_system"],
@@ -210,6 +221,10 @@ def tree_summary(con, name: str, root_limit: int = 200) -> dict:
         "root_truncated": root_total > len(roots),
         "attributes": attributes,
         "subsets": subsets,
+        "hierarchies": (meta_overlay or {}).get("hierarchies") or [],
+        "hierarchy_names": (meta_overlay or {}).get("hierarchy_names") or [],
+        "subset_definitions": (meta_overlay or {}).get("subset_definitions") or [],
+        "attribute_values": (meta_overlay or {}).get("attribute_values") or {},
         "warnings": meta["warnings"],
     }
 

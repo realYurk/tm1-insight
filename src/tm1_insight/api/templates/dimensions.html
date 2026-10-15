@@ -2,7 +2,7 @@
 {% block title %}维度 · {{ dimension.name if dimension else '浏览' }} · TM1 Insight{% endblock %}
 {% block breadcrumb %}<nav class="breadcrumb"><a href="/">工作台</a><span class="sep">/</span><a href="/dimensions">Dimension</a>{% if dimension %}<span class="sep">/</span><span class="current">{{ dimension.name }}</span>{% endif %}</nav>{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1 class="page-title">Dimension 维度浏览</h1><p class="page-sub">浏览维度成员与层级结构，理解元素之间的父子关系。</p></div></div>
+<div class="page-head"><div><h1 class="page-title">Dimension 维度浏览</h1><p class="page-sub">以 TreeGrid 浏览维度成员、层级、属性与子集，理解元素之间的父子关系。</p></div></div>
 <div class="dimension-workspace">
   <aside class="card dimension-browser" aria-label="维度列表">
     <h2>维度 <span class="tag">{{ listing.total }}</span></h2>
@@ -35,53 +35,71 @@
     </section>
     {% else %}
 
-    <!-- ============ 元素层级树（核心） ============ -->
-    <section class="dimension-tree-panel" id="dimension-tree" data-name="{{ dimension.name }}" data-source="{{ source }}" aria-label="元素层级树">
-      <div class="dimension-tree-toolbar">
-        <h3>元素层级</h3>
-        <form id="dimension-tree-search-form" class="dimension-tree-search" role="search">
-          <input class="input" type="search" id="dimension-tree-search-input" aria-label="搜索元素" placeholder="搜索整个维度的元素…" maxlength="1000" autocomplete="off">
-          <button class="btn ghost btn-sm" type="submit">搜索</button>
-        </form>
+    <!-- ============ 工作台 Tab：成员与层级 / 属性 / 子集 / 关联 Cube ============ -->
+    <nav class="dimension-tabs dimension-workbench-tabs" aria-label="维度工作台">
+      <a class="btn ghost btn-sm dim-tab" data-tab="members" aria-current="page">成员与层级</a>
+      <a class="btn ghost btn-sm dim-tab" data-tab="attributes">属性 <span class="tag" id="dim-attr-tab-count">{{ dimension.fields['attributes'].count if dimension.fields['attributes'].status == 'recorded' else '?' }}</span></a>
+      <a class="btn ghost btn-sm dim-tab" data-tab="subsets">子集 <span class="tag" id="dim-subset-tab-count">{{ dimension.fields['subsets'].count if dimension.fields['subsets'].status == 'recorded' else '?' }}</span></a>
+      <a class="btn ghost btn-sm dim-tab" data-tab="cubes">关联 Cube</a>
+    </nav>
+
+    <!-- ============ Tab 1：成员与层级（TreeGrid 表格） ============ -->
+    <section class="dimension-tab-panel" id="tab-members" data-tab-panel="members">
+      <div class="dimension-tree-panel" id="dimension-tree" data-name="{{ dimension.name }}" data-source="{{ source }}" aria-label="元素层级树">
+        <div class="dimension-tree-toolbar">
+          <h3>元素层级</h3>
+          <form id="dimension-tree-search-form" class="dimension-tree-search" role="search">
+            <input class="input" type="search" id="dimension-tree-search-input" aria-label="搜索元素" placeholder="搜索整个维度的元素…" maxlength="1000" autocomplete="off">
+            <button class="btn ghost btn-sm" type="submit">搜索</button>
+          </form>
+        </div>
+        <p id="dimension-tree-status" role="status" aria-live="polite" class="muted small"></p>
+        <div id="dimension-tree-search-results" hidden></div>
+        <div class="dimension-tree-scroll" id="dimension-tree-body" aria-label="元素成员表"></div>
+        <button class="btn ghost btn-sm dim-flat-more" id="dim-flat-more" type="button" hidden>加载更多</button>
+        <details class="dimension-element-detail" id="dimension-element-detail" hidden>
+          <summary>元素详情</summary>
+          <dl>
+            <dt>名称</dt><dd id="dimension-element-detail-name"></dd>
+            <dt>类型</dt><dd id="dimension-element-detail-type"></dd>
+            <dt>所属父项</dt><dd id="dimension-element-detail-parents"></dd>
+            <dt>直接子项</dt><dd id="dimension-element-detail-children"></dd>
+          </dl>
+        </details>
       </div>
-      <p id="dimension-tree-status" role="status" aria-live="polite" class="muted small"></p>
-      <div id="dimension-tree-search-results" hidden></div>
-      <div class="dimension-tree-scroll" id="dimension-tree-body" aria-label="元素成员树"></div>
-      <details class="dimension-element-detail" id="dimension-element-detail" hidden>
-        <summary>元素详情</summary>
-        <dl>
-          <dt>名称</dt><dd id="dimension-element-detail-name"></dd>
-          <dt>类型</dt><dd id="dimension-element-detail-type"></dd>
-          <dt>所属父项</dt><dd id="dimension-element-detail-parents"></dd>
-          <dt>直接子项</dt><dd id="dimension-element-detail-children"></dd>
-        </dl>
-      </details>
     </section>
 
-    <!-- ============ 属性定义 ============ -->
-    <details class="dimension-aux" {% if view == 'attributes' %}open{% endif %}>
-      <summary>属性定义 <span class="muted small">仅名称与类型，属性值未采集</span></summary>
+    <!-- ============ Tab 2：属性 ============ -->
+    <section class="dimension-tab-panel" id="tab-attributes" data-tab-panel="attributes" hidden>
+      <h3>属性定义</h3>
+      <p class="muted small">仅名称与类型（属性值按需采集，见下方「显示列」）。</p>
       <div class="dimension-aux-body" id="dimension-attributes"></div>
-    </details>
+      <div class="dimension-attr-columns-wrap">
+        <h4>显示列</h4>
+        <p class="muted small">选择已采集属性值的属性，作为元素表的显示列（未采集的属性不生成假列）。</p>
+        <div class="dimension-attr-columns" id="dimension-attr-columns"></div>
+      </div>
+    </section>
 
-    <!-- ============ 子集 ============ -->
-    <details class="dimension-aux" {% if view == 'subsets' %}open{% endif %}>
-      <summary>子集</summary>
-      <p class="muted small" id="dimension-subsets">加载中…</p>
-      {% if subset %}
-      <section class="dimension-subset" aria-label="选中子集定义"><h4>{{ subset.name or 'UNKNOWN · 名称缺失' }}</h4><p class="muted small"><code>{{ subset.evidence }}</code></p>{% if subset.expression %}<p>已保存 MDX，未求值，不能把表达式当作成员结果。</p><pre class="code dimension-expression">{{ subset.expression }}</pre>{% if subset.expression_length > 8000 %}<p class="chore-warning">PARTIAL · 表达式共 {{ subset.expression_length }} 字符，此处展示前 8000 字符。</p>{% endif %}{% elif subset.expression == '' %}<p>记录的表达式为空。UNKNOWN · 没有已保存的静态成员清单。</p>{% else %}<p>UNKNOWN · 未保存可识别的子集表达式或成员清单。</p>{% endif %}</section>
-      {% endif %}
-    </details>
+    <!-- ============ Tab 3：子集 ============ -->
+    <section class="dimension-tab-panel" id="tab-subsets" data-tab-panel="subsets" hidden>
+      <div class="dimension-subset-panel" id="dimension-subset-panel">
+        <div class="dimension-subset-list-wrap">
+          <input class="input" type="search" id="dimension-subset-search" placeholder="搜索子集…" aria-label="搜索子集">
+          <ul class="list dimension-subset-list" id="dimension-subset-list"></ul>
+        </div>
+        <div class="dimension-subset-detail" id="dimension-subset-detail"></div>
+      </div>
+    </section>
 
-    <!-- ============ 使用它的 Cube ============ -->
-    <details class="dimension-aux" {% if view == 'cubes' %}open{% endif %}>
-      <summary>使用它的 Cube</summary>
+    <!-- ============ Tab 4：关联 Cube ============ -->
+    <section class="dimension-tab-panel" id="tab-cubes" data-tab-panel="cubes" hidden>
       {% if details and details['items'] %}
       <div class="table-wrap"><table class="table dimension-records"><thead><tr><th>Cube</th><th>维度序号</th></tr></thead><tbody>
         {% for item in details['items'] %}<tr><td>{% if item.exists %}<a href="/explorer/cube/{{ item.name|urlencode }}">{{ item.name }}</a>{% else %}{{ item.name }}<small class="dimension-unknown">PARTIAL · Cube 记录缺失</small>{% endif %}</td><td>{{ item.dim_order if item.dim_order is not none else 'UNKNOWN' }}</td></tr>{% endfor %}
       </tbody></table></div>
       {% else %}<p class="muted">无 Cube 使用该维度。</p>{% endif %}
-    </details>
+    </section>
 
     <!-- ============ 数据来源 / 原始记录（默认折叠，供诊断核对） ============ -->
     <details class="dimension-aux dimension-evidence">
@@ -99,6 +117,9 @@
         </form>
         {% endif %}
         {% if view == 'edges' %}<p class="muted small">只展示直接父子关系，保留原始权重（包括负数与零）。{% if element %}当前邻接记录：<strong>{{ element }}</strong> · <a href="{{ dimension_url(element='', detail_page=1) }}">查看全部关系</a>{% endif %}</p>{% endif %}
+        {% if view == 'subsets' and subset %}
+        <section class="dimension-subset" aria-label="选中子集定义"><h4>{{ subset.name or 'UNKNOWN · 名称缺失' }}</h4><p class="muted small"><code>{{ subset.evidence }}</code></p>{% if subset.expression %}<p>已保存 MDX，未求值，不能把表达式当作成员结果。</p><pre class="code dimension-expression">{{ subset.expression }}</pre>{% if subset.expression_length > 8000 %}<p class="chore-warning">PARTIAL · 表达式共 {{ subset.expression_length }} 字符，此处展示前 8000 字符。</p>{% endif %}{% elif subset.expression == '' %}<p>记录的表达式为空。UNKNOWN · 没有已保存的静态成员清单。</p>{% else %}<p>UNKNOWN · 未保存可识别的子集表达式或成员清单。</p>{% endif %}</section>
+        {% endif %}
         {% if details and details['items'] %}
         <div class="table-wrap"><table class="table dimension-records"><thead><tr>
           {% if view == 'elements' %}<th>元素名称</th><th>记录类型</th><th>记录依据</th>
@@ -126,4 +147,26 @@
 {% endblock %}
 {% block scripts %}
 {% if needs_index %}<script src="/static/dimension-index.js" defer></script>{% else %}<script src="/static/dimension-tree.js" defer></script>{% endif %}
+<script>
+(function () {
+  'use strict';
+  // 工作台 Tab 切换
+  var tabs = document.querySelectorAll('.dim-tab');
+  var panels = document.querySelectorAll('[data-tab-panel]');
+  function activate(tab) {
+    tabs.forEach(function (t) { t.setAttribute('aria-current', t === tab ? 'page' : 'false'); });
+    panels.forEach(function (p) { p.hidden = p.getAttribute('data-tab-panel') !== tab.dataset.tab; });
+  }
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function (e) {
+      e.preventDefault();
+      activate(tab);
+    });
+  });
+  // 默认激活成员与层级
+  var first = document.querySelector('.dim-tab[data-tab="members"]');
+  if (first) activate(first);
+})();
+</script>
 {% endblock %}
+

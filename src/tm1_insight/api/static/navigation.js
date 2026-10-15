@@ -1,19 +1,15 @@
 /* Native navigation with immediate feedback; no full-page JS cache or speculative analysis. */
 (function () {
   'use strict';
-  // 导航分组（模型资产 / 高级工具）的手动展开/收起状态持久化。
-  // 服务端会按当前路由默认展开所属分组；这里只在用户主动切换后记录偏好，
-  // 使跨路由切换时分组状态稳定、不跳动。
+  // 导航分组已改为永久展开的静态结构，无折叠交互。
+  // 清理历史版本遗留的 localStorage 折叠偏好，避免残留状态干扰后续逻辑。
   try {
-    document.querySelectorAll('.nav-group').forEach(function (group) {
-      var summary = group.querySelector('.nav-group-summary');
-      var key = 'tm1-nav-group-' + (summary.textContent.trim().replace(/\s+/g, '-') || group.dataset.key);
-      var saved = localStorage.getItem(key);
-      if (saved !== null) { group.open = saved === 'open'; }
-      summary.addEventListener('click', function () {
-        try { localStorage.setItem(key, group.open ? 'open' : 'closed'); } catch (e) {}
-      });
-    });
+    var staleKeys = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i);
+      if (key && key.indexOf('tm1-nav-group-') === 0) staleKeys.push(key);
+    }
+    staleKeys.forEach(function (key) { localStorage.removeItem(key); });
   } catch (e) {}
 
   const status = document.getElementById('navigation-status');
