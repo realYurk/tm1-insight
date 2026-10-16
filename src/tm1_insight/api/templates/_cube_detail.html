@@ -5,7 +5,7 @@
     <h1 class="page-title">{{ cube.name }}</h1>
     <p class="page-sub">Cube 概览 · 血缘与前端展示一览</p>
   </div>
-  <a class="btn ghost" href="/graph?cube={{ cube.name }}">在血缘视图打开</a>
+  <div class="study-actions"><a class="btn primary" href="/architecture?kind=cube&amp;name={{ cube.name|urlencode }}&amp;analyze=1">解析数据形成</a><a class="btn ghost" href="/graph?cube={{ cube.name|urlencode }}">在血缘视图打开</a></div>
 </div>
 
 <div class="cube-overview">

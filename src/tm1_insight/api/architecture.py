@@ -7,7 +7,7 @@ from fastapi import APIRouter,HTTPException,Query,Request
 from fastapi.responses import FileResponse,JSONResponse,StreamingResponse
 from tm1_insight import architecture,workflow
 from tm1_insight.api.workflow import Start as WorkflowStart,source_evidence
-from pydantic import Field
+from pydantic import Field,model_validator
 from tm1_insight.architecture_extraction import RELATIONSHIPS
 from tm1_insight.api.knowledge_tasks import fingerprint
 from tm1_insight.config import get_settings
@@ -15,6 +15,16 @@ from tm1_insight.store.db import Store
 from tm1_insight.tasks import TaskManager,TaskBusy
 
 class Start(WorkflowStart):
+    process:str|None=Field(default=None,min_length=1,max_length=1000)
+    cube:str|None=Field(default=None,min_length=1,max_length=1000)
+    entry_kind:Literal['process','cube']='process'
+
+    @model_validator(mode='after')
+    def entry_present(self):
+        if self.entry_kind=='process' and not self.process:raise ValueError('Process entry required')
+        if self.entry_kind=='cube' and not self.cube:raise ValueError('Cube entry required')
+        return self
+
     max_nodes:int=Field(default=1000,ge=1,le=5000,strict=True)
     allowed_relationship_types:list[Literal['invocation','read_write','structure','rule_reference','schedule']]=Field(default_factory=lambda:sorted(RELATIONSHIPS))
     include_downstream:bool=False
@@ -34,9 +44,9 @@ def manager():
 
 
 @router.get('/architecture')
-def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False):
+def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube']='process'):
     from tm1_insight.api.app import templates
-    return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze))
+    return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind))
 
 
 @router.post('/api/architecture/tasks',status_code=202)
@@ -44,9 +54,10 @@ def start(body:Start):
     from tm1_insight.api.app import _store,_process_search_source
     store=_store();settings=store.settings.model_copy();source=fingerprint(settings)
     if body.source and body.source!=_process_search_source(settings):raise HTTPException(409,'模型已变化，请重新选择入口。')
-    name=body.process.strip()
+    name=(body.cube if body.entry_kind=='cube' else body.process).strip()
     with closing(store.connect(read_only=True)) as con:
-        if not con.execute('SELECT name FROM processes WHERE name=?',[name]).fetchone():raise HTTPException(404,'当前模型不存在这个 TI；没有生成替代架构。')
+        table='cubes' if body.entry_kind=='cube' else 'processes'
+        if not con.execute('SELECT name FROM '+table+' WHERE name=?',[name]).fetchone():raise HTTPException(404,'当前模型不存在这个入口对象；没有生成替代架构。')
     def work(progress):
         def guarded(**values):
             if source!=fingerprint(settings) or source!=fingerprint():raise ValueError('Model changed')
@@ -54,7 +65,7 @@ def start(body:Start):
         with closing(Store(settings).connect(read_only=True)) as con:
             report=architecture.build(con,name,progress=guarded,max_processes=body.max_processes,max_depth=body.max_depth,
                 cache_root=settings.user_data_root/'cache'/'workflows',cache_source=source,max_nodes=body.max_nodes,
-                allowed_relationship_types=body.allowed_relationship_types,include_downstream=body.include_downstream,include_technical_details=body.include_technical_details)
+                allowed_relationship_types=body.allowed_relationship_types,include_downstream=body.include_downstream,include_technical_details=body.include_technical_details,entry_kind=body.entry_kind)
         guarded(stage='保存局部架构与导出',stage_index=6)
         root=settings.user_data_root/'cache'/'architecture';root.mkdir(parents=True,exist_ok=True)
         artifact=architecture.artifact(report,root)
@@ -91,9 +102,18 @@ def cancel(task:str):
 
 
 @router.get('/api/architecture/tasks/{task}/result')
-def result(task:str,view:str='transformation_steps',offset:int=Query(0,ge=0),limit:int=Query(25,ge=1,le=100),q:str=Query('',max_length=1000)):
+def result(task:str,view:str='transformation_steps',offset:int=Query(0,ge=0),limit:int=Query(25,ge=1,le=100),q:str=Query('',max_length=1000),include_technical:bool=False,target_cube:str=Query('',max_length=1000)):
     if view not in architecture.SECTIONS:raise HTTPException(422,'无效架构视图。')
-    header,total,items=architecture.page(path(task),view,offset,limit,q)
+    artifact=path(task)
+    if view=='write_explanations':
+        header,_,_=architecture.page(artifact,view,0,1)
+        where="section=? AND instr(search,?)>0";args=[view,q.casefold()]
+        if not include_technical:where+=" AND coalesce(json_extract(payload,'$.technical'),0)=0 AND json_extract(payload,'$.cube') IS NOT NULL"
+        if target_cube:where+=" AND json_extract(payload,'$.cube')=?";args.append(target_cube)
+        with closing(workflow.connection(artifact)) as con:
+            total=con.execute('SELECT count(*) FROM items WHERE '+where,args).fetchone()[0]
+            items=[json.loads(row[0]) for row in con.execute('SELECT payload FROM items WHERE '+where+' ORDER BY position LIMIT ? OFFSET ?',args+[limit,offset]).fetchall()]
+    else:header,total,items=architecture.page(artifact,view,offset,limit,q)
     state(task)
     return JSONResponse(dict(header=header,total=total,items=items),headers={'Cache-Control':'no-store'})
 

@@ -16,7 +16,7 @@ from tm1_insight.store.calculation import inspect, node_label
 from tm1_insight.tasks import ResultArtifact
 
 VERSION = 'workflow-1'
-CACHE_REVISION = 2
+CACHE_REVISION = 3
 MAX_CODE_TOTAL = 5_000_000
 MAX_NODES_TOTAL = 50_000
 MAX_RECORDS = 10_000
@@ -99,7 +99,8 @@ def reconstruct(report, write):
             unresolved.append('Cube 或完整维度顺序未知')
             return (cube or 'UNKNOWN')+'[UNKNOWN]'
         if any(not c.get('dimension_exists') for c in mapping['items']):unresolved.append('维度目录定义缺失')
-        return cube+'['+','.join(c['dimension'] if compact else c['dimension']+'='+coordinate(c['node']) for c in mapping['items'])+']'
+        if any(c.get('binding',{}).get('kind') in {'UNRESOLVED','LOOKUP_COORDINATE'} for c in mapping['items']):unresolved.append('坐标固定成员或表达式尚未验证')
+        return cube+'['+','.join(c['dimension'] if compact else c['dimension']+'='+(c['binding']['expression'] if c.get('binding',{}).get('kind') in {'FIXED_MEMBER','PARAMETER','NUMBER'} else coordinate(c['node'])) for c in mapping['items'])+']'
     def render(index, depth=0):
         nonlocal visited_count
         visited_count+=1
@@ -121,6 +122,7 @@ def reconstruct(report, write):
     formula=target+(' += ' if write['operation'].casefold()=='cellincrementn' else ' = ')+expression
     if len(formula)>6000:
         formula='UNKNOWN · 展开表达式超过 6000 字符预算';unresolved.append('显示预算')
+    expression_complete=not unresolved and not write['unknown_nodes']
     value_dependencies=[]
     if write['trace_status']!='UNKNOWN':
         for index in write['read_nodes']:
@@ -131,20 +133,23 @@ def reconstruct(report, write):
                     write_evidence=write['evidence'],runtime_verified=False))
     return dict(write_id=write['id'], operation=write['operation'],cube=write['cube'], evidence=write['evidence'],
         expression=write['formula_expression'],reconstructed=formula,control_context=write['control_context'],
+        expression_status='STATIC_EXPRESSION' if expression_complete else 'PARTIAL',
         status='PARTIAL' if unresolved or write['unknown_nodes'] or write['control_context'] else 'STATIC_EXPRESSION',
         reasons=list(dict.fromkeys(unresolved)),value_dependencies=value_dependencies,
         definition_nodes=write['definition_nodes'],read_nodes=write['read_nodes'],unknown_nodes=write['unknown_nodes'],
         coordinate_mapping=write['coordinate_mapping'],shared_coordinate_binding=compact,runtime_verified=False)
 
 
-def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_root=None, cache_source=None, expand_calls=None):
+def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_root=None, cache_source=None, expand_calls=None, roots=None, accept_root=None):
     if not 1<=max_processes<=500 or not 0<=max_depth<=64:raise ValueError('Invalid scope budget')
     def update(stage,index,current=0,total=None):
         if progress:progress(stage=stage,stage_index=index,stages_total=6,current=current,total=total)
     update('读取名称目录与选择入口',1)
     catalogs={kind:{r[0] for r in con.execute(f'SELECT name FROM {table}').fetchall()}
         for kind,table in [('process','processes'),('cube','cubes'),('dimension','dimensions')]}
-    if root not in catalogs['process']:raise KeyError(root)
+    root_names=list(dict.fromkeys(roots if roots is not None else [root]))
+    if any(n not in catalogs['process'] for n in root_names):raise KeyError(root)
+    if len(root_names)>max_processes:raise ValueError('Too many entry processes')
     tables={r[0] for r in con.execute('SHOW TABLES').fetchall()}
     result=dict(version=VERSION,root=root,runtime_verified=False,status='PARTIAL',limits=LIMITS,
         budgets=dict(max_processes=max_processes,max_depth=max_depth),processes=[],execution=[],data=[],calculation=[],unknowns=[],structure=[],callers=[])
@@ -158,7 +163,7 @@ def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_ro
             unknown_keys.add(key)
         if len(result[section])<MAX_RECORDS:result[section].append(record)
         else:truncated.add(section)
-    truncated=set();reports={};unparsed={};queue=deque([(root,0)]);scheduled={root};code_total=nodes_total=cache_hits=0
+    truncated=set();reports={};unparsed={};queue=deque((n,0) for n in root_names);scheduled=set(root_names);accepted=[];rejected=[];code_total=nodes_total=cache_hits=0
     cache=None
     if cache_root and cache_source:
         try:cache=ProcessCache(cache_root)
@@ -195,6 +200,12 @@ def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_ro
                 add('processes',dict(process=name,depth=depth,status='UNKNOWN',reads=[],writes=[],sections=sections,source_hash=None,cache_reused=bool(cached)))
                 unparsed[name]=dict(process=name,source_hash=None,status='UNKNOWN',nodes=[],writes=[],calls=[],parameter_names=[])
                 continue
+            if name in root_names and accept_root is not None and not accept_root(report):
+                rejected.append(name);unparsed[name]=report
+                code_total+=chars;nodes_total+=len(report['nodes'])
+                add('unknowns',dict(process=name,reason='Cube 写入索引候选未绑定到已解析的直接写入；未沿其调用继续扩展'))
+                continue
+            if name in root_names:accepted.append(name)
             code_total+=chars;nodes_total+=len(report['nodes']);reports[name]=report
             proof=dict(process=name,source_hash=report['source_hash'])
             reads=set();writes=set()
@@ -249,11 +260,12 @@ def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_ro
     for edge in result['execution']:
         edge['bindings']=bindings(edge,reports.get(edge['target']))
         if edge['target'] and edge['target'] not in reports:edge['expansion']='BOUNDARY'
-    if 'process_calls_process' in tables:
-        for (caller,) in con.execute('SELECT DISTINCT caller FROM process_calls_process WHERE callee=? ORDER BY caller LIMIT 201',[root]).fetchall():
+    if 'process_calls_process' in tables and accepted:
+        slots=','.join('?' for _ in accepted)
+        for caller,target in con.execute(f'SELECT DISTINCT caller,callee FROM process_calls_process WHERE callee IN ({slots}) ORDER BY caller,callee LIMIT 201',accepted).fetchall():
             if len(result['callers'])==200:
                 add('unknowns',dict(process=root,reason='入口调用方目录仅展示前 200 条'));break
-            result['callers'].append(dict(process=caller,target=root,status='STRUCTURAL_UNVERIFIED',evidence=dict(table='process_calls_process',caller=caller,callee=root)))
+            result['callers'].append(dict(process=caller,target=target,status='STRUCTURAL_UNVERIFIED',evidence=dict(table='process_calls_process',caller=caller,callee=target)))
     result['cycles']=call_components(set(reports),[(e['process'],e['target']) for e in result['execution'] if e['target']])
     for section in sorted(truncated):result['unknowns'].append(dict(process=root,reason=section+' 达到 10000 条事实预算；后续未纳入导出'))
     inputs=sorted({c for p in result['processes'] for c in p['reads']});outputs=sorted({c for p in result['processes'] for c in p['writes']})
@@ -270,6 +282,8 @@ def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_ro
     result['unknown_groups']=sorted(groups.values(),key=lambda g:(g['process']!=root,-g['count'],g['process'],g['reason']))[:100]
     result['engine_revision']=CACHE_REVISION
     update('建立工作台分页索引与私有导出',5,len(reports),len(reports))
+    result['accepted_roots']=accepted
+    result['rejected_roots']=rejected
     result['parser_version']=CALC_VERSION
     result['details']={**reports,**unparsed}
     return result

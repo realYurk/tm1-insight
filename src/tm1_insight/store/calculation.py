@@ -14,7 +14,8 @@ def inspect(con, name, *, catalogs=None):
     except (ValueError, TypeError): parameters = []
     names = [p.get('Name',p.get('name','')) if isinstance(p,dict) else p for p in parameters] if isinstance(parameters,list) else []
     names = [p for p in names if isinstance(p,str) and p]
-    result = worksheet(name, tuple(value or '' for value in row[:4]), catalogs, names)
+    result = worksheet(name, tuple(value or '' for value in row[:4]), catalogs, names, retain_constants=True)
+    constants=result.pop('_constant_values',{})
     from tm1_insight.learning.calculation import SENSITIVE
     result['parameter_names'] = [p for p in names if not SENSITIVE.search(p)]
     cubes = {w['cube'] for w in result['writes'] if w['cube']}
@@ -54,8 +55,45 @@ def inspect(con, name, *, catalogs=None):
             if definition and definition['kind']=='assignment' else write['value_expression'])
         if write['trace_status']!='UNKNOWN' and any(by_id[index]['coordinate_mapping']['status']=='UNKNOWN' for index in write['read_nodes']):
             write['trace_status']='PARTIAL'
+    _coordinate_bindings(con,result,constants)
     result['cube_structures'] = structures
     return result
+
+
+def _coordinate_bindings(con,report,constants):
+    """Expose only catalog-verified member strings used as coordinates, never arbitrary constants."""
+    nodes={n['id']:n for n in report['nodes']}
+    def binding(index,depth=0):
+        if depth>40:return dict(kind='UNRESOLVED',expression='定义链超过预算',evidence=[])
+        n=nodes[index];kind=n['kind'];evidence=[n['evidence']]
+        if kind in {'variable','assignment'} and n['children']:
+            b=binding(n['children'][0],depth+1);return dict(b,evidence=evidence+b['evidence'])
+        if kind=='parameter':return dict(kind='PARAMETER',expression=n['name'],evidence=evidence)
+        if kind=='number':return dict(kind='NUMBER',expression=n['value'],value=n['value'],evidence=evidence)
+        if kind=='read' and n['resolution']=='resolved':return dict(kind='LOOKUP_COORDINATE',expression=n['operation']+'('+n['cube']+', …)',source_cube=n['cube'],evidence=evidence)
+        if kind=='redacted_string':return dict(kind='LITERAL_CANDIDATE',_value=constants.get(index),evidence=evidence)
+        return dict(kind='UNRESOLVED',expression=n.get('name') or n.get('expression') or '动态坐标',reason=n.get('reason'),evidence=evidence)
+    mappings=[w['coordinate_mapping'] for w in report['writes']]+[n['coordinate_mapping'] for n in report['nodes'] if n['kind']=='read']
+    candidates={};pending=[]
+    for m in mappings:
+        for item in m['items']:
+            b=binding(item['node']);pending.append((item,b))
+            if b['kind']=='LITERAL_CANDIDATE' and b['_value'] is not None and item['dimension']:
+                candidates.setdefault(item['dimension'],set()).add(b['_value'])
+    present={}
+    for dim,values in sorted(candidates.items()):
+        values=sorted(values);slots=','.join('?' for _ in values)
+        sql=f"""SELECT DISTINCT coalesce(json_extract_string(e.value,'$.name'),json_extract_string(e.value,'$'))
+            FROM json_each((SELECT CASE WHEN json_type(try_cast(elements AS JSON))='ARRAY' THEN elements ELSE '[]' END FROM dimensions WHERE name=?)) e
+            WHERE coalesce(json_extract_string(e.value,'$.name'),json_extract_string(e.value,'$')) IN ({slots})"""
+        present[dim]={r[0] for r in con.execute(sql,[dim]+values).fetchall()}
+    for item,b in pending:
+        if b['kind']=='LITERAL_CANDIDATE':
+            value=b.pop('_value')
+            if value is not None and value in present.get(item['dimension'],set()):
+                b.update(kind='FIXED_MEMBER',value=value,expression=repr(value),member_evidence=dict(table='dimensions',dimension=item['dimension'],member=value))
+            else:b.update(kind='UNRESOLVED',expression='固定字符串待成员目录确认',reason='不公开未经成员目录验证的字符串')
+        item['binding']=b
 
 
 def node_label(node):

@@ -11,9 +11,9 @@ from tm1_insight.ingest.hard_extract import LOG_REGION_START, LOG_REGION_END, LO
 from tm1_insight.store import dimensions as dimension_store
 
 VERSION='architecture-1'
-REVISION=5
+REVISION=8
 SECTIONS={'cubes','dimensions','processes','rules','chores','execution_relationships','data_relationships',
-          'transformation_steps','evidence','unresolved_dependencies','transformation_summaries','dimension_comparisons','module_objects','downstream_consumers','diagnostics'}
+          'transformation_steps','evidence','unresolved_dependencies','transformation_summaries','dimension_comparisons','module_objects','downstream_consumers','diagnostics','formation_relationships','write_explanations','external_sources'}
 OPERATIONS={
     'viewzeroout':'CLEAR','cubecleardata':'CLEAR',
     'viewcreate':'VIEW_PREPARATION','viewsubsetassign':'VIEW_PREPARATION',
@@ -54,17 +54,27 @@ def log_lines(parts):
     return found
 
 
-def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=None,cache_source=None, max_nodes=1000, allowed_relationship_types=None, include_downstream=False, include_technical_details=False):
+def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=None,cache_source=None, max_nodes=1000, allowed_relationship_types=None, include_downstream=False, include_technical_details=False, entry_kind='process'):
     """Reuse workflow truth; assemble only its local model neighborhood."""
     def update(stage,index=5,current=0,total=None):
         if progress:progress(stage=stage,stage_index=index,stages_total=6,current=current,total=total)
     from tm1_insight.architecture_extraction import Boundary, datasource, enrich
     policy=Boundary(entry,max_nodes,allowed_relationship_types,include_downstream,include_technical_details)
+    if entry_kind not in {'process','cube'}:raise ValueError('Unsupported entry kind')
+    roots=None;discovery=[];truncated_producers=False
+    if entry_kind=='cube':
+        if not con.execute('SELECT name FROM cubes WHERE name=?',[entry]).fetchone():raise KeyError(entry)
+        discovery=[r[0] for r in con.execute('SELECT DISTINCT process_name FROM process_writes_cube WHERE cube_name=? ORDER BY process_name LIMIT 501',[entry]).fetchall()]
+        count=min(max_processes,max(0,max_nodes-1))
+        truncated_producers=len(discovery)>count
+        existing={r[0] for r in con.execute('SELECT name FROM processes').fetchall()}
+        roots=[n for n in discovery if n in existing][:count]
     wf=workflow.build(con,entry,progress=progress,max_processes=min(max_processes,max_nodes),max_depth=max_depth,
-                      cache_root=cache_root,cache_source=cache_source,expand_calls=policy.expand)
+                      cache_root=cache_root,cache_source=cache_source,expand_calls=policy.expand,roots=roots,accept_root=(lambda r:any(w['cube']==entry for w in r['writes'])) if entry_kind=='cube' else None)
+    policy.entry_processes=wf['accepted_roots'] if entry_kind=='cube' else [entry]
     core_process_names=policy.core_processes(wf)
-    result=dict(version=VERSION,engine_revision=REVISION,module=dict(name=entry,kind='process_scope',business_meaning_confirmed=False),
-        entry_points=[dict(kind='process',name=entry)],input_outputs={},migration_notes=[
+    result=dict(version=VERSION,engine_revision=REVISION,module=dict(name=entry,kind=entry_kind+'_scope',business_meaning_confirmed=False),
+        entry_points=[dict(kind=entry_kind,name=entry)]+([dict(kind='producer',name=n,target=entry) for n in wf['accepted_roots']] if entry_kind=='cube' else []),input_outputs={},migration_notes=[
             '维度顺序定义多维坐标粒度，不自动假定一个 Cube 对应一张关系表。',
             '需验证层级权重、汇总、Rule/Feeder、稀疏、零值/空值、清理切面、覆盖/累加与运行顺序。',
             '静态表达式依赖不是运行时贡献；本结果未执行 TM1，也未验证迁移等价。'],
@@ -83,9 +93,14 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
         evidence.append(record);proof_ids[stable]=record['id'];return record['id']
     def missing(message,process=entry,**extra):
         unresolved.append(dict(process=process,message=message,**extra))
+    if truncated_producers:missing('生产者候选超过 TI / 节点预算；请扩大范围后重新验证。', omitted=len(discovery)-len(roots))
+    result['producer_discovery']=[dict(process=n,status='SOURCE_CONFIRMED' if n in wf['accepted_roots'] else 'UNVERIFIED_CANDIDATE',target=entry) for n in discovery]
+    if entry_kind=='cube':
+        for n in discovery:
+            if n not in existing:missing('Cube 写入索引引用的 TI 源码缺失，不能验证生产者。',n)
     catalogs={k:{r[0] for r in con.execute('SELECT name FROM '+t).fetchall()} for k,t in
               [('cube','cubes'),('dimension','dimensions'),('process','processes')]}
-    native={};raw_calls={};logs={};sources={};cube_refs={};source_chars=0
+    native={};raw_calls={};logs={};sources={};cube_refs=({entry:[(entry,dict(operation='ENTRY_CUBE',target=entry),False)]} if entry_kind=='cube' else {});source_chars=0
     for i,p in enumerate(wf['processes']):
         name=p['process'];update('组装数据加工步骤',current=i,total=len(wf['processes']))
         if not p['source_hash']:missing('该过程超过分析预算，未解析实现。',name);continue
@@ -111,7 +126,10 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
                     arguments=[expression(a)[:300] for a in args],conditions=ref.get('control_context',[]),
                     evidence=[proof(name,pos,operation=token['value'],source_hash=p['source_hash'])]))
         binding=datasource(parts,catalogs['cube'])
-        if binding:
+        if binding and binding.get('external_type'):
+            ids=[proof(name,loc,kind='external_datasource_type') for loc in binding.pop('locations')]
+            result['external_sources'].append(dict(process=name,**binding,evidence=ids))
+        elif binding:
             ids=[proof(name,loc,kind='view_datasource_binding') for loc in binding.pop('locations')]
             sources[name]=dict(**binding,evidence=ids)
             cube_refs.setdefault(binding['cube'],[]).append((name,dict(operation='VIEW_DATASOURCE',target=binding['cube']),False))
@@ -172,10 +190,10 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
                 kind='static_value_dependency',status=d['status'],evidence=ids,runtime_verified=False))
         elif d['target']:
             result['data_relationships'].append(dict(process=d['process'],target=d['target'],kind='read_write_reference',role=d['role'],
-                technical=technical(d['target']) or (d['section'],d['line']) in logs.get(d['process'],set()),
+                technical=technical(d['target']) or (d['section'],d['line']) in logs.get(d['process'],set()),conditions=d.get('control_context',[]),
                 evidence=[proof(d['process'],{k:d[k] for k in ['section','line','column']},operation=d['operation'])]))
     for name,binding in sources.items():result['data_relationships'].append(dict(process=name,target=binding['cube'],kind='view_datasource_binding',role='read',technical=False,evidence=binding['evidence']))
-    names=sorted(cube_refs, key=lambda n:(technical(n) or all(log for _,_,log in cube_refs[n]),n))
+    names=sorted(cube_refs, key=lambda n:(n!=entry,technical(n) or all(log for _,_,log in cube_refs[n]),n))
     available=max(0,max_nodes-len(wf['processes']))
     if len(names)>available:missing('max_nodes 节点预算不足；部分 Cube 结构未展开，原始关系仍保留。', omitted=len(names)-available)
     names=names[:available] if 'read_write' in policy.allowed else []
@@ -183,7 +201,7 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
     dim_names=set()
     for i,name in enumerate(names[:150]):
         update('加载局部 Cube 结构',current=i,total=min(150,len(names)))
-        row=con.execute('SELECT dimension_count,has_rules FROM cubes WHERE name=?',[name]).fetchone()
+        row=con.execute('SELECT dimension_count,has_rules,length(coalesce(rules,'')) FROM cubes WHERE name=?',[name]).fetchone()
         dims=[dict(name=d,order=o,element_count=count) for d,o,count in con.execute('SELECT r.dimension_name,r.dim_order,d.element_count FROM cube_has_dimension r LEFT JOIN dimensions d ON d.name=r.dimension_name WHERE r.cube_name=? ORDER BY r.dim_order,r.dimension_name LIMIT 257',[name]).fetchall()]
         complete=bool(row and row[0]==len(dims) and len(dims)<=256 and len({d['name'] for d in dims})==len(dims) and all(d['order']==j for j,d in enumerate(dims)))
         dim_names.update(d['name'] for d in dims[:256])
@@ -192,20 +210,28 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
         writes=sorted({p for p,r,_ in refs if r['operation'].casefold() in {'cellputn','cellputs','cellincrementn'}})
         result['cubes'].append(dict(process=name,name=name,dimensions=dims[:256],complete_order=complete,technical=is_tech,
             roles=[role for role,values in [('input',reads),('output',writes)] if values],readers=reads,writers=writes,
-            has_rules=bool(row and row[1]),grain='离线维度顺序定义的多维单元格坐标' if complete else '维度顺序尚未完整采集',
+            has_rules=bool(row and row[1]),rule_source_available=bool(row and row[2]),grain='离线维度顺序定义的多维单元格坐标' if complete else '维度顺序尚未完整采集',
             upstream=sorted({d['source'] for d in result['data_relationships'] if d['kind']=='static_value_dependency' and d['target']==name}),
             downstream=sorted({d['target'] for d in result['data_relationships'] if d['kind']=='static_value_dependency' and d['source']==name and d['target']}),
             evidence=[proof(name,dict(table='cube_has_dimension',cube=name),kind='structure')]))
     dimension_budget=min(600,max(0,max_nodes-len(wf['processes'])-len(result['cubes']))) if 'structure' in policy.allowed else 0
+    target_dims={d['name'] for c in result['cubes'] if c['name']==entry or (not c['technical'] and any(p in core_process_names for p in c['writers'])) for d in c['dimensions']}
+    has_hierarchy_table=bool(con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name='dimension_metadata'").fetchone()[0])
     for name in sorted(dim_names)[:dimension_budget]:
         update('核对局部维度元数据')
         meta=dimension_store.metadata(con,name)
-        result['dimensions'].append(dict(process=name,name=name,metadata=meta,hierarchies=[],
-            note='独立 Hierarchy 名称、属性值与指标维角色尚未确认；按需打开维度页查看成员、属性定义和权重。',
+        hierarchies=[];hierarchy_count=None
+        if has_hierarchy_table:
+            hierarchy_count=con.execute('SELECT json_array_length(try_cast(hierarchy_names AS JSON)) FROM dimension_metadata WHERE name=?',[name]).fetchone()
+            hierarchy_count=hierarchy_count[0] if hierarchy_count else None
+            hierarchies=[r[0] for r in con.execute("SELECT json_extract_string(e.value,'$') FROM json_each((SELECT CASE WHEN json_type(try_cast(hierarchy_names AS JSON))='ARRAY' THEN hierarchy_names ELSE '[]' END FROM dimension_metadata WHERE name=?)) e LIMIT 50",[name]).fetchall()]
+        result['dimensions'].append(dict(process=name,name=name,metadata=meta,hierarchies=hierarchies,hierarchy_count=hierarchy_count,
+            consolidation_sample=dimension_store.records(con,name,'edges',page=1) if name in target_dims and meta and meta['fields']['edges']['status']=='recorded' else None,
+            note='层级名仅展示已采集记录（前 50 项）；属性值与指标维角色不推断。成员、直接汇总及权重按需分页。',
             evidence=[proof(name,dict(table='dimensions',name=name),kind='metadata')]))
     if 'structure' in policy.allowed and len(dim_names)>dimension_budget:missing('节点或维度预算不足，其余维度结构未展开。', omitted=len(dim_names)-dimension_budget)
     # Find candidate Rule owners through the existing index; verify actual DB calls.
-    selected=[c['name'] for c in result['cubes'] if not c['technical'] and any(p in core_process_names for p in c['readers']+c['writers'])]
+    selected=[c['name'] for c in result['cubes'] if not c['technical'] and (c['name']==entry or any(p in core_process_names for p in c['readers']+c['writers']))]
     candidates=set(selected) if 'rule_reference' in policy.allowed else set()
     if selected and 'rule_reference' in policy.allowed:
         slots=','.join('?' for _ in selected)
@@ -236,7 +262,9 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
             for token,args in calls(tokens):
                 if token['value'].casefold()!='db':continue
                 target=literal(args[0]) if args else None
-                if target not in catalogs['cube']:missing('规则中的动态或缺失 Cube 引用尚未确认。',owner);continue
+                if target not in catalogs['cube']:
+                    unknown_id=proof(owner,dict(section='rule',line=token['line'],column=token['column']),source_hash=digest,kind='unresolved_rule_reference')
+                    missing('规则中的动态或缺失 Cube 引用尚未确认。',owner,evidence=[unknown_id]);continue
                 eid=proof(owner,dict(section='rule',line=token['line'],column=token['column']),source_hash=digest,kind='feeder_reference' if feeder else 'rule_read')
                 references.append(dict(target=target,kind='feeder_reference' if feeder else 'rule_read',evidence=[eid]))
         if owner in selected or any(r['target'] in selected for r in references):
@@ -262,13 +290,14 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
         if not count or count[0]>250000 or caller_chars+count[0]>1000000:
             missing('调用方目录候选超过源码预算或源码缺失，尚未验证。',caller);continue
         caller_chars+=count[0];report=inspect(con,caller,catalogs=catalogs)
-        actual=[c for c in report['calls'] if c['target']==entry]
+        target_entry=candidate['target']
+        actual=[c for c in report['calls'] if c['target']==target_entry]
         if not actual:missing('调用方目录候选未匹配到可确认的源码调用。',caller);continue
         result['details'][caller]=report;verified_callers.append(caller)
         for call in actual:
             ids=[proof(caller,{k:call[k] for k in ['section','line','column']},source_hash=report['source_hash'],kind='verified_caller')]
-            result['execution_relationships'].append(dict(process=caller,target=entry,kind='source_invocation',technical=technical(caller),parameters=workflow.bindings(call,wf['details'].get(entry)),conditions=call['control_context'],evidence=ids,runtime_verified=False))
-        result['entry_points'].append(dict(kind='caller',name=caller,target=entry,scope='only_call_to_entry_verified'))
+            result['execution_relationships'].append(dict(process=caller,target=target_entry,kind='source_invocation',technical=technical(caller),parameters=workflow.bindings(call,wf['details'].get(target_entry)),conditions=call['control_context'],evidence=ids,runtime_verified=False))
+        result['entry_points'].append(dict(kind='caller',name=caller,target=target_entry,scope='only_call_to_entry_verified'))
     if len(wf['callers'])>20:missing('调用方目录超过 20 个，其余尚未读取源码。')
     if verified_callers and 'schedule' in policy.allowed:
         slots=','.join('?' for _ in verified_callers)
@@ -285,10 +314,24 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
     missing('外部文件/SQL 数据源、视图实际成员、独立层级及运行结果尚未完整还原。')
     result['diagnostics']=wf['unknowns']+[dict(u) for u in unresolved]
     enrich(result,wf,policy)
+    from tm1_insight.formation import enrich as explain_formation
+    explain_formation(result,wf,progress)
+    if entry_kind=='cube':
+        from tm1_insight.formation import consumers
+        consumers(con,result,entry,progress,max_nodes)
     return result
 
 
-def artifact(report,root):return workflow.artifact(report,root,sections=SECTIONS)
+def artifact(report,root):
+    import sqlite3
+    from contextlib import closing
+    result=workflow.artifact(report,root,sections=SECTIONS)
+    try:
+        with closing(sqlite3.connect(workflow.index_path(result.path))) as con:
+            con.execute("CREATE INDEX formation_target ON items(section,json_extract(payload,'$.cube'),json_extract(payload,'$.technical'))")
+            con.commit()
+        return result
+    except BaseException:result.cleanup();raise
 
 
 def page(path,section='transformation_steps',offset=0,limit=50,q=''):

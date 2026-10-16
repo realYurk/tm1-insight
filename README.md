@@ -12,14 +12,16 @@
 首页首先回答“你想了解哪个 TM1 系统对象或模块？”：
 
 1. 在连接设置选择已有本地 DuckDB 模型。
-2. 在首页搜索一个 TI 名称，点击「探索架构」；TI 详情也提供同一入口。
+2. 在 Cube 双栏浏览器选中一个 Cube，点击「解析数据形成」；原 TI 的「探索架构」入口仍可使用。
 3. 在同一工作台查看模块概览、数据模型、加工链路、调用与调度，默认组织为 **数据对象 → 加工步骤 → 结果对象**。
 4. 点击「查看实现」核对真实操作、参数、变量与坐标表达式、技术辅助调用和原代码；成员、属性定义和汇总权重按需分页加载。
 5. 导出六节人读 `Architecture.md` 或 ZIP（另含完整 `Architecture.json`、`Evidence.json`、`Diagnostics.json`）。保留 `architecture-1` 兼容字段，以 `extraction_version=architecture-extraction-2` 标明新边界与摘要。
 
-四层长期架构为 **Model Foundation → Lineage & Relationships → Architecture Explorer → Business Interpretation**，详见 [产品宪法](PRODUCT_CONSTITUTION.md)。本轮实现 TI 入口，Cube / Chore / 前缀模块入口后续接入；对象浏览与原工作流技术检查保留。
+四层长期架构为 **Model Foundation → Lineage & Relationships → Architecture Explorer → Business Interpretation**，详见 [产品宪法](PRODUCT_CONSTITUTION.md)。已支持 Process / Cube 入口；Chore / 前缀模块入口后续接入；对象浏览与原工作流技术检查保留。
 
 清理、View/Subset 准备等技术操作按实际源码与显式参数绑定归入加工步骤；不会根据 Bedrock 名称猜效果，也不会把准备或共同读写当成传输证明。已确认的静态表达式依赖单独保留。日志区域与系统命名空间项默认折叠，源代码和真实复制/写入效果不会删除。
+
+Cube 数据形成按写入索引发现候选并验证源码，独立展示写入、VIEW 来源、静态值依赖、Rule/Feeder、结构汇总与未知输入。固定坐标只公开经维度成员目录核对的值；条件表达式、坐标查找与数值贡献分别记录。详见 [Cube-Centric 1.0 审查与交付](docs/CUBE_CENTRIC_1_0_PROGRESS.md) 和 [完整合成报告](docs/EXAMPLE_CUBE_FORMATION_1_0.md)。
 
 默认最多 100 个 TI / 16 层 / 1000 个展开模型节点，可调整分析边界；直接辅助源码保留效果，默认不展开辅助内部调用。Rule 消费者留在边界外，Chore 不沿共享辅助反向归属。循环安全，支持真实阶段进度、协作取消和分页索引。只加载局部 TI 代码，复用现有 Workflow、Calculation、DuckDB 与 Dimension Explorer。动态或不支持的语义以具体待核对提示呈现，技术诊断按需展开。第一版未执行 TI、未证明运行结果、未生成最终关系表，也未集成 AI。
 
