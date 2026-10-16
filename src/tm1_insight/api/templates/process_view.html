@@ -292,4 +292,24 @@
 })();
 
 </script>
+<script>
+// 「返回来源 Cube」入口：从某个 Cube 详情跳进来时，顶部显示返回链接（保留列表筛选）
+(function () {
+  'use strict';
+  if (!window.WorkbenchContext) return;
+  var jump = window.WorkbenchContext.recallJump('process');
+  if (!jump || !jump.cube) return;
+  var head = document.querySelector('.page-head.process-page-head');
+  if (!head) return;
+  var params = new URLSearchParams();
+  params.set('name', jump.cube);
+  if (jump.q) params.set('q', jump.q);
+  if (jump.page && jump.page > 1) params.set('page', jump.page);
+  var a = document.createElement('a');
+  a.className = 'btn ghost btn-sm ctx-back';
+  a.href = '/cubes?' + params.toString();
+  a.textContent = '← 返回来源 Cube：' + jump.cube;
+  head.appendChild(a);
+})();
+</script>
 {% endblock %}

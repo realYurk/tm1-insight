@@ -260,6 +260,15 @@ def _model_fingerprint() -> str:
 templates.env.globals["model_fingerprint"] = _model_fingerprint
 
 
+def _build_info() -> dict:
+    """前端版本信息（Workbench 1.1）：版本 / Git SHA / 构建时间 / 运行模式。"""
+    from tm1_insight.buildinfo import build_info
+    return build_info()
+
+
+templates.env.globals["build_info"] = _build_info
+
+
 # ---- 页面：首页 ----
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
@@ -329,22 +338,33 @@ def settings_page(request: Request):
 
 # ---- 页面：Explorer（拆分为 Cube / TI 独立浏览） ----
 @app.get("/cubes", response_class=HTMLResponse)
-def cubes_page(request: Request, q: str = "", page: int = 1):
+def cubes_page(request: Request, q: str = "", page: int = 1, name: str = Query("", max_length=1000)):
     store = _store()
+    source = _process_search_source(store.settings)
     con = store.connect(read_only=True)
     try:
         per_page = 100
         offset = max(0, (page - 1)) * per_page
         result = queries.search_cubes(con, q, offset=offset, limit=per_page)
+        # 双栏浏览：选中某个 Cube 时同时返回详情（复用 get_cube + cube_lineage）
+        selected = name or (result["items"][0]["name"] if result["items"] else "")
+        cube = queries.get_cube(con, selected) if selected else None
+        lineage = queries.cube_lineage(con, selected) if cube else None
     finally:
         con.close()
     total_pages = max(1, (result["total"] + per_page - 1) // per_page)
+    if name and not cube:
+        return _error_page(request, 404, "Cube 不存在", "当前本地模型没有这个 Cube，请重新搜索。")
     return templates.TemplateResponse(request, "cubes.html", {
         "cubes": result["items"],
         "total": result["total"],
         "q": q,
         "page": page,
         "total_pages": total_pages,
+        "selected": selected,
+        "cube": cube,
+        "lineage": lineage,
+        "dimension_source": source,
     })
 
 

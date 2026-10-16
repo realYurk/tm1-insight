@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Cube 浏览 · TM1 Insight{% endblock %}
+{% block title %}Cube 浏览{% if cube %} · {{ cube.name }}{% endif %} · TM1 Insight{% endblock %}
 
 {% block breadcrumb %}
 <nav class="breadcrumb">
-  <a href="/">首页</a><span class="sep">/</span><span class="current">Cube 浏览</span>
+  <a href="/">工作台</a><span class="sep">/</span><a href="/cubes">Cube</a>{% if cube %}<span class="sep">/</span><span class="current">{{ cube.name }}</span>{% endif %}
 </nav>
 {% endblock %}
 
@@ -11,59 +11,108 @@
 <div class="page-head">
   <div>
     <h1 class="page-title">Cube 浏览</h1>
-    <p class="page-sub">全部 Cube 及其维度 / 规则 / 血缘</p>
+    <p class="page-sub">左侧选择 Cube，右侧查看维度结构、数据形成、写入 TI 与 Rule。</p>
   </div>
 </div>
 
-<div class="card">
-  <div class="list-toolbar">
+<div class="dimension-workspace object-workspace">
+  <aside class="card dimension-browser object-browser" aria-label="Cube 列表">
     <h2>Cubes <span class="tag">{{ total }}</span></h2>
-    <form class="list-search" method="get" action="/cubes">
-      <input type="search" name="q" value="{{ q }}" placeholder="搜索 Cube 名…">
-      <button type="submit" class="btn primary btn-sm">搜索</button>
-      {% if q %}<a class="btn ghost btn-sm" href="/cubes">清除</a>{% endif %}
+    <form method="get" action="/cubes" class="chore-search">
+      <input class="input" type="search" name="q" value="{{ q }}" maxlength="1000" aria-label="搜索全部 Cube" placeholder="按名称搜索 Cube">
+      <button class="btn ghost btn-sm" type="submit">搜索</button>{% if q %}<a href="/cubes">清除</a>{% endif %}
     </form>
-  </div>
+    <ul class="list dimension-list">
+      {% for c in cubes %}
+      <li><a href="/cubes?name={{ c.name|urlencode }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if page > 1 %}&amp;page={{ page }}{% endif %}" {% if cube and cube.name == c.name %}aria-current="page"{% endif %}><span>{{ c.name }}</span><small class="muted">{{ c.dimension_count }} 维{% if c.has_rules %} · 有规则{% endif %}</small></a></li>
+      {% else %}
+      <li class="muted">{% if q %}没有匹配的 Cube，请修改搜索词。{% else %}暂无 Cube 数据，请到「连接设置」拉取元数据。{% endif %}</li>
+      {% endfor %}
+    </ul>
+    <nav class="pagination" aria-label="Cube 列表分页">
+      <span class="muted small">{{ page }} / {{ total_pages }}</span>
+      {% if page > 1 %}<a class="btn ghost btn-sm" href="/cubes?page={{ page - 1 }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">上一页</a>{% endif %}
+      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/cubes?page={{ page + 1 }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">下一页</a>{% endif %}
+    </nav>
+  </aside>
 
-  {% if cubes %}
-  <ul class="list">
-    {% for c in cubes %}
-    <li>
-      <a href="/explorer/cube/{{ c.name }}">{{ c.name }}</a>
-      <span class="tag">{{ c.dimension_count }} 维</span>
-      {% if c.has_rules %}<span class="tag rule">规则</span>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <div class="empty-state">
-    <div class="empty-icon">{% include "icons/cube.svg" %}</div>
-    <div class="empty-title">{% if q %}没有匹配的 Cube{% else %}暂无 Cube 数据{% endif %}</div>
-    <div class="empty-desc">{% if q %}换个关键词试试，或<a href="/cubes">清除搜索</a>。{% else %}尚未入库任何 Cube，请到「连接设置」拉取 TM1 元数据。{% endif %}</div>
-  </div>
-  {% endif %}
-
-  {% if total_pages > 1 %}
-  <div class="pagination">
-    <span class="pagination-info">共 {{ total }} 项 · 第 {{ page }} / {{ total_pages }} 页</span>
-    <div class="pagination-btns">
-      {% if page > 1 %}<a class="btn ghost btn-sm" href="/cubes?q={{ q|urlencode }}&page={{ page - 1 }}">上一页</a>{% endif %}
-      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/cubes?q={{ q|urlencode }}&page={{ page + 1 }}">下一页</a>{% endif %}
-    </div>
-  </div>
-  {% endif %}
+  <section class="card dimension-detail object-detail" aria-label="Cube 详情">
+    {% if cube %}
+      {% include "_cube_detail.html" %}
+    {% else %}
+      <div class="empty-state">
+        <div class="empty-icon">{% include "icons/cube.svg" %}</div>
+        <div class="empty-title">选择一个 Cube 查看结构</div>
+        <p class="muted">左侧可以按名称搜索；也可从 TI 或血缘跳转进入。</p>
+      </div>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// 记录当前列表位置，供详情页「返回列表」恢复搜索词与页码（会话级 + 按模型隔离）
+// 记录当前列表位置（会话级 + 按模型隔离），供跨对象返回恢复
 (function () {
   if (window.WorkbenchContext) {
-    window.WorkbenchContext.rememberList('cubes', { q: {{ q|tojson }}, page: {{ page }} });
+    var state = { q: {{ q|tojson }}, page: {{ page }}, name: {{ (cube.name if cube else '')|tojson }} };
+    window.WorkbenchContext.rememberList('cubes', state);
+    // 若选中了某个 Cube，把「来源 Cube」记录下来，供 Dimension / TI 页显示「返回来源」入口
+    if (state.name) {
+      window.WorkbenchContext.rememberJump('dimensions', { from: 'cubes', cube: state.name, q: state.q, page: state.page });
+      window.WorkbenchContext.rememberJump('process', { from: 'cubes', cube: state.name, q: state.q, page: state.page });
+    }
   } else {
-    try { sessionStorage.setItem('cubes-last', JSON.stringify({ q: {{ q|tojson }}, page: {{ page }} })); } catch (e) {}
+    try { sessionStorage.setItem('cubes-last', JSON.stringify({ q: {{ q|tojson }}, page: {{ page }}, name: {{ (cube.name if cube else '')|tojson }} })); } catch (e) {}
   }
 })();
 </script>
+
+{% if cube %}
+<script>
+// 写入 TI 列表：搜索过滤 + 分页（大结果集时避免一次渲染数百行）
+(function () {
+  var search = document.getElementById('writer-search');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#writer-list .writer-row'));
+  var filterCount = document.getElementById('writer-filter-count');
+  var pageInfo = document.getElementById('writer-page-info');
+  var prev = document.getElementById('writer-prev');
+  var next = document.getElementById('writer-next');
+  var PAGE_SIZE = 20;
+  var keyword = '';
+  var page = 1;
+  var visible = rows;
+
+  function apply() {
+    visible = keyword
+      ? rows.filter(function (r) { return r.dataset.name.indexOf(keyword) >= 0; })
+      : rows;
+    var totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+    page = Math.min(page, totalPages);
+    rows.forEach(function (r) { r.hidden = true; });
+    var start = (page - 1) * PAGE_SIZE;
+    visible.slice(start, start + PAGE_SIZE).forEach(function (r) { r.hidden = false; });
+    if (filterCount) {
+      filterCount.textContent = keyword
+        ? '筛选出 ' + visible.length + ' 个'
+        : (visible.length > PAGE_SIZE ? '显示前 ' + Math.min(PAGE_SIZE, visible.length) + ' 个' : '');
+    }
+    if (pageInfo) pageInfo.textContent = '第 ' + page + ' / ' + totalPages + ' 页';
+    if (prev) prev.disabled = page <= 1;
+    if (next) next.disabled = page >= totalPages;
+  }
+
+  if (search) {
+    search.addEventListener('input', function () {
+      keyword = search.value.trim().toLowerCase();
+      page = 1;
+      apply();
+    });
+  }
+  if (prev) prev.addEventListener('click', function () { page = Math.max(1, page - 1); apply(); });
+  if (next) next.addEventListener('click', function () { page += 1; apply(); });
+  apply();
+})();
+</script>
+{% endif %}
 {% endblock %}

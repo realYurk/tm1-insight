@@ -1,0 +1,287 @@
+
+<!-- ============ 概览头部 + 状态徽章 ============ -->
+<div class="page-head">
+  <div>
+    <h1 class="page-title">{{ cube.name }}</h1>
+    <p class="page-sub">Cube 概览 · 血缘与前端展示一览</p>
+  </div>
+  <a class="btn ghost" href="/graph?cube={{ cube.name }}">在血缘视图打开</a>
+</div>
+
+<div class="cube-overview">
+  <a class="ov-item" href="#dims">
+    <span class="ov-num">{{ lineage.dimensions|length }}</span>
+    <span class="ov-lbl">维度</span>
+  </a>
+  <a class="ov-item" href="#upstream">
+    <span class="ov-num">{{ lineage.sources|length }}</span>
+    <span class="ov-lbl">相关源头</span>
+  </a>
+  <a class="ov-item" href="#writers">
+    <span class="ov-num">{{ lineage.writers|length }}</span>
+    <span class="ov-lbl">写入 TI</span>
+  </a>
+  <a class="ov-item" href="#downstream">
+    <span class="ov-num">{{ lineage.downstream|length }}</span>
+    <span class="ov-lbl">下游读取</span>
+  </a>
+  <a class="ov-item {% if lineage.frontend_pages %}ov-hit{% endif %}" href="#frontend">
+    <span class="ov-num">{{ lineage.frontend_pages|length }}</span>
+    <span class="ov-lbl">前端页面</span>
+  </a>
+  {% if cube.has_rules %}
+  <a class="ov-item" href="#rules">
+    <span class="ov-num">Rule</span>
+    <span class="ov-lbl">有规则</span>
+  </a>
+  {% endif %}
+</div>
+
+<!-- ============ 维度结构（精简） ============ -->
+<div class="card" id="dims">
+  <h2>维度结构 <span class="tag">{{ lineage.dimensions|length }}</span></h2>
+  <p class="muted small">横向一行一维度，展示前 5 个元素示例，快速了解 Cube 结构。</p>
+
+  <div class="dim-table">
+    {% for d in lineage.dimension_details %}
+    <div class="dim-row">
+      <div class="dim-name-cell">
+        <span class="dim-order">{{ d.order + 1 }}</span>
+        <a class="dim-name" title="查看元素与汇总权重 · {{ d.name }}" href="/dimensions?name={{ d.name|urlencode }}&amp;source={{ dimension_source }}">{{ d.name }}</a>
+        <span class="dim-total">{{ d.total }} 元素</span>
+      </div>
+      <div class="dim-elems-cell">
+        {% for e in d.elements %}
+        <span class="dim-elem">{{ e }}</span>
+        {% endfor %}
+        {% if d.total > 5 %}
+        <span class="dim-more">… 共 {{ d.total }} 个</span>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <span class="muted">无维度信息</span>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ============ 数据形成（上游源头 + 相关写入 TI） ============ -->
+<div class="card" id="upstream">
+  <h2>数据形成 <span class="tag rule">{{ lineage.sources|length }}</span></h2>
+  <p class="cube-section-note">本 Cube 的数据可由 TI 搬运、Rule 计算、层级汇总、外部数据或人工输入等多种方式形成。下面列出已记录的<b>相关源头 Cube</b>与<b>读取这些源头、写入本 Cube 的 TI</b>。列出的读写关系是代码证据，不代表值一定由此传输。</p>
+
+  {% if lineage.source_details %}
+    {% for s in lineage.source_details %}
+    <div class="flow-level">
+      <div class="wp-head" style="margin-bottom:6px;">
+        <span class="flow-step-label">源头 Cube</span>
+        <a class="cube-chip flow-source" href="/explorer/cube/{{ s.name }}">{{ s.name }}</a>
+        <span class="tag rule">{{ s.dimension_count }} 维</span>
+      </div>
+      <div class="dim-tags">
+        {% for d in s.dimensions %}<span class="tag dim-mini">{{ d }}</span>{% endfor %}
+      </div>
+
+      <!-- 数据流向：源头 → 搬运 TI → 本 Cube -->
+      {% if lineage.upstream_of_sources.get(s.name) %}
+      <div class="flow-path">
+        <div class="flow-path-head">
+          <span class="flow-step-label">搬运 TI</span>
+          <span class="muted small">这些 TI 从上面这个源头取数，写入本 Cube</span>
+        </div>
+        <div class="flow-path-chain">
+          <a class="cube-chip flow-source" href="/explorer/cube/{{ s.name }}">{{ s.name }}</a>
+          <svg class="flow-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          <span class="flow-tis">
+            {% for w in lineage.upstream_of_sources[s.name] %}
+            <a class="cube-chip flow-target" href="/explorer/process/{{ w }}">{{ w }}</a>
+            {% endfor %}
+          </span>
+          <svg class="flow-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          <a class="cube-chip flow-dst" href="/explorer/cube/{{ cube.name }}">{{ cube.name }}</a>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="muted small">没有 TI 把别的 Cube 数据搬进本 Cube——它可能是最底层的源数据 Cube（数据从外部系统直接进来），或仅由前端 / Rule 写入。</p>
+  {% endif %}
+</div>
+
+<!-- ============ 谁写入它（写入 TI） ============ -->
+<div class="card" id="writers">
+  <h2>谁写入它 <span class="tag">{{ lineage.writers|length }} 个 TI</span></h2>
+  <p class="cube-section-note">按 TI 分组展示。同一 TI 的多个写入点折叠在一条下，只突出「差异维度」，避免重复堆列。可搜索定位；固定筛选值（如 Scenario=ACT）会高亮。</p>
+
+  {% if lineage.writers %}
+  <div class="writer-toolbar">
+    <span class="writer-count">共 {{ lineage.writers|length }} 个写入 TI</span>
+    <div class="writer-search" role="search">
+      <input type="search" id="writer-search" placeholder="搜索写入 TI 名称…" autocomplete="off" aria-label="搜索写入 TI">
+      <span class="muted small" id="writer-filter-count" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <div id="writer-list" class="writer-list">
+    {% for w in lineage.writers %}
+    <details class="writer-row" data-name="{{ w.process|lower }}" {% if loop.first and lineage.writers|length <= 5 %}open{% endif %}>
+      <summary>
+        <span class="writer-name">{{ w.process }}</span>
+        <span class="tag op">{{ w.write_points|length }} 写入点</span>
+        {% set ops = w.write_points | map(attribute='operation_human') | unique | list %}
+        <span class="writer-op">{{ ops | join(' · ') }}</span>
+      </summary>
+
+      <div class="writer-detail">
+        <a class="btn ghost btn-sm" href="/explorer/process/{{ w.process }}">查看 TI 源码</a>
+
+        {% for wp in w.write_points %}
+        <details class="wp-item" {% if w.write_points|length <= 3 %}open{% endif %}>
+          <summary class="wp-summary">
+            <span class="tag op">{{ wp.operation_human }}</span>
+            {% if wp.summary %}
+            <span class="wp-diff" title="该写入点与其他写入点的差异维度">{{ wp.summary }}</span>
+            {% else %}
+            <span class="muted small">写入 {{ wp.dims|length }} 个维度</span>
+            {% endif %}
+            {% if wp.source_cubes %}
+            <span class="muted small">源头：</span>
+            {% for s in wp.source_cubes %}<a class="cube-chip flow-source" href="/explorer/cube/{{ s }}" onclick="event.stopPropagation();">{{ s }}</a>{% endfor %}
+            {% endif %}
+            {% if wp.conditions_human %}<span class="tag">有条件</span>{% endif %}
+          </summary>
+
+          {% if wp.conditions_human %}
+          <div class="cond">
+            <strong>写入前提：</strong>
+            {% for c in wp.conditions_human %}<span class="cond-text">{{ c }}</span>{% endfor %}
+          </div>
+          {% endif %}
+
+          <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width:34px;">#</th>
+                <th style="width:24%;">写入维度</th>
+                <th style="width:20%;">来源变量</th>
+                <th>取值 / 表达式</th>
+                <th>来源 Cube</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in wp.dims %}
+              <tr>
+                <td class="dim-idx">{{ d.index + 1 }}</td>
+                <td><strong>{{ d.dim_name }}</strong></td>
+                <td><code class="var-inline">{{ d.expr or '' }}</code></td>
+                <td>
+                  {%- if d.is_param -%}
+                    <span class="param-inline" title="由调用方传入的参数入参">{{ d.value or d.expr }}</span>
+                  {%- elif d.is_variable -%}
+                    <code class="var-local" title="变量在代码中赋值，未追溯到来自 cube 的取数">{{ d.expr or d.value }}</code>
+                  {%- elif d.source_cubes -%}
+                    <code class="var-inline" title="取自源头 Cube">{{ d.value or '' }}</code>
+                  {%- elif d.value -%}
+                    <span class="const-lit" title="代码中的固定值，用于筛选">{{ d.value }}</span>
+                  {%- else -%}
+                    <span class="muted small">—</span>
+                  {%- endif -%}
+                </td>
+                <td>
+                  {% if d.source_cubes %}
+                    {% for s in d.source_cubes %}
+                    <a class="cube-chip {{ s | hash_color }}" href="/explorer/cube/{{ s }}">{{ s }}</a>
+                    {% endfor %}
+                    {% if d.source_inferred %}
+                    <span class="muted small" title="变量是数据源视图字段，源头为该 TI 的数据源 cube">（来自数据源）</span>
+                    {% endif %}
+                  {% elif d.is_param %}
+                    <span class="muted small" title="由调用方传入的参数入参">入参</span>
+                  {% elif d.is_variable %}
+                    <span class="muted small" title="变量在代码中赋值，未追溯到来自 cube 的取数">变量（无源头）</span>
+                  {% else %}
+                    <span class="muted small" title="代码里的固定值，用于筛选">固定筛选</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          </div>
+        </details>
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+
+  {% if lineage.writers|length > 20 %}
+  <div class="writer-pager">
+    <span id="writer-page-info"></span>
+    <button class="btn ghost btn-sm" id="writer-prev" type="button">上一页</button>
+    <button class="btn ghost btn-sm" id="writer-next" type="button">下一页</button>
+  </div>
+  {% endif %}
+
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">{% include "icons/process.svg" %}</div>
+      <div class="empty-title">未找到写入者 TI</div>
+      <div class="empty-desc">无 TI 直接写入，或仅由 Rule 计算。</div>
+    </div>
+  {% endif %}
+</div>
+
+<!-- ============ 使用与去向（下游读取） ============ -->
+<div class="card" id="downstream">
+  <h2>使用与去向 <span class="tag info">{{ lineage.downstream|length }}</span></h2>
+  <p class="cube-section-note">以下 TI 在代码中<b>读取</b>本 Cube（相关读取）。读取关系不代表数据去向已确定。</p>
+  {% if lineage.downstream %}
+    <div class="dim-tags" style="margin-top:10px;">
+      {% for p in lineage.downstream %}
+      <a class="cube-chip flow-target" href="/explorer/process/{{ p }}">{{ p }}</a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted small">暂无 TI 读取该 Cube。</p>
+  {% endif %}
+</div>
+
+<!-- ============ 前端展示（是否在页面呈现） ============ -->
+<div class="card" id="frontend">
+  <h2>前端展示 <span class="tag green">{{ lineage.frontend_pages|length }}</span></h2>
+  <p class="muted small">该 Cube 是否在某个前端 Excel 页面直接展示，及其所在菜单 / 文件。</p>
+
+  {% if lineage.frontend_pages %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th style="width:44%;">菜单路径</th>
+          <th>Excel 文件</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in lineage.frontend_pages %}
+        <tr>
+          <td><code class="var-inline">{{ p.menu or '—' }}</code></td>
+          <td><span class="mono-dim">{{ p.excel_file }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted small">未在前端资产中直接展示（可能是中间层 Cube，仅由 TI 读写）。</p>
+  {% endif %}
+</div>
+
+<!-- ============ 规则 ============ -->
+<div class="card" id="rules">
+  <h2>规则 {% if cube.has_rules %}<span class="tag rule">有规则</span>{% endif %}</h2>
+  {% if cube.rules.strip() %}
+  <pre class="code" data-highlight="rules">{{ cube.rules }}</pre>
+  {% else %}
+  <p class="muted">（无规则）</p>
+  {% endif %}
+</div>

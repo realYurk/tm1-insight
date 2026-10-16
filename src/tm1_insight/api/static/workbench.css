@@ -412,3 +412,18 @@ details summary { cursor: pointer; padding: 12px 0; }
 .chore-schedule-grid dd { margin: 2px 0 0; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
 .chore-schedule .muted { margin: 4px 0 0; }
 @media (max-width: 800px) { .chore-schedule-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ============ Workbench 1.1：版本信息（侧边栏底部） ============ */
+.sidebar-version {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px;
+  padding: 8px 12px; margin-top: 8px;
+  border-top: 1px solid var(--side-border);
+  font-size: 11px; color: var(--side-text); opacity: 0.7; line-height: 1.4;
+}
+.sidebar-version .sv-name { font-weight: 700; }
+.sidebar-version .sv-sha { font-family: var(--font-mono, monospace); }
+.sidebar-version .sv-mode { margin-left: auto; padding: 1px 6px; border: 1px solid var(--side-border); border-radius: 6px; font-size: 10px; }
+
+/* ============ Workbench 1.1：跨对象「返回来源」入口 ============ */
+.ctx-back { margin-left: 8px; font-size: 12px; white-space: nowrap; }
+.page-head { flex-wrap: wrap; row-gap: 8px; }

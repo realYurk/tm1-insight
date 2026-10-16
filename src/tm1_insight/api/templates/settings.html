@@ -62,6 +62,22 @@
   </div>
 </div>
 
+<!-- 关于 / 版本信息（Workbench 1.1） -->
+<div class="card">
+  <h2>关于 / 版本信息</h2>
+  <p class="muted small">用于核对当前实际运行的软件版本。若显示「开发版」，说明通过源码启动；若显示「Portable」，说明运行的是打包后的 EXE。</p>
+  {% set bi = build_info() %}
+  <table class="table">
+    <tbody>
+      <tr><td>产品版本</td><td><code>v{{ bi.version }}</code></td></tr>
+      <tr><td>Git 提交</td><td><code>{{ bi.git_sha or '不可取得（非 Git 环境）' }}</code></td></tr>
+      <tr><td>构建时间</td><td><code>{{ bi.build_time or '不可取得（未打包）' }}</code></td></tr>
+      <tr><td>运行模式</td><td>{% if bi.packaged %}<span class="tag ok">Portable（打包 EXE）</span>{% else %}<span class="tag violet">开发版（源码）</span>{% endif %}</td></tr>
+      <tr><td>当前数据源</td><td><span class="dot" id="ds-dot"></span> <span id="ds-current-name">{{ data_source.label }}</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
 <!-- TM1 连接 -->
 <div class="card">
   <h2>TM1 服务器连接</h2>

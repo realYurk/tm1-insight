@@ -77,6 +77,12 @@
           <span class="ds-dot"></span><span class="ds-label">{{ active_source.label }}</span>
         </div>
         <div class="sidebar-foot-note">本地元数据仓库<br>DuckDB + Parquet · 离线可用</div>
+        {% set bi = build_info() %}
+        <div class="sidebar-version" title="版本信息">
+          <span class="sv-name">v{{ bi.version }}</span>
+          {% if bi.git_sha %}<span class="sv-sha">· {{ bi.git_sha }}</span>{% endif %}
+          <span class="sv-mode">{{ 'Portable' if bi.packaged else '开发版' }}</span>
+        </div>
       </div>
     </aside>
 
