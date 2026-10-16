@@ -121,6 +121,8 @@
 .calculation-expression { white-space: pre-wrap; overflow-wrap: anywhere; }
 .calculation-read { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin: 12px 0; }
 .calculation-read summary { cursor: pointer; font-weight: 600; }
+.calculation-unknown-details { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; margin-top: 6px; }
+.calculation-unknown-details summary { cursor: pointer; font-size: 13px; color: var(--text-2); }
 .calculation-detail h2, .calculation-detail td { overflow-wrap: anywhere; }
 .calculation-detail code { white-space: pre-wrap; }
 @media (max-width: 1000px) { .calculation-workspace { grid-template-columns: minmax(0,1fr); } .calculation-list { max-height: 200px; } }
@@ -366,3 +368,47 @@ details summary { cursor: pointer; padding: 12px 0; }
 .dim-subset-element { font-size: 12px; padding: 3px 8px; background: var(--side-bg-2); border-radius: 4px; font-family: var(--font-mono, monospace); }
 
 @media (max-width: 1000px) { .dimension-subset-panel { grid-template-columns: minmax(0, 1fr); } }
+
+/* ============ Workbench 1.0：Cube 写入 TI 紧凑列表 + 固定常量高亮 ============ */
+
+/* 写入 TI 工具条：数量 + 搜索 */
+.writer-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.writer-toolbar .writer-search { flex: 1; min-width: 180px; display: flex; gap: 8px; }
+.writer-toolbar .writer-search input { flex: 1; min-width: 0; padding: 6px 10px; font-size: 13px; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.writer-toolbar .writer-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+/* 紧凑的写入 TI 列表：一行一个 TI，点击展开详情 */
+.writer-list { display: flex; flex-direction: column; gap: 0; }
+.writer-row { border-bottom: 1px solid var(--border); }
+.writer-row:last-child { border-bottom: none; }
+.writer-row > summary { list-style: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; cursor: pointer; font-weight: 500; font-size: 13.5px; border-radius: var(--radius-sm); }
+.writer-row > summary::-webkit-details-marker { display: none; }
+.writer-row > summary:hover { background: var(--side-bg-2); }
+.writer-row > summary .writer-name { font-weight: 600; color: var(--accent-strong); }
+.writer-row > summary .writer-op { color: var(--muted); font-size: 12px; }
+.writer-row[open] > summary { background: var(--side-bg-2); }
+.writer-row .writer-detail { padding: 4px 10px 14px; }
+
+/* 写入点内：固定常量高亮（Scenario=ACT / Version=WIP 这类字符串常量） */
+.const-lit { font-family: var(--font-mono, monospace); font-weight: 650; color: #0b6e3f; background: #e2f5ea; border: 1px solid #bfe6d2; border-radius: 4px; padding: 0 6px; }
+[data-theme="dark"] .const-lit { color: #7fd2a8; background: #1d3a2b; border-color: #2f5a43; }
+/* 参数（pScenario 这类入参） */
+.param-inline { font-family: var(--font-mono, monospace); font-weight: 600; color: #7a4f0e; background: #fdf3dd; border: 1px solid #f0d9a8; border-radius: 4px; padding: 0 6px; }
+[data-theme="dark"] .param-inline { color: #f0c674; background: #3a2f1a; border-color: #5a4a2a; }
+/* 局部变量 / 未追溯到源头 */
+.var-local { font-family: var(--font-mono, monospace); color: var(--muted); }
+
+/* 写入 TI 分页 */
+.writer-pager { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.writer-pager button { font-size: 12px; }
+
+/* 数据来源区域：信息重组后的分区标题一致性 */
+.cube-section-note { font-size: 12.5px; color: var(--muted); line-height: 1.7; margin: 0 0 10px; }
+
+/* ============ Workbench 1.0：Chore 调度字段 ============ */
+.chore-schedule { margin: 10px 0 6px; padding: 10px 12px; background: var(--side-bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.chore-schedule-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 8px; }
+.chore-schedule-grid dt { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.chore-schedule-grid dd { margin: 2px 0 0; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.chore-schedule .muted { margin: 4px 0 0; }
+@media (max-width: 800px) { .chore-schedule-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

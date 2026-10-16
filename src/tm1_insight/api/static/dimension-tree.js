@@ -18,6 +18,22 @@
   let expanded = new Set();    // node PATH keys currently expanded (per instance)
   let attributeColumns = [];   // selected attribute names for value columns
 
+  // 属性列选择偏好：按维度名隔离持久化（不同 Dimension 各自保存列配置）。
+  // 仅保存已采集值的属性名列表，读取时校验，避免过期属性污染当前渲染。
+  function loadAttributeColumns() {
+    if (!window.WorkbenchContext) return;
+    var saved = window.WorkbenchContext.preference('dim-attr-cols:' + dimName);
+    if (!saved) return;
+    try {
+      var names = JSON.parse(saved);
+      if (Array.isArray(names)) attributeColumns = names.filter(function (x) { return typeof x === 'string'; });
+    } catch (e) { /* 过期偏好丢弃 */ }
+  }
+  function saveAttributeColumns() {
+    if (!window.WorkbenchContext) return;
+    window.WorkbenchContext.setPreference('dim-attr-cols:' + dimName, JSON.stringify(attributeColumns));
+  }
+
   // A node's path is its identity: the chain of names from root down to this node.
   function nodePath(tr) {
     let parts = [tr.dataset.name];
@@ -312,6 +328,7 @@
   }
 
   async function init() {
+    loadAttributeColumns();
     setStatus('正在加载维度结构…');
     try {
       summary = await api('/api/dimensions/' + encodeURIComponent(dimName) +
@@ -390,6 +407,7 @@
         } else {
           attributeColumns = attributeColumns.filter(function (x) { return x !== name; });
         }
+        saveAttributeColumns();
         // 重新渲染树（保留展开状态）
         rerenderTree();
       });

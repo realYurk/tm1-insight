@@ -4,7 +4,7 @@ from __future__ import annotations
 import duckdb
 
 from tm1_insight.config import Settings
-from tm1_insight.store.schema import ALL_TABLES
+from tm1_insight.store.schema import ALL_TABLES, COLUMN_MIGRATIONS
 
 
 class Store:
@@ -30,7 +30,7 @@ class Store:
         return duckdb.connect(self.db_path, read_only=read_only)
 
     def init_schema(self, drop: bool = False) -> None:
-        """建全部表。drop=True 时先删旧表重建。"""
+        """建全部表。drop=True 时先删旧表重建。随后应用增量列迁移（幂等）。"""
         self.settings.ensure_dirs()
         con = self.connect()
         try:
@@ -38,6 +38,9 @@ class Store:
                 if drop:
                     con.execute(f"DROP TABLE IF EXISTS {name}")
                 con.execute(ddl)
+            # 增量列迁移：给旧库补列（IF NOT EXISTS 幂等，不破坏历史快照）。
+            for table, column, ctype in COLUMN_MIGRATIONS:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ctype}")
         finally:
             con.close()
 

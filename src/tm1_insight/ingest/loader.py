@@ -176,12 +176,16 @@ class Loader:
         )
         _bulk(
             con,
-            "INSERT INTO chores VALUES (?, ?, ?)",
+            "INSERT INTO chores VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     ch.get("name"),
                     json.dumps(ch.get("processes", []) or [], ensure_ascii=False),
                     len(ch.get("processes", []) or []),
+                    ch.get("start_time") or "",
+                    ch.get("frequency") or "",
+                    ch.get("execution_mode") or "",
+                    ch.get("active") or "",
                 )
                 for ch in chores
             ],

@@ -37,7 +37,7 @@ CellPutN(1,'Journal',vYear);dummy=CellGetN('Journal',vYear);
         con.execute('INSERT INTO processes(name,prolog,metadata,data,epilog,parameters) VALUES (?,?,?,?,?,?)',[name,p,'',d,'',ps])
     con.execute("INSERT INTO process_calls_process VALUES ('Caller','Load')")
     con.execute("INSERT INTO chore_runs_process VALUES ('Nightly','Caller',0)")
-    con.execute('INSERT INTO chores VALUES (?,?,?)',['Nightly',json.dumps(['Caller']),1])
+    con.execute('INSERT INTO chores (name, processes, process_count) VALUES (?,?,?)',['Nightly',json.dumps(['Caller']),1])
     con.execute("INSERT INTO rule_references_cube VALUES ('RuleOutput','Cube_B')")
 
 

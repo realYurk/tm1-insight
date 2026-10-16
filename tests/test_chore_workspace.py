@@ -20,7 +20,7 @@ def con():
 
 
 def put_chore(con, steps, count=None):
-    con.execute("INSERT INTO chores VALUES ('Example', ?, ?)",
+    con.execute("INSERT INTO chores (name, processes, process_count) VALUES ('Example', ?, ?)",
                 [json.dumps(steps), len(steps) if count is None else count])
 
 
@@ -52,7 +52,7 @@ def test_legacy_strings_missing_names_and_count_mismatch_are_visible(con):
 
 
 def test_relational_fallback_and_invalid_json_are_not_silent(con):
-    con.execute("INSERT INTO chores VALUES ('Example', 'invalid json', 2)")
+    con.execute("INSERT INTO chores (name, processes, process_count) VALUES ('Example', 'invalid json', 2)")
     con.executemany("INSERT INTO chore_runs_process VALUES ('Example', ?, ?)", [("Second", 4), ("First", 1)])
     result = queries.get_chore(con, "Example")
     assert result["warnings"] and result["order_status"] == "recorded"
@@ -61,7 +61,7 @@ def test_relational_fallback_and_invalid_json_are_not_silent(con):
 
 
 def test_chore_search_is_literal_paginated_and_bounded(con):
-    con.executemany("INSERT INTO chores VALUES (?, '[]', 0)", [(f"Schedule.{i:04d}",) for i in range(1128)])
+    con.executemany("INSERT INTO chores (name, processes, process_count) VALUES (?, '[]', 0)", [(f"Schedule.{i:04d}",) for i in range(1128)])
     result = queries.search_chore_page(con, "Schedule.", offset=1100)
     assert result["total"] == 1128 and len(result["items"]) == 28
     assert queries.search_chore_page(con, "%")["total"] == 0
@@ -86,7 +86,7 @@ def test_large_chore_detail_bounds_rows_and_keeps_original_positions(client):
     client.get("/")
     with duckdb.connect(str(get_settings().db_path)) as connection:
         steps = [{"name": "Load_Sales", "step_order": i} for i in range(1128)]
-        connection.execute("INSERT INTO chores VALUES ('LargeExample', ?, 1128)", [json.dumps(steps)])
+        connection.execute("INSERT INTO chores (name, processes, process_count) VALUES ('LargeExample', ?, 1128)", [json.dumps(steps)])
     response = client.get("/chores", params={"name": "LargeExample", "step_page": 12})
     assert response.status_code == 200 and "已保存 1128 条步骤明细" in response.text
     table = response.text.split('id="chore-steps"')[1].split('</table>')[0]

@@ -249,6 +249,17 @@ def _process_search_source(settings: Settings | None = None) -> str:
     return hashlib.sha256(_data_fingerprint(settings).encode("utf-8")).hexdigest()
 
 
+def _model_fingerprint() -> str:
+    """前端 Workbench Context 使用的模型指纹（与 _process_search_source 一致）。
+
+    注入 <body data-model-fingerprint>，让跨页面状态记忆按模型隔离。
+    """
+    return _process_search_source()
+
+
+templates.env.globals["model_fingerprint"] = _model_fingerprint
+
+
 # ---- 页面：首页 ----
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):

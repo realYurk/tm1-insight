@@ -302,8 +302,10 @@ DEMO_MODEL: dict[str, Any] = {
         },
     ],
     "chores": [
-        {"name": "Daily_Load", "processes": ["Load_Sales", "Calc_Finance"]},
-        {"name": "Weekly_Inventory", "processes": ["Update_Inventory"]},
+        {"name": "Daily_Load", "processes": ["Load_Sales", "Calc_Finance"],
+         "start_time": "06:00:00", "frequency": "每日", "execution_mode": "MultipleCommit", "active": "True"},
+        {"name": "Weekly_Inventory", "processes": ["Update_Inventory"],
+         "start_time": "07:30:00", "frequency": "每周", "execution_mode": "SingleCommit", "active": "True"},
     ],
 }
 
@@ -401,8 +403,10 @@ def _write_demo_rows(con) -> None:
         )
     for ch in chores:
         con.execute(
-            "INSERT INTO chores VALUES (?, ?, ?)",
-            [ch["name"], json.dumps(ch["processes"]), len(ch["processes"])],
+            "INSERT INTO chores VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [ch["name"], json.dumps(ch["processes"]), len(ch["processes"]),
+             ch.get("start_time", ""), ch.get("frequency", ""),
+             ch.get("execution_mode", ""), ch.get("active", "")],
         )
     for d in dims:
         con.execute(

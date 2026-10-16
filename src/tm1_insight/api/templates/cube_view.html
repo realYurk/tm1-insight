@@ -27,7 +27,7 @@
   </a>
   <a class="ov-item" href="#upstream">
     <span class="ov-num">{{ lineage.sources|length }}</span>
-    <span class="ov-lbl">上游源头</span>
+    <span class="ov-lbl">相关源头</span>
   </a>
   <a class="ov-item" href="#writers">
     <span class="ov-num">{{ lineage.writers|length }}</span>
@@ -35,7 +35,7 @@
   </a>
   <a class="ov-item" href="#downstream">
     <span class="ov-num">{{ lineage.downstream|length }}</span>
-    <span class="ov-lbl">下游读者</span>
+    <span class="ov-lbl">下游读取</span>
   </a>
   <a class="ov-item {% if lineage.frontend_pages %}ov-hit{% endif %}" href="#frontend">
     <span class="ov-num">{{ lineage.frontend_pages|length }}</span>
@@ -77,10 +77,10 @@
   </div>
 </div>
 
-<!-- ============ 数据从哪来（上游） ============ -->
+<!-- ============ 数据形成（上游源头 + 相关写入 TI） ============ -->
 <div class="card" id="upstream">
-  <h2>数据从哪来 <span class="tag rule">{{ lineage.sources|length }}</span></h2>
-  <p class="muted small">本 Cube 的数据不是凭空来的——它来自下面的「源头 Cube」。中间列出的 <b>TI 进程就是搬运工</b>：它们读取源头 Cube 的数据，写进本 Cube。点击任意名字可跳转查看。</p>
+  <h2>数据形成 <span class="tag rule">{{ lineage.sources|length }}</span></h2>
+  <p class="cube-section-note">本 Cube 的数据可由 TI 搬运、Rule 计算、层级汇总、外部数据或人工输入等多种方式形成。下面列出已记录的<b>相关源头 Cube</b>与<b>读取这些源头、写入本 Cube 的 TI</b>。列出的读写关系是代码证据，不代表值一定由此传输。</p>
 
   {% if lineage.source_details %}
     {% for s in lineage.source_details %}
@@ -124,84 +124,119 @@
 <!-- ============ 谁写入它（写入 TI） ============ -->
 <div class="card" id="writers">
   <h2>谁写入它 <span class="tag">{{ lineage.writers|length }} 个 TI</span></h2>
-  <p class="muted small">每个 TI 一条，展开后按「差异维度」折叠展示写入点——同一 TI 写多个账户/月份时，只显示区别，不重复堆列。</p>
+  <p class="cube-section-note">按 TI 分组展示。同一 TI 的多个写入点折叠在一条下，只突出「差异维度」，避免重复堆列。可搜索定位；固定筛选值（如 Scenario=ACT）会高亮。</p>
 
   {% if lineage.writers %}
+  <div class="writer-toolbar">
+    <span class="writer-count">共 {{ lineage.writers|length }} 个写入 TI</span>
+    <div class="writer-search" role="search">
+      <input type="search" id="writer-search" placeholder="搜索写入 TI 名称…" autocomplete="off" aria-label="搜索写入 TI">
+      <span class="muted small" id="writer-filter-count" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <div id="writer-list" class="writer-list">
     {% for w in lineage.writers %}
-    <details class="writer-item" {% if loop.first %}open{% endif %}>
+    <details class="writer-row" data-name="{{ w.process|lower }}" {% if loop.first and lineage.writers|length <= 5 %}open{% endif %}>
       <summary>
-        <a class="cube-chip flow-target" href="/explorer/process/{{ w.process }}" onclick="event.stopPropagation();">{{ w.process }}</a>
+        <span class="writer-name">{{ w.process }}</span>
         <span class="tag op">{{ w.write_points|length }} 写入点</span>
         {% set ops = w.write_points | map(attribute='operation_human') | unique | list %}
-        <span class="muted small">{{ ops | join(' · ') }}</span>
+        <span class="writer-op">{{ ops | join(' · ') }}</span>
       </summary>
 
-      {% for wp in w.write_points %}
-      <details class="wp-item" {% if w.write_points|length <= 3 %}open{% endif %}>
-        <summary class="wp-summary">
-          <span class="tag op">{{ wp.operation_human }}</span>
-          {% if wp.summary %}
-          <span class="wp-diff" title="该写入点与其他写入点的差异维度">{{ wp.summary }}</span>
-          {% else %}
-          <span class="muted small">写入 {{ wp.dims|length }} 个维度</span>
-          {% endif %}
-          {% if wp.source_cubes %}
-          <span class="muted small">源头：</span>
-          {% for s in wp.source_cubes %}<a class="cube-chip flow-source" href="/explorer/cube/{{ s }}" onclick="event.stopPropagation();">{{ s }}</a>{% endfor %}
-          {% endif %}
-          {% if wp.conditions_human %}<span class="tag">有条件</span>{% endif %}
-        </summary>
+      <div class="writer-detail">
+        <a class="btn ghost btn-sm" href="/explorer/process/{{ w.process }}">查看 TI 源码</a>
 
-        {% if wp.conditions_human %}
-        <div class="cond">
-          <strong>写入前提：</strong>
-          {% for c in wp.conditions_human %}<span class="cond-text">{{ c }}</span>{% endfor %}
-        </div>
-        {% endif %}
+        {% for wp in w.write_points %}
+        <details class="wp-item" {% if w.write_points|length <= 3 %}open{% endif %}>
+          <summary class="wp-summary">
+            <span class="tag op">{{ wp.operation_human }}</span>
+            {% if wp.summary %}
+            <span class="wp-diff" title="该写入点与其他写入点的差异维度">{{ wp.summary }}</span>
+            {% else %}
+            <span class="muted small">写入 {{ wp.dims|length }} 个维度</span>
+            {% endif %}
+            {% if wp.source_cubes %}
+            <span class="muted small">源头：</span>
+            {% for s in wp.source_cubes %}<a class="cube-chip flow-source" href="/explorer/cube/{{ s }}" onclick="event.stopPropagation();">{{ s }}</a>{% endfor %}
+            {% endif %}
+            {% if wp.conditions_human %}<span class="tag">有条件</span>{% endif %}
+          </summary>
 
-        <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th style="width:34px;">#</th>
-              <th style="width:24%;">写入维度</th>
-              <th style="width:20%;">来源变量</th>
-              <th>取值 / 表达式</th>
-              <th>来源 Cube</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for d in wp.dims %}
-            <tr>
-              <td class="dim-idx">{{ d.index + 1 }}</td>
-              <td><strong>{{ d.dim_name }}</strong></td>
-              <td><code class="var-inline">{{ d.expr or '' }}</code></td>
-              <td><code class="var-inline">{{ d.value or '' }}</code></td>
-              <td>
-                {% if d.source_cubes %}
-                  {% for s in d.source_cubes %}
-                  <a class="cube-chip {{ s | hash_color }}" href="/explorer/cube/{{ s }}">{{ s }}</a>
-                  {% endfor %}
-                  {% if d.source_inferred %}
-                  <span class="muted small" title="变量是数据源视图字段，源头为该 TI 的数据源 cube">（来自数据源）</span>
+          {% if wp.conditions_human %}
+          <div class="cond">
+            <strong>写入前提：</strong>
+            {% for c in wp.conditions_human %}<span class="cond-text">{{ c }}</span>{% endfor %}
+          </div>
+          {% endif %}
+
+          <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width:34px;">#</th>
+                <th style="width:24%;">写入维度</th>
+                <th style="width:20%;">来源变量</th>
+                <th>取值 / 表达式</th>
+                <th>来源 Cube</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in wp.dims %}
+              <tr>
+                <td class="dim-idx">{{ d.index + 1 }}</td>
+                <td><strong>{{ d.dim_name }}</strong></td>
+                <td><code class="var-inline">{{ d.expr or '' }}</code></td>
+                <td>
+                  {%- if d.is_param -%}
+                    <span class="param-inline" title="由调用方传入的参数入参">{{ d.value or d.expr }}</span>
+                  {%- elif d.is_variable -%}
+                    <code class="var-local" title="变量在代码中赋值，未追溯到来自 cube 的取数">{{ d.expr or d.value }}</code>
+                  {%- elif d.source_cubes -%}
+                    <code class="var-inline" title="取自源头 Cube">{{ d.value or '' }}</code>
+                  {%- elif d.value -%}
+                    <span class="const-lit" title="代码中的固定值，用于筛选">{{ d.value }}</span>
+                  {%- else -%}
+                    <span class="muted small">—</span>
+                  {%- endif -%}
+                </td>
+                <td>
+                  {% if d.source_cubes %}
+                    {% for s in d.source_cubes %}
+                    <a class="cube-chip {{ s | hash_color }}" href="/explorer/cube/{{ s }}">{{ s }}</a>
+                    {% endfor %}
+                    {% if d.source_inferred %}
+                    <span class="muted small" title="变量是数据源视图字段，源头为该 TI 的数据源 cube">（来自数据源）</span>
+                    {% endif %}
+                  {% elif d.is_param %}
+                    <span class="muted small" title="由调用方传入的参数入参">入参</span>
+                  {% elif d.is_variable %}
+                    <span class="muted small" title="变量在代码中赋值，未追溯到来自 cube 的取数">变量（无源头）</span>
+                  {% else %}
+                    <span class="muted small" title="代码里的固定值，用于筛选">固定筛选</span>
                   {% endif %}
-                {% elif d.is_param %}
-                  <span class="muted small" title="由调用方传入的参数入参">入参</span>
-                {% elif d.is_variable %}
-                  <span class="muted small" title="变量在代码中赋值，未追溯到来自 cube 的取数">变量（无源头）</span>
-                {% else %}
-                  <span class="muted small" title="代码里的固定值，用于筛选">固定筛选</span>
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        </div>
-      </details>
-      {% endfor %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          </div>
+        </details>
+        {% endfor %}
+      </div>
     </details>
     {% endfor %}
+  </div>
+
+  {% if lineage.writers|length > 20 %}
+  <div class="writer-pager">
+    <span id="writer-page-info"></span>
+    <button class="btn ghost btn-sm" id="writer-prev" type="button">上一页</button>
+    <button class="btn ghost btn-sm" id="writer-next" type="button">下一页</button>
+  </div>
+  {% endif %}
+
   {% else %}
     <div class="empty-state">
       <div class="empty-icon">{% include "icons/process.svg" %}</div>
@@ -211,9 +246,10 @@
   {% endif %}
 </div>
 
-<!-- ============ 谁读它（下游） ============ -->
+<!-- ============ 使用与去向（下游读取） ============ -->
 <div class="card" id="downstream">
-  <h2>谁读它 <span class="tag info">{{ lineage.downstream|length }}</span></h2>
+  <h2>使用与去向 <span class="tag info">{{ lineage.downstream|length }}</span></h2>
+  <p class="cube-section-note">以下 TI 在代码中<b>读取</b>本 Cube（相关读取）。读取关系不代表数据去向已确定。</p>
   {% if lineage.downstream %}
     <div class="dim-tags" style="margin-top:10px;">
       {% for p in lineage.downstream %}
@@ -265,18 +301,64 @@
 
 {% block scripts %}
 <script>
-// 从列表页进来时，「返回列表」恢复上次的搜索词与页码
+// 从列表页进来时，「返回列表」恢复上次的搜索词与页码（按模型隔离）
 (function () {
   var a = document.getElementById('back-to-list');
   if (!a) return;
-  try {
-    var last = JSON.parse(sessionStorage.getItem('cubes-last') || '{}');
-    var params = new URLSearchParams();
-    if (last.q) params.set('q', last.q);
-    if (last.page && last.page > 1) params.set('page', last.page);
-    var qs = params.toString();
-    if (qs) a.href = '/cubes?' + qs;
-  } catch (e) {}
+  var last = window.WorkbenchContext ? window.WorkbenchContext.recallList('cubes') : null;
+  if (!last) {
+    try { last = JSON.parse(sessionStorage.getItem('cubes-last') || '{}'); } catch (e) { last = null; }
+  }
+  if (!last) return;
+  var params = new URLSearchParams();
+  if (last.q) params.set('q', last.q);
+  if (last.page && last.page > 1) params.set('page', last.page);
+  var qs = params.toString();
+  if (qs) a.href = '/cubes?' + qs;
+})();
+
+// 写入 TI 列表：搜索过滤 + 分页（大结果集时避免一次渲染数百行）
+(function () {
+  var search = document.getElementById('writer-search');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#writer-list .writer-row'));
+  var filterCount = document.getElementById('writer-filter-count');
+  var pageInfo = document.getElementById('writer-page-info');
+  var prev = document.getElementById('writer-prev');
+  var next = document.getElementById('writer-next');
+  var PAGE_SIZE = 20;
+  var keyword = '';
+  var page = 1;
+  var visible = rows;
+
+  function apply() {
+    visible = keyword
+      ? rows.filter(function (r) { return r.dataset.name.indexOf(keyword) >= 0; })
+      : rows;
+    var totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+    page = Math.min(page, totalPages);
+    rows.forEach(function (r) { r.hidden = true; });
+    var start = (page - 1) * PAGE_SIZE;
+    visible.slice(start, start + PAGE_SIZE).forEach(function (r) { r.hidden = false; });
+    if (filterCount) {
+      filterCount.textContent = keyword
+        ? '筛选出 ' + visible.length + ' 个'
+        : (visible.length > PAGE_SIZE ? '显示前 ' + Math.min(PAGE_SIZE, visible.length) + ' 个' : '');
+    }
+    if (pageInfo) pageInfo.textContent = '第 ' + page + ' / ' + totalPages + ' 页';
+    if (prev) prev.disabled = page <= 1;
+    if (next) next.disabled = page >= totalPages;
+  }
+
+  if (search) {
+    search.addEventListener('input', function () {
+      keyword = search.value.trim().toLowerCase();
+      page = 1;
+      apply();
+    });
+  }
+  if (prev) prev.addEventListener('click', function () { page = Math.max(1, page - 1); apply(); });
+  if (next) next.addEventListener('click', function () { page += 1; apply(); });
+  apply();
 })();
 </script>
 {% endblock %}

@@ -53,7 +53,11 @@ OBJECT_TABLES: dict[str, str] = {
         CREATE TABLE chores (
             name TEXT PRIMARY KEY,
             processes TEXT,
-            process_count INTEGER
+            process_count INTEGER,
+            start_time TEXT,
+            frequency TEXT,
+            execution_mode TEXT,
+            active TEXT
         )""",
 }
 
@@ -138,3 +142,12 @@ LAYERS: dict[str, dict[str, str]] = {
     "lineage": LINEAGE_TABLES,
     "audit": AUDIT_TABLES,
 }
+
+# 增量列迁移：对已存在的旧库补列（CREATE TABLE IF NOT EXISTS 不会改已有表结构）。
+# 每项为 (表名, 列名, 列类型)。使用 IF NOT EXISTS 保证幂等，不破坏历史快照。
+COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("chores", "start_time", "TEXT"),
+    ("chores", "frequency", "TEXT"),
+    ("chores", "execution_mode", "TEXT"),
+    ("chores", "active", "TEXT"),
+]

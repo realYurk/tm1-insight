@@ -1395,11 +1395,28 @@ def search_chore_page(con, keyword: str = "", offset: int = 0, limit: int = 50) 
 
 def get_chore(con: duckdb.DuckDBPyConnection, name: str) -> dict | None:
     """Recorded schedule evidence only: do not invent order for incomplete metadata."""
-    row = con.execute(
-        "SELECT name, processes, process_count FROM chores WHERE name = ?", [name]
-    ).fetchone()
+    # 调度定义字段（start_time / frequency / execution_mode / active）是增量迁移新增的列，
+    # 旧库若无这些列则回退到空值（历史快照兼容）。用 try 包裹查询列名，避免旧库报错。
+    schedule_cols = ("start_time", "frequency", "execution_mode", "active")
+    try:
+        row = con.execute(
+            "SELECT name, processes, process_count, start_time, frequency, execution_mode, active "
+            "FROM chores WHERE name = ?", [name]
+        ).fetchone()
+    except Exception:  # noqa: BLE001 —— 旧库无调度列，回退到旧列
+        row = con.execute(
+            "SELECT name, processes, process_count FROM chores WHERE name = ?", [name]
+        ).fetchone()
     if not row:
         return None
+    schedule = {}
+    if len(row) > 3:
+        schedule = {
+            "start_time": row[3] or "",
+            "frequency": row[4] or "",
+            "execution_mode": row[5] or "",
+            "active": row[6] or "",
+        }
     steps = []
     warnings = []
     source_field = "chores.processes"
@@ -1454,6 +1471,7 @@ def get_chore(con: duckdb.DuckDBPyConnection, name: str) -> dict | None:
         "process_count": declared_count,
         "steps": normalized,
         "order_status": "recorded" if explicit_order else "unknown",
+        "schedule": schedule,
         "warnings": warnings,
     }
 

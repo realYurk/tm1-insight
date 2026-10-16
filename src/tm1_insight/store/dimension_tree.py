@@ -234,20 +234,24 @@ def _degraded_summary(con, name: str, meta: dict, root_limit: int) -> dict:
 
     Avoids walking a multi-10MB edges JSON; returns only the first ``root_limit``
     element names as a flat list. Search still covers the full index separately.
+
+    性能：超大维度（68 万元素级）对 elements JSON 的每一次全量 ``json_each``
+    都要 ~0.7s。这里用 ``LIMIT`` 短路（DuckDB 无需物化全量）且不做 ORDER BY，
+    元素总数直接用采集时声明的 ``meta["element_count"]``，避免再跑一次全量
+    ``count(*)``。排序对降级预览无意义（用户用搜索定位具体元素）。
     """
     name_expr = _name_expr("el")
     type_expr = _type_expr("el")
     elem_src = "json_each((SELECT " + _array('elements') + " FROM dimensions WHERE name = ?)) AS el"
     rows = con.execute(
         "SELECT " + name_expr + " AS nm, " + type_expr + " AS tp FROM " + elem_src +
-        " WHERE " + name_expr + " IS NOT NULL ORDER BY " + name_expr + " LIMIT ?",
+        " WHERE " + name_expr + " IS NOT NULL LIMIT ?",
         [name, root_limit],
     ).fetchall()
-    total_row = con.execute(
-        "SELECT count(*) FROM " + elem_src + " WHERE " + name_expr + " IS NOT NULL",
-        [name],
-    ).fetchone()
-    total = int(total_row[0]) if total_row and total_row[0] is not None else 0
+
+    # 元素总数：优先用采集时声明的 element_count（无需全量 count 扫描）。
+    declared = meta["element_count"]
+    total = declared if isinstance(declared, int) else len(rows)
 
     roots = []
     for nm, etype in rows:
@@ -421,13 +425,6 @@ def search_elements(con, name: str, keyword: str, limit: int = 100) -> dict:
     ).fetchone()
     total = int(total_row[0]) if total_row and total_row[0] is not None else 0
 
-    rows = con.execute(
-        f"SELECT {_name_expr()} AS name, {_type_expr()} AS type "
-        f"FROM json_each((SELECT {_array('elements')} FROM dimensions WHERE name = ?)) AS entry "
-        f"WHERE lower(coalesce({_name_expr()}, '')) LIKE ? ORDER BY {_name_expr()} LIMIT ?",
-        [name, f"%{kw}%", limit],
-    ).fetchall()
-
     # Very large dimensions: skip the full-graph ancestor walk (would parse a
     # multi-10MB edges JSON) and return matches without ancestor paths. The
     # match name still lets the user locate the element; the direct-parents
@@ -435,7 +432,16 @@ def search_elements(con, name: str, keyword: str, limit: int = 100) -> dict:
     from tm1_insight.store.dimension_index import THRESHOLD
     meta = dimensions.metadata(con, name)
     large = bool(meta and meta["element_count"] is not None and meta["element_count"] > THRESHOLD)
+
     if large:
+        # 超大维度：不加 ORDER BY（排序需全量物化 ~0.8s），LIMIT 短路即可。
+        # 匹配数 total 已在上方准确统计；结果顺序对搜索定位无意义。
+        rows = con.execute(
+            f"SELECT {_name_expr()} AS name, {_type_expr()} AS type "
+            f"FROM json_each((SELECT {_array('elements')} FROM dimensions WHERE name = ?)) AS entry "
+            f"WHERE lower(coalesce({_name_expr()}, '')) LIKE ? LIMIT ?",
+            [name, f"%{kw}%", limit],
+        ).fetchall()
         matches = []
         for r in rows:
             matches.append({
@@ -453,6 +459,13 @@ def search_elements(con, name: str, keyword: str, limit: int = 100) -> dict:
             "truncated": total > len(matches),
             "large_dimension": True,
         }
+
+    rows = con.execute(
+        f"SELECT {_name_expr()} AS name, {_type_expr()} AS type "
+        f"FROM json_each((SELECT {_array('elements')} FROM dimensions WHERE name = ?)) AS entry "
+        f"WHERE lower(coalesce({_name_expr()}, '')) LIKE ? ORDER BY {_name_expr()} LIMIT ?",
+        [name, f"%{kw}%", limit],
+    ).fetchall()
 
     # Load all edges once and build ancestor paths for the whole dimension.
     edge_rows = con.execute(

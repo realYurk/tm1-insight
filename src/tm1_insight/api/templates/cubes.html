@@ -57,9 +57,13 @@
 
 {% block scripts %}
 <script>
-// 记录当前列表位置，供详情页「返回列表」恢复搜索词与页码（标签页会话级，不污染下次打开）
+// 记录当前列表位置，供详情页「返回列表」恢复搜索词与页码（会话级 + 按模型隔离）
 (function () {
-  try { sessionStorage.setItem('cubes-last', JSON.stringify({ q: {{ q|tojson }}, page: {{ page }} })); } catch (e) {}
+  if (window.WorkbenchContext) {
+    window.WorkbenchContext.rememberList('cubes', { q: {{ q|tojson }}, page: {{ page }} });
+  } else {
+    try { sessionStorage.setItem('cubes-last', JSON.stringify({ q: {{ q|tojson }}, page: {{ page }} })); } catch (e) {}
+  }
 })();
 </script>
 {% endblock %}

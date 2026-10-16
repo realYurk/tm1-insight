@@ -498,5 +498,6 @@ class TM1Client:
             "start_time": str(safe_getattr(chore, "start_time", "")),
             "execution_mode": str(safe_getattr(chore, "execution_mode", "")),
             "frequency": str(safe_getattr(chore, "frequency", "")),
+            "active": str(safe_getattr(chore, "active", "")),
             "processes": processes,
         }

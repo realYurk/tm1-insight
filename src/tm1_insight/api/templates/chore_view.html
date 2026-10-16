@@ -15,8 +15,24 @@
   <section class="card chore-detail" aria-label="Chore 详情">
     {% if chore %}
     <h2>{{ chore.name }}</h2>
+
+    {% set schedule = chore.schedule %}
+    <div class="chore-schedule">
+      {% if schedule and (schedule.start_time or schedule.frequency or schedule.execution_mode or schedule.active) %}
+      <dl class="chore-schedule-grid">
+        <div><dt>启用状态</dt><dd>{% if schedule.active == 'True' or schedule.active == 'true' %}已启用{% elif schedule.active == 'False' or schedule.active == 'false' %}已停用{% else %}未采集{% endif %}</dd></div>
+        <div><dt>计划执行时间</dt><dd>{{ schedule.start_time or '未采集' }}</dd></div>
+        <div><dt>执行频率</dt><dd>{{ schedule.frequency or '未采集' }}</dd></div>
+        <div><dt>执行模式</dt><dd>{{ schedule.execution_mode or '未采集' }}</dd></div>
+      </dl>
+      {% else %}
+      <p class="muted small">调度定义（启动时间 / 频率 / 启用状态）尚未采集。</p>
+      {% endif %}
+      <p class="muted small">以上为<b>调度定义</b>，不代表实际已执行成功；实际运行情况需独立日志证据，当前未采集。</p>
+    </div>
+
     <p class="muted small">已保存 {{ chore.step_total }} 条步骤明细 · 原记录数量 {{ chore.process_count }}</p>
-    <p class="knowledge-disclaimer">这里展示离线采集记录，不是执行历史。步骤次序不证明 TI 之间存在值流；启动时间、频率、参数和实际运行结果尚未完整采集。</p>
+    <p class="knowledge-disclaimer">这里展示离线采集记录，不是执行历史。步骤次序不证明 TI 之间存在值流；任务参数若未采集则此处不展示。</p>
     {% for warning in chore.warnings %}<p class="chore-warning">PARTIAL · {{ warning }}</p>{% endfor %}
     {% if chore.steps %}
     <div class="table-wrap"><table class="table" id="chore-steps"><thead><tr><th>位置 / 序号</th><th>TI 进程</th><th>记录依据</th></tr></thead><tbody>
@@ -27,4 +43,18 @@
     {% else %}<div class="empty-state"><div class="empty-title">选择一个 Chore 查看步骤</div><p class="muted">在左侧搜索调度名称，再从步骤进入 TI 源码。</p></div>{% endif %}
   </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 记录当前 Chore 列表位置与选中项，供跨页面返回时恢复（按模型隔离）
+(function () {
+  if (!window.WorkbenchContext) return;
+  window.WorkbenchContext.rememberList('chores', {
+    q: {{ q|tojson }},
+    page: {{ page }},
+    name: {{ (chore.name if chore else '')|tojson }},
+  });
+})();
+</script>
 {% endblock %}

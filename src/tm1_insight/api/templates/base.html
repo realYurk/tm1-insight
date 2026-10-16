@@ -17,7 +17,7 @@
     })();
   </script>
 </head>
-<body>
+<body data-model-fingerprint="{{ model_fingerprint() }}">
   <a class="skip-link" href="#main-content">跳转到内容</a>
   <div id="navigation-status" class="navigation-status" role="status" aria-live="polite" hidden></div>
   <div class="app-shell">
@@ -132,6 +132,7 @@
     })();
 
   </script>
+  <script src="/static/workbench-context.js"></script>
   <script src="/static/navigation.js" defer></script>
   {% block scripts %}{% endblock %}
 </body>
