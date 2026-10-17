@@ -16,7 +16,16 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
+
+# 源码运行时（非 PyInstaller 打包环境）需要把 src/ 加入 sys.path，
+# 否则 `python launcher.py` 会报 ModuleNotFoundError: No module named 'tm1_insight'。
+# 打包后（sys.frozen 为真）模块已内置，此分支不生效。
+if not getattr(sys, "frozen", False):
+    _src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+    if os.path.isdir(_src_dir) and _src_dir not in sys.path:
+        sys.path.insert(0, _src_dir)
 
 import uvicorn
 

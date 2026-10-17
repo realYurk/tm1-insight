@@ -18,9 +18,17 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import sys
 import zipfile
 from pathlib import Path
+
+# 源码运行时需要把 src/ 加入 sys.path，否则 `python make_release.py`
+# 会报 ModuleNotFoundError: No module named 'tm1_insight'。
+_src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+if os.path.isdir(_src_dir) and _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
 
 from tm1_insight import __version__
 
