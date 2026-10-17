@@ -1,14 +1,18 @@
 # 运行时依赖（与 pyproject.toml 保持一致；pip install -r requirements.txt 可用）
-fastapi>=0.110
-uvicorn[standard]>=0.29
-typer>=0.12
-pydantic>=2.6
-pydantic-settings>=2.2
-TM1py>=2.0
-duckdb>=1.0
-pyarrow>=15.0
-pandas>=2.2
-openpyxl>=3.1
-jinja2>=3.1
-python-multipart>=0.0.9
-httpx>=0.27
+# 上界约束：保持 Python 3.9 兼容（见 docs/PYTHON_COMPATIBILITY_1_0.md）。
+fastapi>=0.110,<0.129
+uvicorn[standard]>=0.29,<0.40
+typer>=0.12,<0.24
+pydantic>=2.6,<2.14
+pydantic-settings>=2.2,<2.12
+TM1py>=2.0,<2.5
+duckdb>=1.0,<1.5
+pyarrow>=15.0,<22
+pandas>=2.2,<2.4
+# numpy 硬性分界：<2.1 支持 3.9 但无 cp313 轮子；>=2.1 有 cp313 但弃用 3.9。按版本分流。
+numpy>=1.26,<2.1; python_version < "3.10"
+numpy>=2.1,<2.3; python_version >= "3.10"
+openpyxl>=3.1,<3.2
+jinja2>=3.1,<3.2
+python-multipart>=0.0.9,<0.0.21
+httpx>=0.27,<0.29

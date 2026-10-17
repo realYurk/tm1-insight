@@ -212,6 +212,10 @@ def web(
     import uvicorn
 
     from tm1_insight.portable import pick_port, start_browser_thread
+    from tm1_insight.python_compat import check, banner
+
+    check()
+    typer.echo(banner())
 
     settings = get_settings()
     settings.ensure_dirs()
@@ -261,6 +265,10 @@ def study_all(root:Path=typer.Option(...,"--root",help="只读扫描的本地数
 
 
 def main() -> None:
+    # 提前做 Python 版本兼容性检查（web 之外的其他命令也受益），
+    # 在导入重量级依赖前给出清晰中文错误，而非内部堆栈。
+    from tm1_insight.python_compat import check
+    check()
     app()
 
 

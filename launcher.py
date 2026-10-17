@@ -87,9 +87,16 @@ def main() -> None:
         print(json.dumps({"status":"ok","version":__version__,"routes":len(app.routes)},ensure_ascii=True))
         return
     if not argv:
+        # 双击启动 Web UI：先做 Python 兼容性检查并打印横幅。
+        from tm1_insight.python_compat import check, banner
+        check()
+        print(banner())
         _run_web()
         return
     if argv[0] == "web" and len(argv)==1:
+        from tm1_insight.python_compat import check, banner
+        check()
+        print(banner())
         _run_web()
         return
     cli_app()

@@ -56,7 +56,42 @@ if not defined PY (
 
 echo  [TM1 Insight] Using Python: %PY%
 
-REM ---- 2. Check dependencies ----
+REM ---- 2. Report actual Python version and gate on unsupported versions ----
+REM    显示真实版本，避免静默使用另一台电脑上的全局 Python；
+REM    低于 3.9 时提前退出并给出清晰中文错误，而非内部堆栈。
+set "PYVER="
+for /f "tokens=2 delims= " %%v in ('"%PY%" %PYARGS% -c "import sys;print(sys.version.split()[0])" 2^>nul') do set "PYVER=%%v"
+if not defined PYVER (
+    echo  [ERROR] 无法确定 Python 版本：%PY%
+    echo          可能是 WindowsApps 占位程序或损坏的安装。
+    echo          请安装官方 Python 3.9+ 并勾选 "Add to PATH"。
+    pause
+    exit /b 1
+)
+echo  [TM1 Insight] Python version: %PYVER%
+
+REM    校验主版本号：提取第一个 "." 前的数字，判断是否 >= 3.9
+for /f "tokens=1 delims=." %%a in ("%PYVER%") do set "PYMAJOR=%%a"
+for /f "tokens=2 delims=." %%b in ("%PYVER%") do set "PYMINOR=%%b"
+if not defined PYMINOR set "PYMINOR=0"
+
+REM    仅当主版本 < 3 时才必然不满足；主版本 == 3 需比较次版本
+set "OKPY=0"
+if %PYMAJOR% GTR 3 set "OKPY=1"
+if %PYMAJOR% EQU 3 if %PYMINOR% GEQ 9 set "OKPY=1"
+
+if "%OKPY%"=="0" (
+    echo.
+    echo  [ERROR] 检测到 Python %PYVER%，低于最低支持版本 3.9。
+    echo          TM1 Insight 源码运行要求 Python 3.9 或更高版本。
+    echo          请安装 Python 3.9+ 后重试：https://www.python.org/downloads/
+    echo          项目不会自动升级或修改你的系统 Python，请自行安装。
+    echo.
+    pause
+    exit /b 1
+)
+
+REM ---- 3. Check dependencies ----
 REM NOTE: the package is named TM1py (capital T). Importing lowercase tm1py
 REM always raises ModuleNotFoundError, which would wrongly trigger reinstall.
 "%PY%" %PYARGS% -c "import fastapi, uvicorn, duckdb, TM1py, jinja2" >nul 2>nul

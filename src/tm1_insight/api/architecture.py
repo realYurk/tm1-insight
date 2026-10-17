@@ -1,8 +1,10 @@
 """Architecture is a versioned local projection of workflow and model facts."""
+from __future__ import annotations
+
 from contextlib import closing
 import json
 import threading
-from typing import Literal
+from typing import Literal, Optional
 from fastapi import APIRouter,HTTPException,Query,Request
 from fastapi.responses import FileResponse,JSONResponse,StreamingResponse
 from tm1_insight import architecture,workflow
@@ -15,8 +17,8 @@ from tm1_insight.store.db import Store
 from tm1_insight.tasks import TaskManager,TaskBusy
 
 class Start(WorkflowStart):
-    process:str|None=Field(default=None,min_length=1,max_length=1000)
-    cube:str|None=Field(default=None,min_length=1,max_length=1000)
+    process: Optional[str] = Field(default=None,min_length=1,max_length=1000)
+    cube: Optional[str] = Field(default=None,min_length=1,max_length=1000)
     entry_kind:Literal['process','cube']='process'
 
     @model_validator(mode='after')
