@@ -17,11 +17,13 @@ from TM1py.Exceptions import TM1pyException
 
 from tm1_insight.config import Settings
 from tm1_insight.ingest.progress import Progress
-from tm1_insight.tm1.client import TM1Client, safe_filename
+from tm1_insight.ingest.storage import Manifest, resolve_object_path
+from tm1_insight.tm1.client import TM1Client
 
 logger = logging.getLogger(__name__)
 
 _progress_lock = threading.Lock()
+_manifest_lock = threading.Lock()
 
 
 def save_json(data: Any, filepath: Path) -> None:
@@ -37,6 +39,7 @@ class Exporter:
         self.raw_dir = settings.raw_dir
         self.progress = progress
         self.strict = strict
+        self._manifest = Manifest(self.raw_dir)
 
     def _report(self, phase, done=None, total=None):
         if self.progress:
@@ -44,7 +47,9 @@ class Exporter:
 
     # ---- 单对象：fetch + 落盘 ----
     def _export_one(self, tm1, obj_type: str, name: str, *args) -> tuple[str, bool, str | None]:
-        filepath = self.raw_dir / obj_type / f"{safe_filename(name)}.json"
+        filepath, used_short = resolve_object_path(self.raw_dir, obj_type, name)
+        with _manifest_lock:
+            self._manifest.register(name, obj_type, used_short)
         if self.settings.tm1_skip_existing and filepath.exists():
             if obj_type!="cubes":return name, True, "skipped"
             try:
@@ -62,17 +67,32 @@ class Exporter:
         }[obj_type]
 
         last_err: Exception | None = None
+        last_stage: str = "fetch"
         for attempt in range(3):
             try:
                 data = fetch(tm1, name, *args) if obj_type == "dimensions" else fetch(tm1, name)
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                last_stage = "tm1_fetch"
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                continue
+            try:
                 save_json(data, filepath)
                 return name, True, None
             except Exception as e:  # noqa: BLE001
                 last_err = e
+                last_stage = "file_save"
+                # 文件保存失败通常不是瞬时错误，重试意义有限，但保留重试以应对瞬时锁。
                 if attempt < 2:
                     time.sleep(0.5 * (attempt + 1))
-        logger.warning("%s 拉取失败: %s (%s)", obj_type, name, type(last_err).__name__)
-        return name, False, type(last_err).__name__
+                continue
+        logger.warning(
+            "%s 导出失败 [%s]: %s (%s): %s",
+            obj_type, last_stage, name, type(last_err).__name__, last_err,
+        )
+        # 失败清单带上阶段标识，便于定位是 TM1 读取失败还是本地文件保存失败。
+        return name, False, f"{last_stage}:{type(last_err).__name__}"
 
     # ---- 并行调度 ----
     def _run_parallel(self, obj_type: str, names: list, extra_args: list | None = None,
@@ -174,7 +194,9 @@ class Exporter:
                     tm1.logout()
                 except Exception:  # noqa: BLE001
                     pass
-        filepath = self.raw_dir / "dimensions" / f"{safe_filename(name)}.json"
+        filepath, used_short = resolve_object_path(self.raw_dir, "dimensions", name)
+        with _manifest_lock:
+            self._manifest.register(name, "dimensions", used_short)
         save_json(data, filepath)
         summary = {
             "name": name,
@@ -245,6 +267,8 @@ class Exporter:
             "chores": names["chores"],
         }
         save_json(index, self.raw_dir / "_index.json")
+        # 保存短名 manifest（只含被短名化的对象），供排查与反向查找。
+        self._manifest.save()
 
         logger.info("全部导出完成 → %s", self.raw_dir)
         return {
