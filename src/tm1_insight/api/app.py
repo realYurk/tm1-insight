@@ -1329,6 +1329,53 @@ def api_trace(cube: Optional[str] = None, mdx: Optional[str] = None) -> dict:
         con.close()
 
 
+def _validate_collected_model(staged: Settings, exported: dict, actual: dict) -> None:
+    """校验采集结果：对象计数必须与枚举数一致，否则拒绝切换数据源。
+
+    失败时给出精确、可定位的信息：哪个对象类型、期望 vs 实际计数，
+    以及从 failed_*.txt 读取的缺失对象名，绝不静默放过。
+    """
+    reconcile_keys = ("cubes", "processes", "dimensions", "chores")
+    # 每类对象的失败清单（exporter 已写 failed_<type>.txt）
+    failed_by_type: dict[str, list[str]] = {}
+    for key in reconcile_keys:
+        failed_path = staged.raw_dir / f"failed_{key}.txt"
+        names: list[str] = []
+        if failed_path.exists():
+            try:
+                for line in failed_path.read_text(encoding="utf-8").splitlines():
+                    if line.strip():
+                        names.append(line.split("\t", 1)[0])
+            except OSError:
+                pass
+        if names:
+            failed_by_type[key] = names
+
+    if not actual.get("cubes"):
+        raise ValueError("采集结果不含任何 Cube，拒绝切换数据源")
+
+    mismatches = []
+    for key in reconcile_keys:
+        expected = exported.get(key, 0)
+        got = actual.get(key, 0)
+        if got != expected:
+            mismatches.append((key, expected, got))
+
+    if mismatches:
+        detail = "; ".join(
+            f"{key}: 期望 {expected} 实际 {got}"
+            for key, expected, got in mismatches
+        )
+        missing = "; ".join(
+            f"{key} 缺失({len(names)}): {', '.join(names[:10])}"
+            for key, names in failed_by_type.items()
+        )
+        raise ValueError(
+            f"采集对象计数不一致（{detail}）"
+            + (f"；{missing}" if missing else "")
+        )
+
+
 def _run_ingest(settings: Settings) -> None:
     """Build a fresh model, validate, then atomically select it. Never rebuild the active DB."""
     try:
@@ -1354,15 +1401,14 @@ def _run_ingest(settings: Settings) -> None:
         stats = Loader(staged, progress=progress, strict=True).load(drop=True)
         progress("validate")
         actual = Store(staged).all_rows()
-        if not actual.get("cubes") or any(actual.get(key, 0) != exported[key]
-                                         for key in ("cubes", "processes", "dimensions", "chores")):
-            raise ValueError("Collected object counts did not reconcile")
+        _validate_collected_model(staged, exported, actual)
         progress("activate")
         activate_collected_source(staged.db_path, settings.db_path)
         with _ingest_lock:
             _ingest_state.update({"running": False, "done": True, "error": None, "stats": stats})
     except Exception as e:  # noqa: BLE001
-        logger.error("采集失败，原数据源未被重建 (%s)", type(e).__name__)
+        logger.exception("采集失败，原数据源未被重建（阶段=%s）: %s",
+                         _ingest_state.get("progress", {}).get("phase", "?"), e)
         with _ingest_lock:
             _ingest_state.update({"running": False, "done": True,
                 "cancelled": _ingest_cancel.is_set(),
