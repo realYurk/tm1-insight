@@ -75,6 +75,10 @@ class ProcessPayload(TypedDict, total=False):
     metadata: str
     data: str
     epilog: str
+    variables: Sequence[dict] | None       # REST Name/Type/Position/StartByte/EndByte
+    datasource: dict | None
+    source_view: dict | None
+    parameter_definitions: Sequence[dict]  # Optional full definitions; legacy name-only parameters retained
 
 
 class RulePayload(TypedDict, total=False):
@@ -183,6 +187,12 @@ def _validate_process(proc: Any) -> None:
         raise SnapshotSchemaError("process 缺少 name")
     if not _is_str(proc["name"]):
         raise SnapshotSchemaError("process.name 必须是 string")
+    if proc.get("variables") is not None:
+        if not isinstance(proc["variables"], (list, tuple)) or not all(isinstance(v, dict) for v in proc["variables"]):
+            raise SnapshotSchemaError("process.variables 必须是 object array 或 null")
+    for field in ("datasource", "source_view"):
+        if proc.get(field) is not None and not isinstance(proc[field], dict):
+            raise SnapshotSchemaError(f"process.{field} 必须是 object 或 null")
     if "parameters" in proc and proc["parameters"] is not None:
         if not isinstance(proc["parameters"], (list, tuple)):
             raise SnapshotSchemaError("process.parameters 必须是 array")

@@ -250,7 +250,7 @@ def test_summary_keeps_write_contexts_and_does_not_join_observations(con,tmp_pat
         import zipfile,io
         from tm1_insight.architecture_extraction import package
         with zipfile.ZipFile(io.BytesIO(b''.join(package(a.path)))) as z:
-            assert set(z.namelist())=={'Architecture.md','Architecture.json','Evidence.json','Diagnostics.json'}
+            assert set(z.namelist())=={'Architecture.md','Architecture.json','Evidence.json','Diagnostics.json','UnifiedRelations.json'}
             assert json.loads(z.read('Evidence.json'))['items']==r['evidence']
             assert json.loads(z.read('Architecture.json'))==r
             assert len(z.read('Architecture.md'))<len(z.read('Architecture.json'))

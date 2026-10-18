@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from typing import Any
 
 from TM1py import TM1Service
@@ -50,8 +51,30 @@ def safe_filename(name: str) -> str:
 
 
 class TM1Client:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, *, timeout: int | None = None):
         self.settings = settings
+        self.timeout = timeout
+
+    @contextmanager
+    def connect_metadata(self):
+        """GET-only v11 Basic/CAM session; no async/cancel/logout server actions.
+
+        TM1py's normal __exit__ POSTs ActiveSession/tm1.Close. Close only the
+        local requests session here; server session expires under server policy.
+        """
+        from tm1_insight.tm1.metadata_diagnostics import endpoint,verify_setting,MetadataFailure
+        endpoint(self.settings)
+        s=self.settings
+        if not s.tm1_user or not s.tm1_password:raise MetadataFailure('CONFIG','CREDENTIALS_NOT_CONFIGURED')
+        tm1=TM1Service(address=s.tm1_address,port=s.tm1_port,user=s.tm1_user,password=s.tm1_password,
+            ssl=s.tm1_ssl,namespace=s.tm1_namespace,verify=verify_setting(s),timeout=self.timeout or 15,
+            async_requests_mode=False,cancel_at_timeout=False,re_connect_on_session_timeout=False,
+            re_connect_on_remote_disconnect=False,remote_disconnect_max_retries=0,logging=False)
+        try:yield tm1
+        finally:
+            rest=getattr(tm1,'_tm1_rest',None)
+            if rest is None:rest=tm1._rest  # injected legacy client adapters
+            rest._s.close()
 
     # ---- 连接 ----
     def connect(self) -> TM1Service:
@@ -69,6 +92,7 @@ class TM1Client:
             ssl=s.tm1_ssl,
             namespace=s.tm1_namespace,
             async_requests_mode=True,
+            **({'timeout':self.timeout} if self.timeout is not None else {}),
         )
 
     def list_all_names(self) -> dict[str, list[str]]:
@@ -178,7 +202,7 @@ class TM1Client:
                     {
                         "name": param.get("Name") or param.get("name"),
                         "type": str(param.get("Type") or param.get("type", "")),
-                        "default_value": param.get("Default") or param.get("default_value"),
+                        "default_value": param.get("Default", param.get("default_value")),
                     }
                 )
             else:
@@ -200,6 +224,12 @@ class TM1Client:
                 "query": safe_getattr(ds, "query"),
             }
 
+        # TM1py exposes these as flat properties, not a data_source object.
+        if ds_dict is None and safe_getattr(p, "datasource_type", None):
+            ds_dict = {"type": safe_getattr(p, "datasource_type"),
+                       "cube": safe_getattr(p, "datasource_data_source_name_for_server"),
+                       "view": safe_getattr(p, "datasource_view")}
+
         return {
             "name": safe_getattr(p, "name"),
             "prolog": safe_getattr(p, "prolog_procedure", "") or "",
@@ -208,6 +238,7 @@ class TM1Client:
             "epilog": safe_getattr(p, "epilog_procedure", "") or "",
             "parameters": params,
             "datasource": ds_dict,
+            "variables": safe_getattr(p, "variables", None),
         }
 
     def _get_hierarchy(self, tm1: TM1Service, name: str):

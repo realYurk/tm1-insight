@@ -629,6 +629,7 @@ def explorer_cube(request: Request, name: str):
     try:
         cube = queries.get_cube(con, name)
         lineage = queries.cube_lineage(con, name) if cube else None
+        rule_semantics = queries.cube_rule_semantics(con, name) if cube else None
     finally:
         con.close()
     if not cube:
@@ -636,6 +637,7 @@ def explorer_cube(request: Request, name: str):
     if source != _process_search_source(store.settings) or source != _process_search_source():
         return _error_page(request, 409, "Cube 来源已变化", "请重新打开 Cube，再进入维度结构。")
     return templates.TemplateResponse(request, "cube_view.html", {"cube": cube, "lineage": lineage,
+                                                               "rule_semantics": rule_semantics,
                                                                "dimension_source": source})
 
 
@@ -1265,6 +1267,17 @@ def api_cube_lineage(cube: str) -> dict:
     con = store.connect(read_only=True)
     try:
         return queries.cube_lineage(con, cube)
+    finally:
+        con.close()
+
+
+@app.get("/api/cube/{cube}/rules")
+def api_cube_rules(cube: str) -> dict:
+    """Cube 的 Rule/Feeder 计算语义 IR（可解释，不执行规则）。"""
+    store = _store()
+    con = store.connect(read_only=True)
+    try:
+        return queries.cube_rule_semantics(con, cube)
     finally:
         con.close()
 

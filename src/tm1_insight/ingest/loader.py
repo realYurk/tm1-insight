@@ -235,6 +235,10 @@ class Loader:
     # ---- 对象表 ----
     def _insert_objects(self, con: duckdb.DuckDBPyConnection,
                         cubes, processes, chores) -> None:
+        from tm1_insight.store.data_row import save_metadata
+        for process in processes:
+            if "variables" in process:
+                save_metadata(con, process)
         _bulk(
             con,
             "INSERT INTO cubes VALUES (?, ?, ?, ?, ?)",

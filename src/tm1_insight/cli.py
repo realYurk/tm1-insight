@@ -57,6 +57,78 @@ app = typer.Typer(
 )
 
 
+@app.command('collect-process-metadata')
+def collect_process_metadata(process: list[str] = typer.Option(..., '--process'),
+                             output: Path = typer.Option(..., '--output'),
+                             timeout: int = typer.Option(15,'--timeout',min=1,max=30)):
+    """GET-only collection of 1..20 processes and stored VIEW identities; no TI execution."""
+    from tm1_insight.ingest.process_metadata import collect
+    from tm1_insight.tm1.client import TM1Client
+    from tm1_insight.ingest.metadata_persistence import write_json_new,save_snapshot
+    from tm1_insight.tm1.metadata_diagnostics import failure
+    try:
+        if output.exists(): raise ValueError('Output already exists; choose a new bundle file')
+        bundle=collect(TM1Client(get_settings(),timeout=timeout),process,progress=lambda i,n:typer.echo(f'{i}/{n}'))
+        record=save_snapshot(bundle,output.parent/'metadata-snapshots')
+        write_json_new(output,bundle)
+        typer.echo('Saved immutable metadata snapshot '+record.snapshot_id)
+    except Exception as exc:
+        import json
+        typer.echo(json.dumps(failure('COLLECTION',exc)),err=True)
+        raise typer.Exit(1) from None
+
+
+@app.command('diagnose-tm1-metadata')
+def diagnose_tm1_metadata(output: Path = typer.Option(...,'--output'),
+                          timeout: int = typer.Option(5,'--timeout',min=1,max=30)):
+    """Bounded TCP/TLS/proxy/unauthenticated REST diagnostics; no credentials logged/sent."""
+    from tm1_insight.tm1.metadata_diagnostics import diagnose,failure
+    from tm1_insight.ingest.metadata_persistence import write_json_new
+    import json
+    try:
+        if output.exists():raise FileExistsError('Output already exists')
+        report=diagnose(get_settings(),timeout=timeout)
+        write_json_new(output,report)
+        typer.echo(json.dumps(report))
+    except Exception as exc:
+        typer.echo(json.dumps(failure('DIAGNOSTIC',exc)),err=True);raise typer.Exit(1) from None
+
+
+@app.command('import-process-metadata')
+def import_process_metadata(bundle: Path = typer.Option(..., '--bundle'),
+                            database: Path = typer.Option(..., '--database')):
+    """Explicit metadata-only import into a matching offline DB (prefer a copy)."""
+    import duckdb,json
+    from tm1_insight.ingest.process_metadata import import_bundle
+    from tm1_insight.ingest.metadata_persistence import write_json_new,save_snapshot
+    from uuid import uuid4
+    try:
+        if not database.is_file() or bundle.stat().st_size>5_000_000: raise ValueError('Invalid input')
+        data=json.loads(bundle.read_text(encoding='utf-8'))
+        backup_path=database.with_name(database.name+'.metadata-backup-'+uuid4().hex+'.json')
+        save_snapshot(data,bundle.parent/'metadata-snapshots')
+        with duckdb.connect(str(database)) as con:
+            count=import_bundle(con,data,backup=lambda prior:write_json_new(backup_path,prior))
+        typer.echo(f'Imported metadata for {count} process(es); no process code changed')
+        typer.echo('Metadata rollback backup: '+str(backup_path))
+    except Exception as exc:
+        typer.echo('Metadata import failed: '+type(exc).__name__,err=True)
+        raise typer.Exit(1) from None
+
+
+@app.command('restore-process-metadata')
+def restore_process_metadata(backup: Path = typer.Option(...,'--backup'),database: Path = typer.Option(...,'--database')):
+    """Explicit local rollback using a recovery metadata backup; source code must still match."""
+    import duckdb,json
+    from tm1_insight.ingest.metadata_persistence import restore_backup
+    try:
+        if not database.is_file() or backup.stat().st_size>16_000_000:raise ValueError('Invalid input')
+        with duckdb.connect(str(database)) as con:restore_backup(con,json.loads(backup.read_text(encoding='utf-8')))
+        typer.echo('Selected metadata restored; Process code unchanged')
+    except Exception as exc:
+        typer.echo('Metadata restore failed: '+type(exc).__name__,err=True);raise typer.Exit(1) from None
+
+
 @app.command()
 def ingest(
     no_export: bool = typer.Option(False, "--no-export", help="跳过拉取，仅用已有 raw JSON 入库"),

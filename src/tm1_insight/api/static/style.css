@@ -541,6 +541,26 @@ input[type="checkbox"] { width: auto; margin-top: 0; }
 .tag.removed { background: var(--red-soft); color: var(--red); }
 .tag.modified { background: var(--amber-soft); color: var(--amber); }
 
+/* Rule / Feeder 语义 IR 展示 */
+.rule-semantics { display: flex; flex-direction: column; gap: 8px; }
+.rule-ir, .feeder-ir, .rule-raw {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft, #fafbfc);
+  overflow: hidden;
+}
+.rule-ir-summary {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  padding: 8px 12px; cursor: pointer; list-style: none;
+}
+.rule-ir-summary::-webkit-details-marker { display: none; }
+.rule-ir-summary .cube-chip { font-size: 12px; }
+.rule-ir-body { padding: 4px 14px 12px 14px; border-top: 1px dashed var(--border); }
+.rule-ir-body code.var-inline { word-break: break-all; white-space: normal; overflow-wrap: anywhere; }
+.rule-ir-target, .rule-ir-expr { font-size: 13px; }
+.rule-raw summary { padding: 8px 12px; cursor: pointer; }
+.rule-raw pre.code { margin: 0; border-top: 1px dashed var(--border); border-radius: 0; }
+
 .status-actions { display: flex; align-items: center; gap: 10px; }
 .muted-num { color: var(--muted); font-weight: 600; }
 .stat-note { font-size: 11px; color: var(--muted); margin-top: 2px; }

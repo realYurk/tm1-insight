@@ -12,7 +12,7 @@ VERSION='cube-formation-1'
 def enrich(r,wf,progress=None):
     facts=r['evidence'];facts_by_id={f['id']:f for f in facts};by_payload={e['stable_id']:e['id'] for e in facts}
     def proof(process,location,kind='formation'):
-        payload=dict(process=process,**location,kind=kind)
+        payload={**location,'process':process,'kind':kind}
         if payload.get('section'):payload['source_hash']=r['details'].get(process,{}).get('source_hash')
         stable=hashlib.sha256(json.dumps(payload,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
         if stable in by_payload:return by_payload[stable]
@@ -91,6 +91,22 @@ def enrich(r,wf,progress=None):
             unknown_inputs=value_nodes,technical=bool(w['cube'] and w['cube'].startswith('}')) or log_write or next((p['technical'] for p in r['processes'] if p['process']==name),True),runtime_verified=False,
             source_binding=next((s['source_binding'] for s in r['transformation_steps'] if s['process']==name),None),
             data_row_binding='UNCONFIRMED',note='VIEW 绑定、显式读取、写入表达式依赖分开记录；未采集字段到行变量映射时不推导来源值。')
+        row=report.get('data_row_lineage',{})
+        x.update(data_row_schema=row.get('schema'),data_source_variable_bindings=row.get('data_source_variable_bindings',[]),
+            source_view_binding=row.get('source_view_binding'),source_coordinate_mapping=row.get('source_coordinate_mapping',[]),
+            data_row_value_dependencies=w.get('data_row_value_dependencies',[]),value_definition_chain=w.get('value_definition_chain',[]),
+            target_write_binding=dict(cube=w['cube'],operation=w['operation'],location=w['evidence'],evidence_refs=ids),
+            unresolved_binding_reasons=w.get('unresolved_binding_reasons',[]),data_row_binding=(w['data_row_binding_status'] if w.get('data_row_value_dependencies') else 'UNCONFIRMED'))
+        if x['source_view_binding'] is None and x['source_binding']:
+            # Missing row metadata must not erase an independently proven
+            # Prolog datasource binding. It still proves no column or value.
+            x['source_view_binding']=dict(x['source_binding'],row_layout_status='UNKNOWN',membership_status='UNKNOWN',
+                note='来源绑定由独立源码证据确认；缺失 Variables 时不推导列布局或数值依赖。')
+        for dep in x['data_row_value_dependencies']:
+            refs=ids+[proof(name,dep['metadata_evidence'],'row_variable_metadata'),proof(name,dep['use_location'],'row_value_use')]
+            dep['evidence_refs']=refs
+            edge('DATA_ROW_VALUE_DEPENDENCY',dep['variable'],w['cube'],'process_variable','cube',name,refs,
+                 w['control_context'],status='STATIC_DEFINITION_DEPENDENCY',source_field_status=dep['field_status'])
         r['write_explanations'].append(x);explanations[(name,w['evidence']['section'],w['evidence']['line'],w['evidence']['column'])]=x
         if not w['cube']:edge('UNRESOLVED_RELATION',name,None,'process','cube',name,ids,w['control_context'],status='UNKNOWN',reason='动态写入目标未解析')
     bound_records=[]
@@ -105,6 +121,9 @@ def enrich(r,wf,progress=None):
                     note='辅助写入目标按显式参数绑定；坐标和表达式仍属被调用 TI，上下文未作跨 TI 公式替换。')
                 # Avoid implying caller-bound coordinates when parameters are not substituted.
                 bound['target_coordinates']=[];bound['coordinate_correspondences']=[];bound['source_reads']=[]
+                bound.update(data_row_value_dependencies=[],source_coordinate_mapping=[],source_view_binding=None,
+                    value_definition_chain=[],data_row_binding='CALLEE_CONTEXT_ONLY',
+                    unresolved_binding_reasons=['被调用 TI 的行绑定尚未替换到调用参数上下文。'])
                 step['write_explanations'].append(bound);bound_records.append(bound)
     r['write_explanations'].extend(bound_records)
     for summary in r['transformation_summaries']:
@@ -175,6 +194,9 @@ def write_markdown(items):
         groups.setdefault(x['cube'],[]).append(x)
     for cube,writes in groups.items():
         yield '- 写入 **'+safe(cube)+'**：'+str(len(writes))+' 个独立写入点。\n'
+        common_reasons=set(writes[0].get('unresolved_binding_reasons',[]))
+        for w in writes[1:]:common_reasons.intersection_update(w.get('unresolved_binding_reasons',[]))
+        for reason in sorted(common_reasons):yield '  - 行绑定共同缺口：'+safe(reason)+'\n'
         maps=[{c['dimension']:(c['kind'],c['expression']) for c in w['target_coordinates'] if c['dimension']} for w in writes]
         common={k:v for k,v in maps[0].items() if all(m.get(k)==v for m in maps[1:])}
         if common:yield '  - 公共目标坐标：'+safe('；'.join(k+' = '+v[1]+('（固定成员）' if v[0]=='FIXED_MEMBER' else '（参数）' if v[0]=='PARAMETER' else '（运行时/待解析）' if v[0]=='UNRESOLVED' else '') for k,v in common.items()))+'。\n'
@@ -186,5 +208,12 @@ def write_markdown(items):
             if w['calculation']:yield '    - 已还原静态表达式：`'+safe(w['calculation'])+'`。\n'
             elif w.get('via'):yield '    - 由辅助 TI '+safe(w['via'])+' 写入；参数上下文未完整替换。\n'
             else:yield '    - 值来源/部分坐标仍待确认；原始定义链和未知原因保存在此写入点 JSON。\n'
+            for dep in w.get('data_row_value_dependencies',[]):
+                yield '    - Data 行值依赖：`'+safe(dep['variable'])+'` → 写入值；来源字段 '+safe(dep['field_status'])+(' · '+safe(dep['source_cube'])+' / '+safe(dep['source_view']) if dep['source_cube'] else '')+'。\n'
+            for definition in w.get('value_definition_chain',[]):
+                e=definition['location']
+                yield '    - 定义链：`'+safe(definition['variable'])+' = '+safe(definition['expression'])+'` · '+safe(e['section'])+':'+str(e['line'])+'。\n'
+            for reason in w.get('unresolved_binding_reasons',[]):
+                if reason not in common_reasons:yield '    - 行绑定未确认原因：'+safe(reason)+'\n'
             for c in w['coordinate_correspondences']:
                 yield '    - 坐标表达式对应：'+safe(str(c['source_cube'])+'.'+str(c['source_dimension']))+' / '+safe(str(c['target_cube'])+'.'+str(c['target_dimension']))+' 使用 `'+safe(c['expression'])+'`；不据此证明汇总或成员变换。\n'

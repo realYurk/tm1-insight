@@ -9,11 +9,13 @@ from tm1_insight.learning.syntax import statements, calls, expression, SECTIONS 
 from tm1_insight.learning.understanding import analyze, structure
 from tm1_insight.ingest.hard_extract import LOG_REGION_START, LOG_REGION_END, LOG_REGION_FINAL_START, LOG_REGION_FINAL_END
 from tm1_insight.store import dimensions as dimension_store
+from tm1_insight.learning.rule_semantics import parse_rule_semantics
 
 VERSION='architecture-1'
-REVISION=8
+REVISION=14
 SECTIONS={'cubes','dimensions','processes','rules','chores','execution_relationships','data_relationships',
-          'transformation_steps','evidence','unresolved_dependencies','transformation_summaries','dimension_comparisons','module_objects','downstream_consumers','diagnostics','formation_relationships','write_explanations','external_sources'}
+          'transformation_steps','evidence','unresolved_dependencies','transformation_summaries','dimension_comparisons','module_objects','downstream_consumers','diagnostics','formation_relationships','write_explanations','external_sources',
+          'relation_objects','unified_relations','relation_evidence','business_steps','rule_summaries'}
 OPERATIONS={
     'viewzeroout':'CLEAR','cubecleardata':'CLEAR',
     'viewcreate':'VIEW_PREPARATION','viewsubsetassign':'VIEW_PREPARATION',
@@ -39,6 +41,19 @@ def technical(name):
 def literal(tokens):
     if len(tokens)!=1 or tokens[0]['kind']!='string':return None
     raw=tokens[0]['value'];return raw[1:-1].replace(raw[0]*2,raw[0])
+
+
+def _rule_semantics(code, cube, dimensions, cube_catalog):
+    """解析一段 Rule 源码为语义 IR；解析失败时返回空结构并保留未知标记。
+
+    纯本地解析，不连接服务器；无法证明的部分由 rule_semantics 层标记 UNKNOWN。
+    """
+    try:
+        return parse_rule_semantics(code, cube, dimensions, cube_catalog)
+    except Exception:
+        # 解析器对未知语法必须降级为空结构，而不是中断整个架构构建。
+        return {"rules": [], "feeders": [], "directives": [], "unknowns": [
+            {"reason": "Rule 语义解析器异常，源码未结构化；请核对源码。", "cube": cube}]}
 
 
 def log_lines(parts):
@@ -126,11 +141,16 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
                     arguments=[expression(a)[:300] for a in args],conditions=ref.get('control_context',[]),
                     evidence=[proof(name,pos,operation=token['value'],source_hash=p['source_hash'])]))
         binding=datasource(parts,catalogs['cube'])
+        recorded_binding=report.get('data_row_lineage',{}).get('source_view_binding')
+        if not binding and recorded_binding:
+            binding=dict(cube=recorded_binding['cube'],view=recorded_binding['view'],status=recorded_binding['status'],locations=[])
         if binding and binding.get('external_type'):
             ids=[proof(name,loc,kind='external_datasource_type') for loc in binding.pop('locations')]
             result['external_sources'].append(dict(process=name,**binding,evidence=ids))
         elif binding:
             ids=[proof(name,loc,kind='view_datasource_binding') for loc in binding.pop('locations')]
+            if not ids and recorded_binding:
+                ids=[proof(name,{k:v for k,v in recorded_binding['metadata_evidence'].items() if k!='process'},kind='view_datasource_metadata')]
             sources[name]=dict(**binding,evidence=ids)
             cube_refs.setdefault(binding['cube'],[]).append((name,dict(operation='VIEW_DATASOURCE',target=binding['cube']),False))
         elif any(t[0]['value'].casefold()=='datasourcenameforserver' for t in statements(parts,include_logging=True)):
@@ -186,6 +206,7 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
     for d in wf['data']:
         if d['relation_kind']=='static_value_dependency':
             ids=[proof(d['process'],d[k],kind=k) for k in ['read_evidence','write_evidence']]
+            if d.get('row_use_evidence'):ids.append(proof(d['process'],d['row_use_evidence'],kind='row_value_use'))
             result['data_relationships'].append(dict(process=d['process'],source=d['source_cube'],target=d['target'],
                 kind='static_value_dependency',status=d['status'],evidence=ids,runtime_verified=False))
         elif d['target']:
@@ -268,8 +289,16 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
                 eid=proof(owner,dict(section='rule',line=token['line'],column=token['column']),source_hash=digest,kind='feeder_reference' if feeder else 'rule_read')
                 references.append(dict(target=target,kind='feeder_reference' if feeder else 'rule_read',evidence=[eid]))
         if owner in selected or any(r['target'] in selected for r in references):
-            result['rules'].append(dict(process=owner,cube=owner,references=references,source_hash=digest,module_role='CORE' if owner in selected else 'EXTERNAL_DEPENDENCY',
-                note='仅确认源码 DB 引用和 Feeder 语句归属，未还原完整规则计算或汇总语义。'))
+            rule_entry=dict(process=owner,cube=owner,references=references,source_hash=digest,module_role='CORE' if owner in selected else 'EXTERNAL_DEPENDENCY',
+                note='已解析 Rule/Feeder 计算语义（目标区域、表达式、跨 Cube 引用、条件与属性查询），未执行规则、未验证稀疏计算结果。')
+            # Rule / Feeder 语义 IR：把可解析源码结构化，供 Cube 进入后读懂计算逻辑。
+            owner_dims=[r[0] for r in con.execute('SELECT dimension_name FROM cube_has_dimension WHERE cube_name=? ORDER BY dim_order,dimension_name',[owner]).fetchall()]
+            semantics=_rule_semantics(code,owner,owner_dims,catalogs['cube'])
+            rule_entry['rule_semantics']=semantics['rules']
+            rule_entry['feeder_semantics']=semantics['feeders']
+            rule_entry['rule_directives']=semantics['directives']
+            rule_entry['rule_unknowns']=semantics['unknowns']
+            result['rules'].append(rule_entry)
     process_names=[p['process'] for p in wf['processes'] if p['process'] in core_process_names and 'schedule' in policy.allowed]
     if process_names:
         slots=','.join('?' for _ in process_names)
@@ -319,6 +348,8 @@ def build(con,entry,*,progress=None,max_processes=100,max_depth=16,cache_root=No
     if entry_kind=='cube':
         from tm1_insight.formation import consumers
         consumers(con,result,entry,progress,max_nodes)
+    from tm1_insight.unified_relations import enrich as unify
+    unify(result, progress)
     return result
 
 
@@ -329,6 +360,10 @@ def artifact(report,root):
     try:
         with closing(sqlite3.connect(workflow.index_path(result.path))) as con:
             con.execute("CREATE INDEX formation_target ON items(section,json_extract(payload,'$.cube'),json_extract(payload,'$.technical'))")
+            con.execute("CREATE INDEX unified_id ON items(section,json_extract(payload,'$.id'))")
+            con.executemany("UPDATE items SET search=? WHERE section='unified_relations' AND position=?",[
+                (' '.join([r['source_name'],r['target_name'],r['relation_kind'],r.get('process','')]).casefold(),i)
+                for i,r in enumerate(report.get('unified_relations',[]))])
             con.commit()
         return result
     except BaseException:result.cleanup();raise
@@ -341,3 +376,5 @@ def page(path,section='transformation_steps',offset=0,limit=50,q=''):
 def markdown(path):
     from tm1_insight.architecture_extraction import markdown as readable
     yield from readable(path)
+    from tm1_insight.unified_relations import markdown as relationships
+    yield from relationships(path)

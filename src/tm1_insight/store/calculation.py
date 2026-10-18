@@ -14,7 +14,10 @@ def inspect(con, name, *, catalogs=None):
     except (ValueError, TypeError): parameters = []
     names = [p.get('Name',p.get('name','')) if isinstance(p,dict) else p for p in parameters] if isinstance(parameters,list) else []
     names = [p for p in names if isinstance(p,str) and p]
-    result = worksheet(name, tuple(value or '' for value in row[:4]), catalogs, names, retain_constants=True)
+    from tm1_insight.store.data_row import context, attach
+    parts = tuple(value or '' for value in row[:4])
+    row_context, row_symbols = context(con, name, parts, catalogs, names)
+    result = worksheet(name, parts, catalogs, names, retain_constants=True, row_symbols=row_symbols)
     constants=result.pop('_constant_values',{})
     from tm1_insight.learning.calculation import SENSITIVE
     result['parameter_names'] = [p for p in names if not SENSITIVE.search(p)]
@@ -57,6 +60,7 @@ def inspect(con, name, *, catalogs=None):
             write['trace_status']='PARTIAL'
     _coordinate_bindings(con,result,constants)
     result['cube_structures'] = structures
+    attach(result, row_context)
     return result
 
 
@@ -69,6 +73,8 @@ def _coordinate_bindings(con,report,constants):
         if kind in {'variable','assignment'} and n['children']:
             b=binding(n['children'][0],depth+1);return dict(b,evidence=evidence+b['evidence'])
         if kind=='parameter':return dict(kind='PARAMETER',expression=n['name'],evidence=evidence)
+        if kind=='data_row':return dict(kind='DATA_ROW_VARIABLE',expression=n['name'],evidence=[],
+            metadata_evidence=n['binding']['evidence'])
         if kind=='number':return dict(kind='NUMBER',expression=n['value'],value=n['value'],evidence=evidence)
         if kind=='read' and n['resolution']=='resolved':return dict(kind='LOOKUP_COORDINATE',expression=n['operation']+'('+n['cube']+', …)',source_cube=n['cube'],evidence=evidence)
         if kind=='redacted_string':return dict(kind='LITERAL_CANDIDATE',_value=constants.get(index),evidence=evidence)

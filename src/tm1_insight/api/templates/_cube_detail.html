@@ -86,8 +86,8 @@
       {% if lineage.upstream_of_sources.get(s.name) %}
       <div class="flow-path">
         <div class="flow-path-head">
-          <span class="flow-step-label">搬运 TI</span>
-          <span class="muted small">这些 TI 从上面这个源头取数，写入本 Cube</span>
+          <span class="flow-step-label">相关读写 TI</span>
+          <span class="muted small">同一 TI 的读取与写入观察；值依赖需在数据形成中核对</span>
         </div>
         <div class="flow-path-chain">
           <a class="cube-chip flow-source" href="/explorer/cube/{{ s.name }}">{{ s.name }}</a>
@@ -105,7 +105,7 @@
     </div>
     {% endfor %}
   {% else %}
-    <p class="muted small">没有 TI 把别的 Cube 数据搬进本 Cube——它可能是最底层的源数据 Cube（数据从外部系统直接进来），或仅由前端 / Rule 写入。</p>
+    <p class="muted small">当前索引未记录可展示的源 Cube 读写关联；不能据此判断它是底层源数据，或排除其他输入方式。</p>
   {% endif %}
 </div>
 
@@ -279,9 +279,96 @@
 <!-- ============ 规则 ============ -->
 <div class="card" id="rules">
   <h2>规则 {% if cube.has_rules %}<span class="tag rule">有规则</span>{% endif %}</h2>
+
+  {% if rule_semantics and rule_semantics.available %}
+    {% if rule_semantics.directives %}
+    <div class="dim-tags" style="margin-bottom:8px;">
+      <span class="muted small">规则行为指令：</span>
+      {% for d in rule_semantics.directives %}
+      <span class="tag dim-mini" title="规则文件顶部行为指令">{{ d.kind }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="rule-semantics" style="margin-top:6px;">
+      {% for r in rule_semantics.rules %}
+      <details class="rule-ir" {% if loop.first and rule_semantics.rules|length <= 3 %}open{% endif %}>
+        <summary class="rule-ir-summary">
+          <span class="mono-dim">L{{ r.line_start }}{% if r.line_end != r.line_start %}–{{ r.line_end }}{% endif %}</span>
+          <span class="tag op">{{ r.qualifier or '计算' }}</span>
+          {% if r.special %}<span class="tag" title="特殊语义">{{ r.special }}</span>{% endif %}
+          {% if r.db_references %}
+            {% for d in r.db_references %}
+            <a class="cube-chip flow-source" href="/explorer/cube/{{ d.cube }}" onclick="event.stopPropagation();">{{ d.cube }}</a>
+            {% endfor %}
+          {% endif %}
+          {% if r.conditions %}<span class="tag" title="含条件分支">条件 {{ r.conditions|length }}</span>{% endif %}
+          {% if r.status != 'PARSED' %}<span class="tag warn" title="未完全解析">{{ r.status }}</span>{% endif %}
+        </summary>
+        <div class="rule-ir-body">
+          <div class="rule-ir-target">
+            <strong>目标区域：</strong>
+            <code class="var-inline">{{ r.lhs.raw }}</code>
+          </div>
+          {% if r.lhs.coordinates %}
+          <div class="rule-ir-dims dim-tags" style="margin-top:4px;">
+            {% for c in r.lhs.coordinates %}
+              <span class="tag dim-mini" title="{{ c.dimension or '位置维度' }}">
+                {% if c.dimension %}{{ c.dimension }}{% else %}·{% endif %}：
+                {% if c.member %}{{ c.member }}{% elif c.members %}{{ c.members|join(', ') }}{% elif c.raw %}{{ c.raw }}{% endif %}
+              </span>
+            {% endfor %}
+          </div>
+          {% endif %}
+          <div class="rule-ir-expr" style="margin-top:4px;">
+            <strong>计算表达式：</strong>
+            <code class="var-inline">{{ r.rhs.expression }}</code>
+          </div>
+          {% if r.attribute_calls %}
+          <div class="muted small" style="margin-top:4px;">属性查询：
+            {% for a in r.attribute_calls %}<code class="var-inline">{{ a.func }}({{ a.args|join(', ') }})</code>{% if not loop.last %} · {% endif %}{% endfor %}
+          </div>
+          {% endif %}
+          {% if r.unresolved_reasons %}
+          <div class="muted small" style="margin-top:4px;">⚠ {{ r.unresolved_reasons|join('；') }}</div>
+          {% endif %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+
+    {% if rule_semantics.feeders %}
+    <h3 style="margin-top:14px;">Feeder 馈送关系 <span class="muted small">（稀疏性支持，非数值公式）</span></h3>
+    <div class="rule-semantics">
+      {% for f in rule_semantics.feeders %}
+      <details class="feeder-ir" {% if loop.first and rule_semantics.feeders|length <= 3 %}open{% endif %}>
+        <summary class="rule-ir-summary">
+          <span class="mono-dim">L{{ f.line_start }}</span>
+          <span class="tag">Feeder</span>
+          {% if f.target_area and f.target_area.db %}
+          <a class="cube-chip flow-source" href="/explorer/cube/{{ f.target_area.db.cube }}" onclick="event.stopPropagation();">{{ f.target_area.db.cube }}</a>
+          {% endif %}
+          {% if f.status != 'PARSED' %}<span class="tag warn">{{ f.status }}</span>{% endif %}
+        </summary>
+        <div class="rule-ir-body">
+          <div><strong>源区域：</strong><code class="var-inline">{{ f.source_area.raw }}</code></div>
+          <div style="margin-top:4px;"><strong>目标区域：</strong><code class="var-inline">{{ f.target_area.raw }}</code></div>
+          {% if f.unresolved_reasons %}
+          <div class="muted small" style="margin-top:4px;">⚠ {{ f.unresolved_reasons|join('；') }}</div>
+          {% endif %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endif %}
+
   {% if cube.rules.strip() %}
-  <pre class="code" data-highlight="rules">{{ cube.rules }}</pre>
-  {% else %}
+  <details class="rule-raw" style="margin-top:10px;">
+    <summary>查看原始 Rule 源码</summary>
+    <pre class="code" data-highlight="rules">{{ cube.rules }}</pre>
+  </details>
+  {% elif not (rule_semantics and rule_semantics.rules) %}
   <p class="muted">（无规则）</p>
   {% endif %}
 </div>

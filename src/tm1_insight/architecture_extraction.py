@@ -189,7 +189,8 @@ def markdown(path):
     yield '# 模块架构说明\n\n## 1. 模块概览\n\n'
     yield ('入口 Cube：**' if h['module']['kind']=='cube_scope' else '入口 TI：**')+safe(h['module']['name'])+'**\n\n'
     yield h['boundary']['note']+'\n\n'
-    yield '核心 Cube：'+names(c['name'] for c in core)+'。\n\n读取对象：'+names(h['input_outputs']['inputs'])+'。\n\n写入对象：'+names(h['input_outputs']['outputs'])+'。\n\n'
+    spec=h.get('workflow_spec',{})
+    yield '核心 Cube：'+names(c['name'] for c in core)+'。\n\n值依赖或 VIEW 输入观察：'+names(spec.get('main_inputs',h['input_outputs']['inputs']))+'。\n\n写入对象：'+names(h['input_outputs']['outputs'])+'。'+('业务用途尚未人工确认；控制/坐标查找读取在步骤内单独说明。' if spec else '')+'\n\n'
     yield '本报告为静态源码与模型事实，不证明运行结果。逐项证据见 Architecture.json 对应摘要的 evidence_refs 和 Evidence.json；原始诊断见 Diagnostics.json。\n\n'
     yield '## 2. 数据模型\n\n'
     for c in core:
@@ -251,7 +252,7 @@ def markdown(path):
     yield '\nFeeder 属于稀疏计算支持关系，不直接产生业务数据值。外部规则消费者只列为边界依赖，不成为核心计算。\n\n## 6. 模块边界与迁移关注点\n\n'
     external=[c for c in records(path,'cubes') if c['module_role']!='CORE']
     yield '- 外部 / 技术 Cube：'+names(c['name'] for c in external)+'。\n'
-    _,total,_=page(path,'downstream_consumers');yield '- 边界外消费者记录 '+str(total)+' 条；仅按标明的源码读取或目录候选理解，不扩展为其他核心模块。\n'
+    _,total,_=page(path,'downstream_consumers');verified=[c['process'] for c in records(path,'downstream_consumers') if c.get('status')=='SOURCE_CONFIRMED'];yield '- 边界外消费者记录 '+str(total)+' 条；源码确认读取：'+names(verified)+'。其余仅为目录候选，不扩展为其他核心模块或推断消费者结果写入。\n'
     for q in h['key_questions']+h['migration_notes']:yield '- '+safe(q)+'\n'
     issues=[u for u in records(path,'unresolved_dependencies') if not u.get('diagnostic') and not u['process'].startswith('}') and any(x in u['message'] for x in ('预算','超过','动态','数据源','赋值'))]
     for u in issues:yield '- '+safe(u['process'])+'：'+safe(u['message'])+'\n'
@@ -278,7 +279,9 @@ def package(path):
         with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED) as z:
             with z.open(entry('Architecture.json'),'w',force_zip64=True) as dest,open(path,'rb') as source:
                 shutil.copyfileobj(source,dest,length=65536)
-            for name,chunks in [('Architecture.md',markdown(path)),('Evidence.json',json_section(path,'evidence')),('Diagnostics.json',json_section(path,'diagnostics'))]:
+            from tm1_insight.unified_relations import json_export, markdown as relation_markdown
+            from itertools import chain
+            for name,chunks in [('Architecture.md',chain(markdown(path),relation_markdown(path))),('UnifiedRelations.json',json_export(path)),('Evidence.json',json_section(path,'evidence')),('Diagnostics.json',json_section(path,'diagnostics'))]:
                 with z.open(entry(name),'w',force_zip64=True) as f:
                     for chunk in chunks:f.write(chunk.encode('utf-8'))
         out.seek(0)

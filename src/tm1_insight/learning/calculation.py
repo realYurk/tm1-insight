@@ -13,7 +13,7 @@ import re
 from tm1_insight.learning.syntax import calls, expression, statements, SECTIONS
 from tm1_insight.learning.understanding import analyze, structure, _assigned
 
-VERSION = "ti-calculation-worksheet-7"
+VERSION = "ti-calculation-worksheet-8"
 MAX_CODE = 250_000
 MAX_NODES = 5000
 SENSITIVE = re.compile(r"password|passwd|secret|token|credential|sso|pin(?:code)?$", re.I)
@@ -146,7 +146,7 @@ class Builder:
         return dict(read_nodes=reads, unknown_nodes=unknowns, definition_nodes=definitions)
 
 
-def worksheet(name, parts, catalogs, parameters=(), *, retain_constants=False):
+def worksheet(name, parts, catalogs, parameters=(), *, retain_constants=False, row_symbols=None):
     report = dict(schema=VERSION, process=name, source_hash=hashlib.sha256(json.dumps(dict(zip(SECTIONS, parts)), sort_keys=True).encode()).hexdigest(),
                   runtime_verified=False, status="PARTIAL", nodes=[], writes=[], calls=[], observations=[], diagnostics=[], control_reads=[],
                   scope="single_process_no_callee_expansion", strings_redacted=True)
@@ -302,6 +302,16 @@ def worksheet(name, parts, catalogs, parameters=(), *, retain_constants=False):
             written = _assigned(root)
             builder.invalid_parameters.update(written & builder.parameters)
             if index in {1, 2}: env = {k:v for k,v in env.items() if k not in written}
+            if index in {1, 2}:
+                # Fresh datasource variables for a row. Metadata reassignments are
+                # deliberately not propagated through the existing section boundary.
+                for key, symbol in (row_symbols or {}).items():
+                    if index == 2 and key in _assigned(roots[1]):
+                        env[key] = builder.add('unknown', dict(section=SECTIONS[index],line=0,column=0),
+                            name=symbol['name'],reason='Metadata 对行变量重新赋值；跨 Section 行状态传播未支持')
+                    else:
+                        env[key] = builder.add('data_row', dict(section=SECTIONS[index],line=0,column=0), **symbol)
+                        builder.nodes[env[key]]['evidence'] = symbol['binding']['evidence']
             incoming = dict(env)
             env = visit(root, env)
             if index in {1, 2}: env = {k:v for k,v in incoming.items() if k not in written}

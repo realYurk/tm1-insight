@@ -71,15 +71,15 @@ def _map_process(raw: dict) -> dict:
     """TM1Client.fetch_process 的 raw dict → ProcessPayload。
 
     raw.parameters 是 [{"name", "type", "default_value"}]，canonical 只要
-    [{"name"}]。四段 prolog/metadata/data/epilog 直接保留。datasource 等
-    额外 metadata 不写入 canonical（避免破坏 Schema 字段）。
+    [{"name"}] 保留兼容；完整定义另存 parameter_definitions。Variables、
+    DataSource、source_view 为可选增量字段；旧 payload 不要求补全。
     """
     parameters = [
         {"name": p.get("name", "")}
         for p in (raw.get("parameters") or [])
         if p.get("name")
     ]
-    return {
+    result = {
         "name": raw.get("name", ""),
         "parameters": parameters,
         "prolog": raw.get("prolog", "") or "",
@@ -87,6 +87,12 @@ def _map_process(raw: dict) -> dict:
         "data": raw.get("data", "") or "",
         "epilog": raw.get("epilog", "") or "",
     }
+    # Optional additions preserve old snapshots and distinguish missing from [].
+    for key in ("variables", "datasource", "source_view"):
+        if key in raw:
+            result[key] = raw[key]
+    result["parameter_definitions"] = [dict(p) for p in (raw.get("parameters") or []) if p.get("name")]
+    return result
 
 
 def _map_cube(raw: dict) -> dict:

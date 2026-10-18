@@ -23,6 +23,8 @@
 
 Cube 数据形成按写入索引发现候选并验证源码，独立展示写入、VIEW 来源、静态值依赖、Rule/Feeder、结构汇总与未知输入。固定坐标只公开经维度成员目录核对的值；条件表达式、坐标查找与数值贡献分别记录。详见 [Cube-Centric 1.0 审查与交付](docs/CUBE_CENTRIC_1_0_PROGRESS.md) 和 [完整合成报告](docs/EXAMPLE_CUBE_FORMATION_1_0.md)。
 
+Data Row Lineage 1.0 在元数据充分时，将 NativeView 行变量、赋值和算术表达式连接到目标写入。变量列位置、来源字段、Cube 坐标和值依赖分别确认；MDX 布局和旧快照缺失字段保留未知。支持指定 1–20 个 Process 的只读元数据补采及独立离线导入，详见 [数据契约、补采命令与限制](docs/DATA_ROW_LINEAGE_1_0.md)。
+
 默认最多 100 个 TI / 16 层 / 1000 个展开模型节点，可调整分析边界；直接辅助源码保留效果，默认不展开辅助内部调用。Rule 消费者留在边界外，Chore 不沿共享辅助反向归属。循环安全，支持真实阶段进度、协作取消和分页索引。只加载局部 TI 代码，复用现有 Workflow、Calculation、DuckDB 与 Dimension Explorer。动态或不支持的语义以具体待核对提示呈现，技术诊断按需展开。第一版未执行 TI、未证明运行结果、未生成最终关系表，也未集成 AI。
 
 主导航为模型资产、数据血缘、系统架构、代码生成；其他分析、知识、经验与快照保留在高级工具中。本轮根因、验证和限制见 [Architecture Extraction v2 交付记录](docs/DELIVERY_ARCHITECTURE_V2.md)，人读格式见 [完整合成报告](docs/EXAMPLE_ARCHITECTURE_V2.md)。

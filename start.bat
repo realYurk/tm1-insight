@@ -2,9 +2,11 @@
 REM ============================================================
 REM  TM1 Insight one-click launcher
 REM  Double-click to start the Web UI. No manual commands needed.
-REM  First run auto-installs dependencies (1-2 min, needs internet).
+REM  --check validates startup without launching a server or pausing.
+REM  --no-browser launches the existing Web command without opening a browser.
+REM  No automatic installation or environment changes.
 REM ============================================================
-setlocal
+setlocal DisableDelayedExpansion
 chcp 65001 >nul
 
 cd /d "%~dp0"
@@ -13,7 +15,7 @@ echo.
 echo  [TM1 Insight] Checking Python environment...
 
 REM ---- 1. Locate a REAL Python interpreter ----
-REM Priority: known installs first (most reliable), then PATH, then py launcher.
+REM Priority: project .venv, known installs, PATH, then py launcher.
 REM We resolve full paths and reject WindowsApps stubs (which exit code 49 silently).
 set "PY="
 set "PYARGS="
@@ -29,7 +31,7 @@ if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
 REM 1b. resolve "python" on PATH to its full path, reject WindowsApps stub
 if not defined PY (
     for /f "delims=" %%i in ('where python 2^>nul') do (
-        echo %%i | findstr /i "WindowsApps" >nul
+        echo "%%i" | findstr /i "WindowsApps" >nul
         if not errorlevel 1 (
             REM skip stub
         ) else (
@@ -49,94 +51,71 @@ if not defined PY (
 
 if not defined PY (
     echo  [ERROR] No usable Python found. Please install Python 3.9+ and check "Add to PATH".
-    echo          Download: https://www.python.org/downloads/
-    pause
-    exit /b 1
+    set "START_EXIT=1"
+    goto startup_failed
 )
 
-echo  [TM1 Insight] Using Python: %PY%
+echo  [TM1 Insight] Using Python: "%PY%"
 
-REM ---- 2. Report actual Python version and gate on unsupported versions ----
-REM    Show the real version so we never silently use another machine's global Python.
-REM    Exit early with a clear message (not an internal stack trace) if below 3.9.
-set "PYVER="
-for /f "tokens=2 delims= " %%v in ('"%PY%" %PYARGS% -c "import sys;print(sys.version.split()[0])" 2^>nul') do set "PYVER=%%v"
-if not defined PYVER (
-    echo  [ERROR] Could not determine Python version: %PY%
-    echo          This may be a WindowsApps stub or a broken install.
-    echo          Please install official Python 3.9+ and check "Add to PATH".
-    pause
-    exit /b 1
-)
-echo  [TM1 Insight] Python version: %PYVER%
+REM ---- 2. Execute Python directly; never parse --version or FOR /F output ----
+REM Keep stderr visible. A broken project .venv must not silently fall back to PATH.
+"%PY%" %PYARGS% -c "import sys; print('[TM1 Insight] Python version:', sys.version.split()[0]); print('[TM1 Insight] Interpreter:', sys.executable)"
+if not "%ERRORLEVEL%"=="0" goto python_unavailable
 
-REM    Parse major.minor: extract the digits around the first "." to check >= 3.9
-for /f "tokens=1 delims=." %%a in ("%PYVER%") do set "PYMAJOR=%%a"
-for /f "tokens=2 delims=." %%b in ("%PYVER%") do set "PYMINOR=%%b"
-if not defined PYMINOR set "PYMINOR=0"
-
-REM    Only major < 3 always fails; major == 3 requires minor >= 9
-set "OKPY=0"
-if %PYMAJOR% GTR 3 set "OKPY=1"
-if %PYMAJOR% EQU 3 if %PYMINOR% GEQ 9 set "OKPY=1"
-
-if "%OKPY%"=="0" (
-    echo.
-    echo  [ERROR] Detected Python %PYVER%, which is below the minimum 3.9.
-    echo          TM1 Insight requires Python 3.9 or newer to run from source.
-    echo          Install Python 3.9+ here: https://www.python.org/downloads/
-    echo          This project will not auto-upgrade or modify your system Python.
-    echo.
-    pause
-    exit /b 1
-)
+"%PY%" %PYARGS% -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 2)"
+REM Read ERRORLEVEL outside parentheses to avoid expansion of a stale value.
+set "PY_CHECK_EXIT=%ERRORLEVEL%"
+if "%PY_CHECK_EXIT%"=="2" goto python_too_old
+if not "%PY_CHECK_EXIT%"=="0" goto python_unavailable
 
 REM ---- 3. Check dependencies ----
-REM NOTE: the package is named TM1py (capital T). Importing lowercase tm1py
-REM always raises ModuleNotFoundError, which would wrongly trigger reinstall.
-"%PY%" %PYARGS% -c "import fastapi, uvicorn, duckdb, TM1py, jinja2" >nul 2>nul
-if errorlevel 1 goto install_deps
-goto start_web
-
-:install_deps
-echo.
-echo  [TM1 Insight] First run: installing dependencies (may take 2-5 min)...
-echo  [TM1 Insight] Trying aliyun mirror first, falling back to tsinghua mirror.
-echo.
-"%PY%" %PYARGS% -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple --timeout 60
-if errorlevel 1 goto install_deps_tsinghua
-goto start_web
-
-:install_deps_tsinghua
-echo  [TM1 Insight] Aliyun mirror failed, retrying tsinghua mirror...
-"%PY%" %PYARGS% -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 60
-if errorlevel 1 goto install_deps_fail
-goto start_web
-
-:install_deps_fail
-echo.
-echo  [ERROR] Dependency install failed. Possible reasons:
-echo         1. No access to PyPI mirror (corporate firewall/proxy)
-echo         2. Python version too old (need 3.9+) or too new
-echo         3. Not enough disk space
-echo.
-echo  Try manually:  %PY% -m pip install -r requirements.txt
-echo.
-pause
-exit /b 1
+REM TM1py is case-sensitive. Preserve the real import exception; never auto-install.
+"%PY%" %PYARGS% -c "import fastapi, uvicorn, duckdb, TM1py, jinja2"
+if not "%ERRORLEVEL%"=="0" goto dependencies_failed
+set "PYTHONPATH=%~dp0src;%PYTHONPATH%"
+"%PY%" %PYARGS% -c "import tm1_insight.cli; import tm1_insight.api.app; print('[TM1 Insight] Startup checks passed.')"
+if not "%ERRORLEVEL%"=="0" goto entry_failed
+if /i "%~1"=="--check" exit /b 0
 
 :start_web
 REM ---- 3. Start Web UI (auto-open browser) ----
 echo.
-echo  [TM1 Insight] Starting Web UI. Browser opens once after the selected port is ready.
+echo  [TM1 Insight] Starting Web UI. Browser opens unless --no-browser was selected.
 echo  [TM1 Insight] Close this window to stop the service.
 echo.
 
-REM Point PYTHONPATH at src (tm1_insight lives under src, no pip install -e needed)
-set "PYTHONPATH=%~dp0src;%PYTHONPATH%"
-"%PY%" %PYARGS% -m tm1_insight.cli web
+"%PY%" %PYARGS% -m tm1_insight.cli web %*
+set "START_EXIT=%ERRORLEVEL%"
+if "%START_EXIT%"=="0" exit /b 0
 
 REM If we reach here the web command exited unexpectedly; keep window open.
 echo.
 echo  [ERROR] Web service failed to start. See error messages above.
-pause
+goto startup_failed
+
+:python_unavailable
+echo  [ERROR] Selected Python could not run the startup probe. See the actual error above.
+echo          Selected interpreter: "%PY%"
+echo          The project environment was not changed; no fallback interpreter was used.
+set "START_EXIT=1"
+goto startup_failed
+
+:python_too_old
+echo  [ERROR] The selected interpreter runs, but Python 3.9 or newer is required.
+echo          No Python installation or virtual environment was changed.
+set "START_EXIT=2"
+goto startup_failed
+
+:dependencies_failed
+echo  [ERROR] Required dependencies could not be imported. See the actual exception above.
+echo          No packages were installed. Review requirements.txt in your managed environment.
+set "START_EXIT=3"
+goto startup_failed
+
+:entry_failed
+echo  [ERROR] Project entry import failed. See the actual exception above.
+set "START_EXIT=4"
+
+:startup_failed
+if /i not "%~1"=="--check" pause
+exit /b %START_EXIT%

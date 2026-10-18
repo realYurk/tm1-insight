@@ -2,6 +2,14 @@
 {% block title %}系统架构 · TM1 Insight{% endblock %}
 {% block content %}
 <header class="page-head"><div><h1 class="page-title">系统架构</h1><p class="page-sub">数据从哪里来，经过哪些处理，结果写到哪里。</p></div></header>
+{% set source = current_data_source() %}{% set build = build_info() %}{% set model = model_fingerprint() %}
+<section class="architecture-identity" aria-label="当前运行版本与模型">
+  <strong>{{ '本地真实模型' if source.type == 'real_local' else source.label }}</strong>
+  <span>{{ '可用' if source.ready else '不可用，请检查数据源' }} · 模型 {{ model[:12] }}</span>
+  <span>{{ source.counts.get('cubes',0) }} Cube · {{ source.counts.get('processes',0) }} TI · {{ source.counts.get('dimensions',0) }} Dimension · {{ source.counts.get('chores',0) }} Chore</span>
+  <span>v{{ build.version }} · {{ 'Portable' if build.packaged else '源码工作区' }} · 架构 r{{ architecture_revision }}{% if build.build_time %} · 构建 {{ build.build_time }}{% endif %}</span>
+  <a href="/settings#data-source">查看 / 选择本地模型</a>
+</section>
 <form id="ar-start" class="workflow-start" data-auto="{{ '1' if analyze else '0' }}">
   <label for="ar-kind">入口类型</label><select id="ar-kind" class="input"><option value="process" {{ 'selected' if kind=='process' else '' }}>TI Process</option><option value="cube" {{ 'selected' if kind=='cube' else '' }}>Cube 数据形成</option></select><label for="ar-name">入口对象</label><div class="workflow-search"><input class="input" id="ar-name" value="{{ name }}" required maxlength="1000" placeholder="搜索入口名称或名称片段" autocomplete="off"><button class="btn primary" id="ar-submit">探索架构</button></div>
   <div id="ar-options" class="workflow-options" hidden></div>
@@ -11,10 +19,10 @@
 <section id="ar-progress" class="job-progress" hidden><p id="ar-state" role="status"></p><progress id="ar-bar"></progress><button type="button" class="btn ghost" id="ar-cancel">取消</button></section>
 <section id="ar-workspace" hidden>
   <p id="ar-root" class="architecture-entry"></p><p class="muted small">局部架构 · 静态源码与模型事实 · 运行路径及迁移等价仍需验证</p>
-  <div class="study-actions" aria-label="架构视图">{% for key,label in [('overview','模块概览'),('cubes','数据模型'),('write_explanations','数据形成'),('transformation_steps','加工链路'),('execution_relationships','调用与调度'),('export','架构导出')] %}<button type="button" class="btn ghost" data-ar-view="{{ key }}">{{ label }}</button>{% endfor %}</div>
+  <div class="study-actions" aria-label="架构视图">{% for key,label in [('overview','模块概览'),('cubes','数据模型'),('write_explanations','数据形成'),('transformation_steps','加工链路'),('unified_relations','关系与计算'),('execution_relationships','调用与调度'),('export','架构导出')] %}<button type="button" class="btn ghost" data-ar-view="{{ key }}">{{ label }}</button>{% endfor %}</div>
   <form id="ar-filter" class="architecture-filter"><input class="input" id="ar-query" placeholder="在当前视图内搜索名称" aria-label="架构范围内搜索"><button class="btn ghost">查找</button><label><input type="checkbox" id="ar-technical"> 显示技术辅助项</label></form>
   <div id="ar-content" aria-live="polite"></div>
   <div id="ar-pager" class="workflow-pager"><button type="button" class="btn ghost" id="ar-prev">上一页</button><span id="ar-page"></span><button type="button" class="btn ghost" id="ar-next">下一页</button></div>
 </section>
 {% endblock %}
-{% block scripts %}<script src="/static/architecture.js?v=cube-formation-1.1" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/architecture.js?v=unified-relations-1" defer></script>{% endblock %}

@@ -48,7 +48,7 @@ def manager():
 @router.get('/architecture')
 def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube']='process'):
     from tm1_insight.api.app import templates
-    return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind))
+    return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,architecture_revision=architecture.REVISION))
 
 
 @router.post('/api/architecture/tasks',status_code=202)
@@ -104,20 +104,58 @@ def cancel(task:str):
 
 
 @router.get('/api/architecture/tasks/{task}/result')
-def result(task:str,view:str='transformation_steps',offset:int=Query(0,ge=0),limit:int=Query(25,ge=1,le=100),q:str=Query('',max_length=1000),include_technical:bool=False,target_cube:str=Query('',max_length=1000)):
+def result(task:str,view:str='transformation_steps',offset:int=Query(0,ge=0),limit:int=Query(25,ge=1,le=100),q:str=Query('',max_length=1000),include_technical:bool=False,target_cube:str=Query('',max_length=1000),relation_group:Literal['','execution','data','rule','feeder','structure']='',confirmed_only:bool=False):
     if view not in architecture.SECTIONS:raise HTTPException(422,'无效架构视图。')
     artifact=path(task)
-    if view=='write_explanations':
+    if view in {'write_explanations','unified_relations'}:
         header,_,_=architecture.page(artifact,view,0,1)
         where="section=? AND instr(search,?)>0";args=[view,q.casefold()]
-        if not include_technical:where+=" AND coalesce(json_extract(payload,'$.technical'),0)=0 AND json_extract(payload,'$.cube') IS NOT NULL"
-        if target_cube:where+=" AND json_extract(payload,'$.cube')=?";args.append(target_cube)
+        if not include_technical:
+            where+=" AND coalesce(json_extract(payload,'$.technical'),0)=0"
+            if view=='write_explanations':where+=" AND json_extract(payload,'$.cube') IS NOT NULL"
+            else:where+=" AND json_extract(payload,'$.status')!='UNKNOWN' AND coalesce(json_extract(payload,'$.detail_only'),0)=0"
+        if target_cube and view=='write_explanations':where+=" AND json_extract(payload,'$.cube')=?";args.append(target_cube)
+        if view=='unified_relations' and relation_group:
+            groups={'execution':['PROCESS_CALL','EXECUTION_REACHABILITY','CHORE_SCHEDULE'],
+                    'data':['CUBE_READ','CUBE_WRITE','TI_WRITE_SLICE','VIEW_DATASOURCE','STATIC_VALUE_DEPENDENCY','CANDIDATE_FORMATION'],
+                    'rule':['RULE_TARGET','RULE_DB_REFERENCE'],'feeder':['FEEDER_OWNER','FEEDER_DB_REFERENCE'],
+                    'structure':['CUBE_DIMENSION']}
+            kinds=groups[relation_group]
+            where+=" AND json_extract(payload,'$.relation_kind') IN ("+','.join('?' for _ in kinds)+')';args.extend(kinds)
         with closing(workflow.connection(artifact)) as con:
+            total=con.execute('SELECT count(*) FROM items WHERE '+where,args).fetchone()[0]
+            items=[json.loads(row[0]) for row in con.execute('SELECT payload FROM items WHERE '+where+' ORDER BY position LIMIT ? OFFSET ?',args+[limit,offset]).fetchall()]
+    elif view=='downstream_consumers' and confirmed_only:
+        header,_,_=architecture.page(artifact,view,0,1)
+        with closing(workflow.connection(artifact)) as con:
+            where="section=? AND json_extract(payload,'$.status')='SOURCE_CONFIRMED' AND instr(search,?)>0"
+            args=[view,q.casefold()]
             total=con.execute('SELECT count(*) FROM items WHERE '+where,args).fetchone()[0]
             items=[json.loads(row[0]) for row in con.execute('SELECT payload FROM items WHERE '+where+' ORDER BY position LIMIT ? OFFSET ?',args+[limit,offset]).fetchall()]
     else:header,total,items=architecture.page(artifact,view,offset,limit,q)
     state(task)
     return JSONResponse(dict(header=header,total=total,items=items),headers={'Cache-Control':'no-store'})
+
+
+@router.get('/api/architecture/tasks/{task}/relation-fact')
+def relation_fact(task:str,id:str=Query(...,pattern=r'^u[0-9a-f]{64}$')):
+    with closing(workflow.connection(path(task))) as con:
+        row=con.execute("SELECT payload FROM items WHERE section='relation_evidence' AND json_extract(payload,'$.id')=?",[id]).fetchone()
+    if row is None:raise HTTPException(404,'关系证据不存在。')
+    state(task)
+    return JSONResponse(json.loads(row[0]),headers={'Cache-Control':'no-store'})
+
+
+@router.get('/api/architecture/tasks/{task}/relation-context')
+def relation_context(task:str,ref:str=Query(...,pattern=r'^/(rules/[0-9]+/(rule_semantics|feeder_semantics)/[0-9]+|write_explanations/[0-9]+)$')):
+    """One existing statement/write resource on demand, never duplicate it on every edge."""
+    parts=ref.strip('/').split('/')
+    _,_,items=architecture.page(path(task),parts[0],int(parts[1]),1)
+    try:
+        context=items[0] if parts[0]=='write_explanations' else items[0][parts[2]][int(parts[3])]
+    except (IndexError,KeyError) as exc:raise HTTPException(404,'该证据上下文不存在。') from exc
+    state(task)
+    return JSONResponse(context,headers={'Cache-Control':'no-store'})
 
 
 @router.get('/api/architecture/tasks/{task}/implementation')
@@ -152,8 +190,11 @@ def evidence(task:str,process:str=Query(...,max_length=1000),section:Literal['pr
 
 
 @router.get('/api/architecture/tasks/{task}/export')
-def export(task:str,format:Literal['json','markdown','zip','evidence','diagnostics']='json'):
+def export(task:str,format:Literal['json','markdown','zip','evidence','diagnostics','relations']='json'):
     artifact=path(task)
+    if format=='relations':
+        from tm1_insight.unified_relations import json_export
+        return StreamingResponse(json_export(artifact),media_type='application/json',headers={'Content-Disposition':'attachment; filename=UnifiedRelations.json','Cache-Control':'no-store'})
     if format=='json':return FileResponse(artifact,media_type='application/json',filename='Architecture.json',headers={'Cache-Control':'no-store'})
     if format in {'zip','evidence','diagnostics'}:
         from tm1_insight.architecture_extraction import package, json_section

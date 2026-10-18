@@ -135,6 +135,7 @@ class Settings(BaseSettings):
     tm1_password: str = ""     # 必填：通过 .env / 环境变量提供，绝不明文写死
     tm1_ssl: bool = False
     tm1_namespace: str = ""    # 可选：CAM 命名空间，按环境填写
+    tm1_ca_bundle: Path | None = None  # Metadata recovery: trusted PEM CA; verification cannot be disabled
 
     # ---- 采集 ----
     tm1_max_workers: int = 8

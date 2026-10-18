@@ -728,6 +728,43 @@ def cube_summary(con: duckdb.DuckDBPyConnection, cube: str) -> dict:
     }
 
 
+def cube_rule_semantics(con: duckdb.DuckDBPyConnection, cube: str) -> dict:
+    """输入 Cube → 解析后的 Rule/Feeder 语义 IR（可解释计算逻辑）。
+
+    纯本地解析：读取该 Cube 的 rules 源码 + 维度顺序，经 rule_semantics 解析器
+    产出结构化 IR。不连接服务器、不执行规则；无法解析的表达式标记 UNKNOWN。
+    """
+    from tm1_insight.learning.rule_semantics import parse_rule_semantics
+
+    row = con.execute(
+        "SELECT rules FROM cubes WHERE name = ?", [cube]
+    ).fetchone()
+    if not row:
+        return {"cube": cube, "available": False, "reason": "cube 不存在"}
+    code = row[0] or ""
+    dims = [r[0] for r in con.execute(
+        "SELECT dimension_name FROM cube_has_dimension WHERE cube_name = ? ORDER BY dim_order",
+        [cube],
+    ).fetchall()]
+    cube_catalog = {r[0] for r in con.execute("SELECT name FROM cubes").fetchall()}
+    try:
+        parsed = parse_rule_semantics(code, cube, dims, cube_catalog)
+    except Exception as exc:  # 解析器必须降级，不抛给调用方
+        return {"cube": cube, "available": True, "error": str(exc),
+                "rules": [], "feeders": [], "directives": [], "unknowns": [
+                    {"cube":cube,"kind":"rule_source","reason":"Rule 解析器异常；源码结构未知","status":"UNKNOWN"}]}
+    return {
+        "cube": cube,
+        "available": True,
+        "dimensions": dims,
+        "source_hash": parsed["source_hash"],
+        "directives": parsed["directives"],
+        "rules": parsed["rules"],
+        "feeders": parsed["feeders"],
+        "unknowns": parsed["unknowns"],
+    }
+
+
 def cube_lineage(con: duckdb.DuckDBPyConnection, cube: str) -> dict:
     """深血缘：输入 Cube → 上游源头 Cube + 写入者 TI → 每个写入点的维度值 + 源头 + IF 条件。
 

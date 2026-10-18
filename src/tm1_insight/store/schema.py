@@ -11,6 +11,8 @@ from __future__ import annotations
 
 # 对象层：TM1 实体
 OBJECT_TABLES: dict[str, str] = {
+    "process_source_metadata": """CREATE TABLE IF NOT EXISTS process_source_metadata (
+        process_name TEXT PRIMARY KEY, payload TEXT)""",
     "cubes": """
         CREATE TABLE cubes (
             name TEXT PRIMARY KEY,

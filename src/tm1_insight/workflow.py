@@ -74,6 +74,7 @@ def reconstruct(report, write):
         n=nodes[index]
         if n['kind']=='parameter':return ('parameter',n['name'].casefold())
         if n['kind']=='number':return ('number',n['value'])
+        if n['kind']=='data_row':return ('data_row',n['name'].casefold())
         if n['kind'] in {'variable','assignment'} and n['children']:return signature(n['children'][0],depth+1)
         if n['kind'] in {'unary','binary'}:
             children=[signature(i,depth+1) for i in n['operands']]
@@ -81,11 +82,11 @@ def reconstruct(report, write):
         return None
     mappings=[write['coordinate_mapping'],*[nodes[i]['coordinate_mapping'] for i in write['read_nodes']]]
     keys=[tuple(signature(c['node']) for c in m['items']) for m in mappings]
-    compact=bool(keys[0] and all(c is not None for c in keys[0]) and all(m['status']=='recorded_order' for m in mappings)
+    compact=bool(not write.get('data_row_value_dependencies') and keys[0] and all(c is not None for c in keys[0]) and all(m['status']=='recorded_order' for m in mappings)
         and all(k==keys[0] for k in keys) and all([c['dimension'] for c in m['items']]==[c['dimension'] for c in mappings[0]['items']] for m in mappings))
     def coordinate(index):
         n=nodes[index]
-        if n['kind'] in {'parameter','number'}:return n.get('name',n.get('value'))
+        if n['kind'] in {'parameter','number','data_row'}:return n.get('name',n.get('value'))
         if n['kind']=='variable':
             definition=nodes[n['definition']]['evidence']
             return n['name']+'@'+str(definition['section'])+':'+str(definition['line'])+':'+str(definition['column'])
@@ -100,7 +101,7 @@ def reconstruct(report, write):
             return (cube or 'UNKNOWN')+'[UNKNOWN]'
         if any(not c.get('dimension_exists') for c in mapping['items']):unresolved.append('维度目录定义缺失')
         if any(c.get('binding',{}).get('kind') in {'UNRESOLVED','LOOKUP_COORDINATE'} for c in mapping['items']):unresolved.append('坐标固定成员或表达式尚未验证')
-        return cube+'['+','.join(c['dimension'] if compact else c['dimension']+'='+(c['binding']['expression'] if c.get('binding',{}).get('kind') in {'FIXED_MEMBER','PARAMETER','NUMBER'} else coordinate(c['node'])) for c in mapping['items'])+']'
+        return cube+'['+','.join(c['dimension'] if compact else c['dimension']+'='+(c['binding']['expression'] if c.get('binding',{}).get('kind') in {'FIXED_MEMBER','PARAMETER','NUMBER','DATA_ROW_VARIABLE'} else coordinate(c['node'])) for c in mapping['items'])+']'
     def render(index, depth=0):
         nonlocal visited_count
         visited_count+=1
@@ -109,6 +110,14 @@ def reconstruct(report, write):
         n=nodes[index];kind=n['kind']
         if kind=='number':return n['value']
         if kind=='parameter':return n['name']
+        if kind=='data_row':
+            if n['field_kind']=='CELL_VALUE' and n['source_cube']:
+                expected='String' if write['operation'].casefold()=='cellputs' else 'Numeric'
+                if n['binding']['type']!=expected:
+                    unresolved.append('行值类型与写入函数不匹配；隐式转换语义未确认')
+                return n['source_cube']+'['+','.join(c['dimension']+'='+c['variable'] for c in n['source_coordinates'])+']'
+            unresolved.append('行变量定义已知，但来源字段未确认或并非单元格值')
+            return 'ROW('+n['name']+')'
         if kind in {'assignment','variable'} and n['children']:return render(n['children'][0],depth+1)
         if kind=='read' and n['operation'].casefold()=='cellgetn' and n['resolution']=='resolved':
             return cell(n['cube'],n['coordinate_mapping'])
@@ -117,7 +126,7 @@ def reconstruct(report, write):
         unresolved.append(n.get('reason','值语义未支持'));return 'UNKNOWN'
     expression=render(write['value_node'])
     target=cell(write['cube'],write['coordinate_mapping'])
-    if write['operation'].casefold() not in {'cellputn','cellincrementn'}:
+    if write['operation'].casefold() not in {'cellputn','cellincrementn','cellputs'}:
         unresolved.append('这里只重建数值写入表达式')
     formula=target+(' += ' if write['operation'].casefold()=='cellincrementn' else ' = ')+expression
     if len(formula)>6000:
@@ -131,6 +140,12 @@ def reconstruct(report, write):
                 value_dependencies.append(dict(kind='value_dependency',status='STATIC_EXPRESSION_DEPENDENCY' if write['cube'] else 'PARTIAL_EXPRESSION_DEPENDENCY',
                     source_cube=read['cube'],target_cube=write['cube'],read_evidence=read['evidence'],
                     write_evidence=write['evidence'],runtime_verified=False))
+        for dep in write.get('data_row_value_dependencies',[]):
+            if dep['source_cube'] and dep['source_field'] and dep['source_field']['kind']=='CELL_VALUE':
+                value_dependencies.append(dict(kind='value_dependency',status='STATIC_VIEW_ROW_DEPENDENCY',
+                    source_cube=dep['source_cube'],target_cube=write['cube'],source_kind='VIEW_ROW',
+                    read_evidence={k:v for k,v in dep['metadata_evidence'].items() if k!='process'},
+                    row_use_evidence=dep['use_location'],write_evidence=write['evidence'],runtime_verified=False))
     return dict(write_id=write['id'], operation=write['operation'],cube=write['cube'], evidence=write['evidence'],
         expression=write['formula_expression'],reconstructed=formula,control_context=write['control_context'],
         expression_status='STATIC_EXPRESSION' if expression_complete else 'PARTIAL',
