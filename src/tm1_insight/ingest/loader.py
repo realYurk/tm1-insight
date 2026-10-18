@@ -21,6 +21,16 @@ from tm1_insight.store.schema import ALL_TABLES
 
 logger = logging.getLogger(__name__)
 
+# 保留的元数据文件名：只排除这些精确名称，绝不按「下划线开头」排除业务对象。
+# TM1 的合法 Process / Dimension / Cube / Chore 名称可以以下划线开头（如
+# _CubeProcessFeeders、_New_Process_Template）。这些元数据文件都写在 raw_dir 根目录，
+# 不在对象子目录（processes/dimensions/...）内，因此对象子目录中的任何 .json 都是业务对象。
+RESERVED_METADATA_FILES = frozenset({
+    "_index.json",
+    "_manifest.json",
+    "_reconcile.json",
+})
+
 # 依赖解析正则（阶段 1：graph 层）
 PATTERNS: dict[str, list[str]] = {
     "reads_cube": [
@@ -77,7 +87,7 @@ def _load_json_dir(base: Path, subdir: str) -> list[dict]:
     rows = []
     read_failures: list[str] = []
     for fn in sorted(path.iterdir()):
-        if not fn.suffix == ".json" or fn.name.startswith("_"):
+        if not fn.suffix == ".json" or fn.name in RESERVED_METADATA_FILES:
             continue
         try:
             with open(fn, encoding="utf-8") as f:
@@ -281,7 +291,7 @@ class Loader:
     def _stream_insert_dimensions(self, con: duckdb.DuckDBPyConnection, raw: Path) -> int:
         """维度文件体积很大（近 1GB），流式分批入库，避免整批加载撑爆内存。"""
         path = raw / "dimensions"
-        files = sorted(fn for fn in path.glob("*.json") if not fn.name.startswith("_"))
+        files = sorted(fn for fn in path.glob("*.json") if fn.name not in RESERVED_METADATA_FILES)
         self._report("load_dimensions", 0, len(files))
         if not path.is_dir():
             return 0
@@ -289,7 +299,7 @@ class Loader:
         meta_batch: list[tuple] = []
         count = 0
         for index, fn in enumerate(files, 1):
-            if not fn.suffix == ".json" or fn.name.startswith("_"):
+            if not fn.suffix == ".json" or fn.name in RESERVED_METADATA_FILES:
                 continue
             try:
                 with open(fn, encoding="utf-8") as f:
