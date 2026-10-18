@@ -1333,7 +1333,7 @@ def _validate_collected_model(staged: Settings, exported: dict, actual: dict) ->
     """校验采集结果：对象计数必须与枚举数一致，否则拒绝切换数据源。
 
     失败时给出精确、可定位的信息：哪个对象类型、期望 vs 实际计数，
-    以及从 failed_*.txt 读取的缺失对象名，绝不静默放过。
+    以及从 failed_*.txt / _reconcile.json 读取的缺失对象名，绝不静默放过。
     """
     reconcile_keys = ("cubes", "processes", "dimensions", "chores")
     # 每类对象的失败清单（exporter 已写 failed_<type>.txt）
@@ -1351,6 +1351,17 @@ def _validate_collected_model(staged: Settings, exported: dict, actual: dict) ->
         if names:
             failed_by_type[key] = names
 
+    # 名称级对账结果（loader 已写 raw/_reconcile.json）：缺失/重复/读取失败对象名。
+    # 这是比 failed_*.txt 更完整的证据来源（覆盖「文件读不回」与「同名覆盖」环节）。
+    reconcile_by_type: dict[str, dict] = {}
+    reconcile_path = staged.raw_dir / "_reconcile.json"
+    if reconcile_path.exists():
+        try:
+            import json as _json
+            reconcile_by_type = _json.loads(reconcile_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            reconcile_by_type = {}
+
     if not actual.get("cubes"):
         raise ValueError("采集结果不含任何 Cube，拒绝切换数据源")
 
@@ -1366,10 +1377,27 @@ def _validate_collected_model(staged: Settings, exported: dict, actual: dict) ->
             f"{key}: 期望 {expected} 实际 {got}"
             for key, expected, got in mismatches
         )
-        missing = "; ".join(
-            f"{key} 缺失({len(names)}): {', '.join(names[:10])}"
-            for key, names in failed_by_type.items()
-        )
+        # 优先用名称级对账给出精确对象名；失败清单作为补充。
+        missing_parts: list[str] = []
+        for key in reconcile_keys:
+            rec = reconcile_by_type.get(key) or {}
+            missing_names = rec.get("missing") or []
+            dup_names = rec.get("duplicates") or []
+            if missing_names or dup_names:
+                desc = f"{key} 缺失({len(missing_names)})"
+                if missing_names:
+                    desc += f": {', '.join(missing_names[:10])}"
+                if dup_names:
+                    desc += f"；重复({len(dup_names)}): {', '.join(dup_names[:10])}"
+                missing_parts.append(desc)
+        if missing_parts:
+            missing = "; ".join(missing_parts)
+        else:
+            # 回退到 failed_*.txt 证据。
+            missing = "; ".join(
+                f"{key} 缺失({len(names)}): {', '.join(names[:10])}"
+                for key, names in failed_by_type.items()
+            )
         raise ValueError(
             f"采集对象计数不一致（{detail}）"
             + (f"；{missing}" if missing else "")

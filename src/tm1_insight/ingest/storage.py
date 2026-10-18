@@ -76,14 +76,24 @@ class Manifest:
         self.raw_dir = raw_dir
         self._entries: dict[str, str] = {}  # 原始名称 -> 短文件名主干
         self._by_stem: dict[str, str] = {}  # 短文件名主干 -> 原始名称（冲突检测）
+        self._plain_stems: dict[str, str] = {}  # 原名文件主干 -> 原始名称（非法字符替换碰撞检测）
 
     def register(self, name: str, obj_type: str, used_short: bool) -> str:
         """登记一个对象；返回实际使用的文件名主干。
 
         若发现哈希冲突（不同名称映射到同一短名），抛出 RuntimeError，绝不静默覆盖。
+        对原名文件也做碰撞检测：``safe_filename`` 会把 ``/ : * < > |`` 等替换为 ``_``，
+        两个不同名称可能映射到同一原名文件，必须提前报错而非静默覆盖。
         """
         if not used_short:
-            return safe_filename(name)
+            stem = safe_filename(name)
+            existing = self._plain_stems.get(stem)
+            if existing is not None and existing != name:
+                raise RuntimeError(
+                    f"原名文件冲突: {name!r} 与 {existing!r} 经 safe_filename 都映射到 {stem!r}"
+                )
+            self._plain_stems[stem] = name
+            return stem
         stem = short_stem(name, obj_type)
         existing = self._by_stem.get(stem)
         if existing is not None and existing != name:

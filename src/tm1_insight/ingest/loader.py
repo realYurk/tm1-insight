@@ -66,10 +66,16 @@ def _bulk(con: duckdb.DuckDBPyConnection, sql: str, rows: list[tuple]) -> None:
 
 
 def _load_json_dir(base: Path, subdir: str) -> list[dict]:
+    """读取 raw/<subdir>/*.json 为对象列表；损坏/读取失败的文件记录到 failed 清单。
+
+    返回 (对象列表, 读取失败文件名列表)。读取失败不再静默跳过——
+    调用方据此精确报告缺失对象，而不是在计数对账时只能给出数量差。
+    """
     path = base / subdir
     if not path.is_dir():
-        return []
+        return [], []
     rows = []
+    read_failures: list[str] = []
     for fn in sorted(path.iterdir()):
         if not fn.suffix == ".json" or fn.name.startswith("_"):
             continue
@@ -78,7 +84,61 @@ def _load_json_dir(base: Path, subdir: str) -> list[dict]:
                 rows.append(json.load(f))
         except Exception as e:  # noqa: BLE001
             logger.warning("读取 %s 失败: %s", fn, e)
-    return rows
+            read_failures.append(fn.name)
+    return rows, read_failures
+
+
+def _index_names(raw: Path, key: str) -> list[str]:
+    """读取 exporter 写下的枚举名清单（raw/_index.json）。
+
+    这是「服务器实际返回」的对象名集合，是名称级对账的唯一权威来源。
+    不存在（旧格式 / 中途失败）时返回空列表。
+    """
+    index_path = raw / "_index.json"
+    if not index_path.exists():
+        return []
+    try:
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        logger.warning("读取 _index.json 失败（忽略）: %s", e)
+        return []
+    return list(data.get(key) or [])
+
+
+def _reconcile_names(raw: Path, key: str, loaded: list[dict],
+                     read_failures: list[str]) -> dict:
+    """名称级对账：枚举名 vs 实际读入的对象名，产出缺失/重复明细。
+
+    - 缺失：在 _index.json 中但未在 loaded 对象名中出现。
+    - 重复：loaded 中同一名称出现多次（同名字段，可能被 PRIMARY KEY 覆盖）。
+    - 读取失败的文件名也并入「缺失」证据，便于定位是「文件没写入」还是「写入但读不回」。
+    """
+    expected = _index_names(raw, key)
+    actual_names = [obj.get("name") for obj in loaded]
+    actual_set: set[str] = set()
+    duplicates: list[str] = []
+    seen: set[str] = set()
+    for n in actual_names:
+        if n in seen:
+            duplicates.append(n)
+        seen.add(n)
+        actual_set.add(n)
+
+    missing = [n for n in expected if n not in actual_set]
+    # 读取失败的文件名：若能反推对象名（去掉 .json）也补进缺失证据，避免「文件在但读不回」被遗漏。
+    for fn in read_failures:
+        stem = fn[:-5] if fn.endswith(".json") else fn
+        if stem not in actual_set and stem not in missing:
+            missing.append(stem)
+
+    return {
+        "expected_count": len(expected),
+        "actual_unique": len(actual_set),
+        "actual_rows": len(loaded),
+        "missing": missing,
+        "duplicates": duplicates,
+        "read_failures": read_failures,
+    }
 
 
 class Loader:
@@ -87,6 +147,17 @@ class Loader:
         self.store = Store(settings)
         self.progress = progress
         self.strict = strict
+        self._reconcile: dict = {}
+
+    def _write_reconcile(self, raw: Path, reconcile: dict) -> None:
+        """把名称级对账结果写入 raw/_reconcile.json，供校验层离线精确定位缺失对象。"""
+        out = raw / "_reconcile.json"
+        try:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(reconcile, f, ensure_ascii=False, indent=2)
+        except OSError as e:
+            logger.warning("写入对账结果失败（忽略）: %s", e)
 
     def _report(self, phase, done=None, total=None):
         if self.progress:
@@ -99,13 +170,29 @@ class Loader:
 
         t0 = time.time()
         self._report("load_raw")
-        cubes = _load_json_dir(raw, "cubes")
-        processes = _load_json_dir(raw, "processes")
-        chores = _load_json_dir(raw, "chores")
+        cubes, cube_failures = _load_json_dir(raw, "cubes")
+        processes, process_failures = _load_json_dir(raw, "processes")
+        chores, chore_failures = _load_json_dir(raw, "chores")
         logger.info(
             "加载 JSON: cube=%d process=%d chore=%d (耗时 %.1fs)",
             len(cubes), len(processes), len(chores), time.time() - t0,
         )
+
+        # 名称级对账：把「枚举名 vs 实际读入对象名」的差异落盘，供校验层精确报告。
+        # 这是 3442 vs 3437 这类问题的可定位证据来源。
+        self._reconcile = {
+            "cubes": _reconcile_names(raw, "cubes", cubes, cube_failures),
+            "processes": _reconcile_names(raw, "processes", processes, process_failures),
+            "chores": _reconcile_names(raw, "chores", chores, chore_failures),
+        }
+        for key, rec in self._reconcile.items():
+            if rec["missing"] or rec["duplicates"] or rec["read_failures"]:
+                logger.warning(
+                    "对账 %s: 期望 %d 唯一 %d 缺失 %d 重复 %d 读取失败 %d",
+                    key, rec["expected_count"], rec["actual_unique"],
+                    len(rec["missing"]), len(rec["duplicates"]), len(rec["read_failures"]),
+                )
+        self._write_reconcile(raw, self._reconcile)
 
         self.store.init_schema(drop=drop)
         con = self.store.connect()

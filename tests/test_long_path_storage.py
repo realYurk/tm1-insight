@@ -92,8 +92,9 @@ def test_export_then_read_back_by_original_name(tmp_path):
     }
     save_json(payload, filepath)
 
-    loaded = _load_json_dir(raw_dir, "processes")
+    loaded, failures = _load_json_dir(raw_dir, "processes")
     assert len(loaded) == 1
+    assert failures == []
     # 原始名称完整保留，未截断
     assert loaded[0]["name"] == LONG_NAME_CALLER
     assert len(loaded[0]["name"]) == len(LONG_NAME_CALLER)
@@ -108,7 +109,8 @@ def test_distinct_names_do_not_overwrite(tmp_path):
     save_json({"name": LONG_NAME_CALLER}, p1)
     save_json({"name": LONG_NAME_COMPARE}, p2)
 
-    loaded = _load_json_dir(raw_dir, "processes")
+    loaded, failures = _load_json_dir(raw_dir, "processes")
+    assert failures == []
     names = sorted(x["name"] for x in loaded)
     assert names == sorted([LONG_NAME_CALLER, LONG_NAME_COMPARE])
 
@@ -170,6 +172,18 @@ def test_hash_collision_raises(tmp_path):
         storage_mod.short_stem = original
 
 
+def test_plain_name_collision_raises(tmp_path):
+    """两个不同名称经 safe_filename 替换后同名，必须报错而非静默覆盖。
+
+    例如 ``a/b`` 与 ``a_b`` 都把 ``/``、``_`` 规整后落到同一个文件名 ``a_b.json``，
+    若不检测，后写的会覆盖先写的，静默丢失对象。
+    """
+    m = Manifest(tmp_path / "raw")
+    m.register("a/b", "processes", False)
+    with pytest.raises(RuntimeError, match="原名文件冲突"):
+        m.register("a_b", "processes", False)
+
+
 def test_old_style_long_filename_still_readable(tmp_path):
     """旧版原始长名文件（历史导出）仍可读取，无需迁移。"""
     raw_dir = tmp_path / "raw"
@@ -178,7 +192,7 @@ def test_old_style_long_filename_still_readable(tmp_path):
     old_path = raw_dir / "processes" / f"{LONG_NAME_CALLER}.json"
     save_json({"name": LONG_NAME_CALLER, "data": "old data"}, old_path)
 
-    loaded = _load_json_dir(raw_dir, "processes")
+    loaded, failures = _load_json_dir(raw_dir, "processes")
     assert len(loaded) == 1
     assert loaded[0]["name"] == LONG_NAME_CALLER
 
@@ -191,7 +205,7 @@ def test_index_file_not_treated_as_process(tmp_path):
     save_json({"entries": {}}, raw_dir / "processes" / "_manifest.json")
     save_json({"name": "RealProcess"}, raw_dir / "processes" / "RealProcess.json")
 
-    loaded = _load_json_dir(raw_dir, "processes")
+    loaded, failures = _load_json_dir(raw_dir, "processes")
     names = [x.get("name") for x in loaded]
     assert names == ["RealProcess"]
 
