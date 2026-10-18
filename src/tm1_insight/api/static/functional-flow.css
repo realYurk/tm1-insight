@@ -1,0 +1,40 @@
+/* Local, dependency-free diagram. Theme colors inherit the existing workbench. */
+.flow-heading {display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin-bottom:12px}
+.flow-heading h2,.flow-heading p {margin:0}
+.flow-heading .study-actions {margin-left:auto}
+.flow-note {color:var(--muted);font-size:12px;line-height:1.7;max-width:1000px}
+.flow-boundary {padding:12px;border:1px solid var(--border);border-left:3px solid #b47824;border-radius:8px}
+.flow-layout {display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:18px;align-items:start;margin:20px 0}
+.flow-viewport {max-height:74vh;min-height:500px;overflow:auto;border:1px solid var(--border);border-radius:14px;background:var(--card);scrollbar-gutter:stable}
+.flow-canvas {position:relative;display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:40px;min-width:570px;padding:22px 20px 48px;box-sizing:border-box;isolation:isolate;background-image:radial-gradient(var(--border) .8px,transparent .8px);background-size:20px 20px}
+.flow-lane {min-width:0;display:flex;flex-direction:column;gap:24px}
+.flow-lane h3 {font-size:12px;letter-spacing:.05em;color:var(--muted);font-weight:600;margin:0 0 8px;text-align:center}
+.flow-node {position:relative;z-index:2;display:flex;flex-direction:column;gap:9px;width:100%;padding:15px;text-align:left;border:1px solid var(--border);border-top:3px solid #5b8ec2;border-radius:10px;background:var(--card);color:var(--text);box-shadow:0 3px 12px #142c4810;cursor:pointer;font:inherit;transition:box-shadow .15s,border-color .15s;overflow-wrap:anywhere}
+.flow-node-process {border-top-color:#4a9d8c}
+.flow-node-rule {border-top-color:#9d85bd}
+.flow-node-chore {border-top-color:#bd9953}
+.flow-node:hover,.flow-node[aria-pressed=true] {border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.flow-node strong {font-size:12px;line-height:1.55;font-weight:650;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.flow-eyebrow {font-size:10px;font-weight:650;letter-spacing:.06em;color:var(--muted)}
+.flow-node-summary {font-size:11px;line-height:1.7;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.flow-node-slice {font-size:10px;line-height:1.6;padding-top:8px;border-top:1px solid var(--border);color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.flow-context {font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.flow-lines {position:absolute;inset:0;z-index:1;overflow:visible;pointer-events:none;color:#7792ac}
+.flow-edge {cursor:pointer;pointer-events:visibleStroke;outline:none}
+.flow-edge path {stroke:#91a7bd;stroke-width:1.5;fill:none}
+.flow-edge-call path {stroke-dasharray:5 4;stroke:#9c9caa}
+.flow-edge text {font-size:10px;fill:var(--muted);stroke:var(--card);stroke-width:5px;paint-order:stroke;stroke-linejoin:round;pointer-events:auto}
+.flow-edge:hover path,.flow-edge:focus path {stroke:var(--accent);stroke-width:3}
+.flow-detail {background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;max-height:74vh;overflow:auto;overflow-wrap:anywhere;box-sizing:border-box;position:sticky;top:12px}
+.flow-detail h3 {font-size:15px;line-height:1.6;margin:10px 0 16px}
+.flow-detail h4 {font-size:12px;margin:20px 0 8px}
+.flow-detail p {font-size:12px;line-height:1.8;color:var(--muted)}
+.flow-detail details {margin-top:18px;font-size:12px}
+.flow-detail summary {cursor:pointer;line-height:1.8}
+.flow-detail .code {max-height:350px;overflow:auto;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}
+.flow-detail .btn {white-space:normal;text-align:left;font-size:11px;margin:5px 0}
+.flow-slice {padding:10px 12px;background:var(--bg);border-left:2px solid #4a9d8c;margin:10px 0;border-radius:4px}
+.flow-slice small {display:block;color:var(--muted);font-size:10px;margin:4px 0 8px}
+.flow-slice p {margin:4px 0;color:var(--text)}
+@media(max-width:1100px){.flow-layout{grid-template-columns:minmax(0,1fr)}.flow-detail{position:static;max-height:500px}.flow-viewport{max-height:68vh}}
+@media(prefers-reduced-motion:reduce){.flow-node{transition:none}}

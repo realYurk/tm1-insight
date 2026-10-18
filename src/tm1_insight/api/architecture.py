@@ -46,9 +46,9 @@ def manager():
 
 
 @router.get('/architecture')
-def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube']='process'):
+def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube','discover']='process',view:Literal['overview','functional_flow']='overview'):
     from tm1_insight.api.app import templates
-    return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,architecture_revision=architecture.REVISION))
+    return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,initial_view=view,architecture_revision=architecture.REVISION))
 
 
 @router.post('/api/architecture/tasks',status_code=202)
@@ -165,6 +165,14 @@ def implementation(task:str,process:str=Query(...,max_length=1000)):
     state(task);return JSONResponse(report,headers={'Cache-Control':'no-store'})
 
 
+@router.get('/api/architecture/tasks/{task}/functional-flow')
+def functional_flow(task:str,max_nodes:int=Query(48,ge=3,le=100),max_edges:int=Query(160,ge=1,le=300),include_context:bool=False):
+    from tm1_insight.functional_flow import from_artifact
+    result=from_artifact(path(task),max_nodes=max_nodes,max_edges=max_edges,include_context=include_context)
+    state(task)
+    return JSONResponse(result,headers={'Cache-Control':'no-store'})
+
+
 @router.get('/api/architecture/tasks/{task}/fact')
 def fact(task:str,id:str=Query(...,pattern=r'^e[1-9][0-9]{0,6}$')):
     with closing(workflow.connection(path(task))) as con:
@@ -190,8 +198,16 @@ def evidence(task:str,process:str=Query(...,max_length=1000),section:Literal['pr
 
 
 @router.get('/api/architecture/tasks/{task}/export')
-def export(task:str,format:Literal['json','markdown','zip','evidence','diagnostics','relations']='json'):
+def export(task:str,format:Literal['json','markdown','zip','evidence','diagnostics','relations','flow-json','flow-markdown','mermaid']='json',include_context:bool=False):
     artifact=path(task)
+    if format in {'flow-json','flow-markdown','mermaid'}:
+        from tm1_insight.functional_flow import from_artifact,markdown,mermaid
+        flow=from_artifact(artifact,include_context=include_context)
+        state(task)
+        content=json.dumps(flow,ensure_ascii=False) if format=='flow-json' else mermaid(flow) if format=='mermaid' else markdown(flow)
+        filename={'flow-json':'FunctionalFlow.json','flow-markdown':'FunctionalFlow.md','mermaid':'FunctionalFlow.mmd'}[format]
+        media={'flow-json':'application/json','flow-markdown':'text/markdown','mermaid':'text/plain'}[format]
+        return StreamingResponse(iter([content]) if isinstance(content,str) else content,media_type=media,headers={'Content-Disposition':'attachment; filename='+filename,'Cache-Control':'no-store'})
     if format=='relations':
         from tm1_insight.unified_relations import json_export
         return StreamingResponse(json_export(artifact),media_type='application/json',headers={'Content-Disposition':'attachment; filename=UnifiedRelations.json','Cache-Control':'no-store'})
