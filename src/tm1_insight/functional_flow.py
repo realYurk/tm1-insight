@@ -168,7 +168,7 @@ def assemble(report, *, max_nodes=48, max_edges=160, include_context=False):
         elif n['kind']=='rule':
             s = rule_summaries.get(n['name'], {})
             n['role'] = '规则'
-            n['summary'] = f"{s.get('rule_count', len(n['object_ids']))} 条 Rule；按区域与表达式计算，完整语义见证据。"
+            n['summary'] = f"{s.get('rule_count', len(n['object_ids']))} 条 Rule；保留区域与表达式，未确认项见详情。"
         else:
             n['role'], n['summary'] = '调度', '本地已记录的 Chore 调度定义，未证明启用或运行。'
 
@@ -217,7 +217,7 @@ def mermaid(flow):
     return '\n'.join(lines)+'\n'
 
 
-def markdown(flow):
+def markdown(flow, *, include_evidence=True):
     def safe(v):
         return escape(str(v)).replace('|','\\|').replace('\n',' ').replace('`','\\`')
     yield '# 业务流程图 / Functional Flow\n\n' + safe(flow['entry'].get('name','')) + '\n\n'+flow['note']+'\n\n'
@@ -232,6 +232,14 @@ def markdown(flow):
         yield '- '+safe(names[e['source']])+' → '+safe(e['label'])+' → '+safe(names[e['target']])+'\n'
         for s in e['slices']:
             yield '  - '+safe('；'.join(c['dimension']+' = '+c['value'] for c in s['coordinates']))+f'（{s["write_sites"]} 个写入点'+('；含条件' if s['conditional'] else '')+'）\n'
+    if flow.get('rule_rows'):
+        yield '\n## 核心 Rule 摘要\n\n|所属 Cube / 行|目标区域|来源 Cube|IF|计算摘要|\n|---|---|---|---|---|\n'
+        for r in flow['rule_rows']:
+            yield '|'+ '|'.join(map(safe,[r['cube']+' L'+str(r['line']),r['target_area'],'、'.join(r['sources']), '有' if r['has_if'] else '—',r['expression']]))+'|\n'
+        if flow['rule_rows_total']>len(flow['rule_rows']):yield '\n此处为前 100 条核心 Rule，完整语句见分析包。\n'
+    if not include_evidence:
+        yield '\n## 重要限制\n\n'+'\n'.join('- '+safe(s) for s in flow['limitations'])+'\n'
+        return
     yield '\n<details><summary>技术证据与限制（默认折叠）</summary>\n\n'
     for f in flow['evidence']:
         yield '- '+safe(f.get('process') or f.get('cube') or f.get('chore') or '')+' / '+safe(f.get('section') or f.get('table') or '')+':'+str(f.get('line',''))+' · '+f['id']+'\n'

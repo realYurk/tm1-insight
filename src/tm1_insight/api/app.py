@@ -717,17 +717,17 @@ def invocation_export(name: str = Query(..., min_length=1, max_length=1000), cal
 
 # ---- 页面：Graph（知识图谱：以 TI 为中心的操作 cube + 调用链） ----
 @app.get("/graph", response_class=HTMLResponse)
-def graph(request: Request, ti: Optional[str] = None):
+def graph(request: Request, ti: Optional[str] = Query(None,max_length=1000), depth:int=Query(2,ge=0,le=4), nodes:int=Query(60,ge=1,le=120)):
     store = _store()
     con = store.connect(read_only=True)
     try:
-        graph_data = queries.process_graph_rich(con, ti) if ti else None
+        graph_data = queries.process_graph_rich(con, ti,max_depth=depth,max_nodes=nodes) if ti else None
         # 中心 TI 的写入切面（核心：它往哪个 cube 的哪个切面写数据）
-        slices = queries.ti_write_slices(con, ti) if ti else None
+        slices = None  # Source-verified Formation summaries load lazily via existing Architecture tasks.
     finally:
         con.close()
     return templates.TemplateResponse(request, "graph.html", {
-        "ti": ti, "graph": graph_data, "slices": slices,
+        "ti": ti, "graph": graph_data, "slices": slices, "depth":depth,"node_budget":nodes,
     })
 
 

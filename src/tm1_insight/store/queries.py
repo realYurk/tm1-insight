@@ -450,7 +450,7 @@ def process_relation_graph(
 
 
 def process_graph_rich(
-    con: duckdb.DuckDBPyConnection, name: str, max_depth: int = 4, max_breadth: int = 20
+    con: duckdb.DuckDBPyConnection, name: str, max_depth: int = 2, max_breadth: int = 12, max_nodes: int = 60
 ) -> dict:
     """知识图谱主查询：以 TI 为中心，递归展开上下游「调用链 + cube 读写」。
 
@@ -469,6 +469,8 @@ def process_graph_rich(
       "callees": [ {name, depth, reads:[...], writes:[...]} ... ],  # 下游调用链（递归）
     }
     """
+    max_nodes=max(1,min(120,max_nodes));max_depth=max(0,min(4,max_depth));max_breadth=max(1,min(20,max_breadth))
+    budget={'nodes':1,'truncated':False}
     def _cubes(proc: str, tbl: str, col: str) -> list[str]:
         return [r[0] for r in con.execute(
             f"SELECT DISTINCT {col} FROM {tbl} WHERE process_name = ? ORDER BY 1 LIMIT ?",
@@ -477,18 +479,22 @@ def process_graph_rich(
 
     def _walk(parent: str, direction: str, depth: int, visited: set) -> list[dict]:
         if depth >= max_depth:
+            if con.execute('SELECT 1 FROM process_calls_process WHERE '+('caller' if direction=='down' else 'callee')+'=? LIMIT 1',[parent]).fetchone():budget['truncated']=True
             return []
         col = "callee" if direction == "down" else "caller"
         other = "caller" if direction == "down" else "callee"
         rows = con.execute(
             f"SELECT DISTINCT {col} FROM process_calls_process WHERE {other} = ? ORDER BY 1 LIMIT ?",
-            [parent, max_breadth],
+            [parent, max_breadth+1],
         ).fetchall()
         out = []
-        for (child,) in rows:
+        if len(rows)>max_breadth:budget['truncated']=True
+        for (child,) in rows[:max_breadth]:
+            if budget['nodes']>=max_nodes:budget['truncated']=True;break
             if child in visited:
                 continue
             visited.add(child)
+            budget['nodes']+=1
             node = {
                 "name": child,
                 "depth": depth + 1,
@@ -510,7 +516,7 @@ def process_graph_rich(
     callees = _walk(name, "down", 0, visited)
 
     return {
-        "root": name,
+        "root": name, "budget":dict(**budget,max_nodes=max_nodes,max_depth=max_depth),
         "root_reads": root_reads,
         "root_writes": root_writes,
         "callers": callers,

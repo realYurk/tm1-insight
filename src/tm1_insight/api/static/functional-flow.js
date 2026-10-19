@@ -15,7 +15,7 @@
     make('h2', '业务流程图', heading);
     make('p', '先看输入、处理与结果；点击节点或连线查看详情。', heading);
     const toolbar = make('div', '', heading); toolbar.className = 'study-actions';
-    [['flow-markdown', '流程文档 Markdown'], ['mermaid', 'Mermaid 图'], ['flow-json', '流程 JSON']].forEach(([format, label]) => {
+    [['human-markdown', '人类阅读版 Markdown'], ['mermaid', 'Mermaid 图'], ['flow-json', '流程 JSON'], ['ai-package', 'AI 分析完整版 ZIP']].forEach(([format, label]) => {
       const a = make('a', label, toolbar); a.className = 'btn ghost'; a.href = api.url('export', { format, include_context:includeContext });
     });
     const options = make('label', '', toolbar); options.className='flow-context'; const check=make('input','',options); check.type='checkbox'; check.checked=includeContext; options.append(document.createTextNode(' 展开调用入口、消费者与来源规则')); check.addEventListener('change',()=>{includeContext=check.checked;render(parent,api).catch(e=>make('p',e.message,parent));});
@@ -43,7 +43,7 @@
           const c = await api.request(api.url('relation-context', { ref }));
           const box = make('section', '', d);
           make('p', c.location ? `${c.process} · ${c.location.section}:${c.location.line}:${c.location.column}` : `Rule · ${c.line_start}–${c.line_end}`, box);
-          make('pre', c.rhs ? c.raw : (c.value_expression || '') + '\n' + (c.target_coordinates || []).map(x => `${x.dimension || '维度待确认'} = ${x.expression}`).join('\n'), box).className = 'code';
+          const sourcePre=make('pre', c.rhs ? c.raw : (c.value_expression || '') + '\n' + (c.target_coordinates || []).map(x => `${x.dimension || '维度待确认'} = ${x.expression}`).join('\n'), box); sourcePre.className='code'; window.tm1Source.mount(sourcePre,{mode:c.rhs?'rules':'ti',start:c.line_start||c.location?.line||1});
           const raw = details(box, '解析结构与未确认项'); make('pre', JSON.stringify(c, null, 2), raw).className = 'code';
         });
         if (refs.length > 20) make('p', '此处提供前 20 组上下文；其余见完整架构导出。', d);
@@ -122,6 +122,7 @@
       });
     }
     observer = new ResizeObserver(draw); observer.observe(canvas); requestAnimationFrame(draw);
+    window.TM1Workbench.flowTables(parent,flow,{selectNode:n=>{selectNode(n);layout.scrollIntoView({block:'start'});},selectEdge:e=>{selectEdge(e);layout.scrollIntoView({block:'start'});}});
     const folded = details(parent, '技术执行细节（Bedrock / 框架调用）及辅助关系已折叠');
     make('p', '折叠基于现有引擎的技术角色与源码效果分类；核心读写仍保留在所属处理步骤中。', folded);
     make('p', '技术关系 ' + (flow.statistics.folded.technical || 0) + '；其余辅助、未确认或展示预算外的关系请在“关系与计算”及完整架构中核对。', folded);

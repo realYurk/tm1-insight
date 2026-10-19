@@ -1,6 +1,6 @@
 <section class="workspace-home" aria-label="模型分析工作台">
   <header class="workspace-heading">
-    <div><p class="workspace-eyebrow">TM1 INSIGHT / WORKSPACE</p><h1>你想了解哪个 TM1 系统对象或模块？</h1><p class="workspace-intro">从模型资产找到对象，从系统架构理解输入、处理和结果。</p></div>
+    <div><p class="workspace-eyebrow">TM1 INSIGHT / WORKSPACE</p><h1>你想理解哪条 TM1 业务流程？</h1><p class="workspace-intro">从模型资产找到对象，从业务架构理解输入、处理和结果。</p></div>
     <a class="workspace-source" href="/settings" data-type="{{ data_source.type }}"><span class="ds-dot"></span>{{ data_source.label }}<span aria-hidden="true"> ↗</span></a>
   </header>
 
@@ -15,13 +15,13 @@
   {% endif %}
 
   <section class="workspace-start" aria-labelledby="workspace-search-title">
-    <p class="workspace-eyebrow">01 / 定位对象</p><h2 id="workspace-search-title">从 TI 探索系统架构</h2>
+    <p class="workspace-eyebrow">01 / 定位对象</p><h2 id="workspace-search-title">从 Cube 或 TI 理解业务架构</h2>
     <div class="search-hero">
-      <label class="workspace-search-label" for="global-search">TI 进程名称</label>
-      <form action="/architecture" method="get"><input type="hidden" name="analyze" value="1"><div class="search-box"><span aria-hidden="true">⌕</span><input name="name" required maxlength="1000" data-workflow="true" data-architecture="true" type="search" id="global-search" placeholder="输入名称或名称的一部分…" autocomplete="off" aria-controls="search-results"><button class="btn primary">探索架构</button></div></form>
+      <label class="workspace-search-label" for="global-search">Cube、TI 名称或前缀</label>
+      <form action="/architecture" method="get"><input type="hidden" name="analyze" value="1"><input type="hidden" name="kind" value="discover"><div class="search-box"><span aria-hidden="true">⌕</span><input name="name" required maxlength="1000" data-architecture-discover="true" type="search" id="global-search" placeholder="输入名称或名称的一部分…" autocomplete="off" aria-controls="search-results"><button class="btn primary">查看业务流程</button></div></form>
       <div class="search-results" id="search-results" aria-live="polite" hidden></div>
     </div>
-    <p class="workspace-search-note">v1 先选择一个准确的 TI；名称片段用于发现入口，实际依赖沿源码扩展。</p>
+    <p class="workspace-search-note">按名称或前缀查找 Cube / TI；选定入口后先看流程、对象与关键切面，技术依据按需展开。</p>
     <div class="workspace-shortcuts"><a href="/processes">浏览 TI 进程 →</a><a href="/cubes">查看 Cube 结构 →</a><a href="/chores">检查 Chore 调度 →</a></div>
   </section>
 
@@ -31,7 +31,7 @@
       <ul class="workspace-steps">
         <li><span>调用</span><div><strong>先理解输入与结果</strong><p>查看相关 Cube、加工 TI 和结果对象，技术辅助过程默认折叠。</p></div></li>
         <li><span>计算</span><div><strong>按需查看计算依据</strong><p>把读写事实与表达式依赖分开，追踪受支持的赋值链和维度坐标。</p></div></li>
-        <li><span>证据</span><div><strong>在同一工作台打开原代码</strong><p>逐条回到源码位置，按需查看四个 Section，并导出私有 JSON / Markdown。</p></div></li>
+        <li><span>证据</span><div><strong>在同一工作台打开源码</strong><p>逐条回到源码位置，按需查看四个 Section，并导出私有 JSON / Markdown。</p></div></li>
       </ul>
       <p class="workspace-boundary">静态定义不等于运行结果。动态引用与不支持的语义显示具体的待核对提示，业务含义需要人工确认。</p>
     </section>
@@ -44,7 +44,7 @@
         <div class="mdx-actions"><button id="mdx-btn" class="btn primary" onclick="traceMdx()">解析并反查</button><button class="btn ghost" onclick="fillExample()">填入示例</button><button class="btn ghost" onclick="clearMdx()">清空</button></div>
         <div id="mdx-result" hidden></div>
       </details>
-      <div class="workspace-utilities"><h3>准备数据与工具</h3><a href="/audit">前端资产与 Cube 引用 →</a><a href="/architecture">系统架构 →</a><a href="/codegen">代码生成 →</a><a href="/settings">连接与数据源设置 →</a></div>
+      <div class="workspace-utilities"><h3>准备数据与工具</h3><a href="/audit">前端资产与 Cube 引用 →</a><a href="/architecture">业务架构 →</a><a href="/codegen">代码生成 →</a><a href="/settings">连接与数据源设置 →</a></div>
     </section>
   </div>
 

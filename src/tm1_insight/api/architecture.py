@@ -46,7 +46,7 @@ def manager():
 
 
 @router.get('/architecture')
-def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube','discover']='process',view:Literal['overview','functional_flow']='overview'):
+def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube','discover']='process',view:Literal['overview','functional_flow']='functional_flow'):
     from tm1_insight.api.app import templates
     return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,initial_view=view,architecture_revision=architecture.REVISION))
 
@@ -167,8 +167,16 @@ def implementation(task:str,process:str=Query(...,max_length=1000)):
 
 @router.get('/api/architecture/tasks/{task}/functional-flow')
 def functional_flow(task:str,max_nodes:int=Query(48,ge=3,le=100),max_edges:int=Query(160,ge=1,le=300),include_context:bool=False):
-    from tm1_insight.functional_flow import from_artifact
-    result=from_artifact(path(task),max_nodes=max_nodes,max_edges=max_edges,include_context=include_context)
+    from tm1_insight.human_workbench import flow
+    result=flow(path(task),max_nodes=max_nodes,max_edges=max_edges,include_context=include_context)
+    state(task)
+    return JSONResponse(result,headers={'Cache-Control':'no-store'})
+
+
+@router.get('/api/architecture/tasks/{task}/rule-table')
+def rule_table(task:str,offset:int=Query(0,ge=0),limit:int=Query(25,ge=1,le=100),q:str=Query('',max_length=1000)):
+    from tm1_insight.human_workbench import rule_page
+    result=rule_page(path(task),offset,limit,q)
     state(task)
     return JSONResponse(result,headers={'Cache-Control':'no-store'})
 
@@ -198,15 +206,23 @@ def evidence(task:str,process:str=Query(...,max_length=1000),section:Literal['pr
 
 
 @router.get('/api/architecture/tasks/{task}/export')
-def export(task:str,format:Literal['json','markdown','zip','evidence','diagnostics','relations','flow-json','flow-markdown','mermaid']='json',include_context:bool=False):
+def export(task:str,format:Literal['json','markdown','zip','evidence','diagnostics','relations','flow-json','flow-markdown','mermaid','human-markdown','ai-package']='json',include_context:bool=False):
     artifact=path(task)
-    if format in {'flow-json','flow-markdown','mermaid'}:
-        from tm1_insight.functional_flow import from_artifact,markdown,mermaid
-        flow=from_artifact(artifact,include_context=include_context)
+    if format=='ai-package':
+        from tm1_insight.workbench_export import package,stream
+        try:
+            with closing(Store(get_settings()).connect(read_only=True)) as con:
+                bundle=package(artifact,con,lambda:state(task),get_settings())
+        except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+        return StreamingResponse(stream(bundle),media_type='application/zip',headers={'Content-Disposition':'attachment; filename=TM1-Analysis.zip','Cache-Control':'no-store'})
+    if format in {'flow-json','flow-markdown','mermaid','human-markdown'}:
+        from tm1_insight.functional_flow import markdown,mermaid
+        from tm1_insight.human_workbench import flow as human_flow
+        flow=human_flow(artifact,include_context=include_context)
         state(task)
-        content=json.dumps(flow,ensure_ascii=False) if format=='flow-json' else mermaid(flow) if format=='mermaid' else markdown(flow)
-        filename={'flow-json':'FunctionalFlow.json','flow-markdown':'FunctionalFlow.md','mermaid':'FunctionalFlow.mmd'}[format]
-        media={'flow-json':'application/json','flow-markdown':'text/markdown','mermaid':'text/plain'}[format]
+        content=json.dumps(flow,ensure_ascii=False) if format=='flow-json' else mermaid(flow) if format=='mermaid' else markdown(flow,include_evidence=format!='human-markdown')
+        filename={'flow-json':'FunctionalFlow.json','flow-markdown':'FunctionalFlow.md','mermaid':'FunctionalFlow.mmd','human-markdown':'BusinessFlow.md'}[format]
+        media={'flow-json':'application/json','flow-markdown':'text/markdown','mermaid':'text/plain','human-markdown':'text/markdown'}[format]
         return StreamingResponse(iter([content]) if isinstance(content,str) else content,media_type=media,headers={'Content-Disposition':'attachment; filename='+filename,'Cache-Control':'no-store'})
     if format=='relations':
         from tm1_insight.unified_relations import json_export

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}对象关系图 · TM1 Insight{% endblock %}
+{% block title %}数据血缘 · TM1 Insight{% endblock %}
 
 {% block breadcrumb %}
 <nav class="breadcrumb">
-  <a href="/">概览</a><span class="sep">/</span><span class="current">对象关系图</span>
+  <a href="/">概览</a><span class="sep">/</span><span class="current">数据血缘</span>
   {% if graph %}<span class="sep">/</span><span class="current">{{ graph.root }}</span>{% endif %}
 </nav>
 {% endblock %}
@@ -11,12 +11,12 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">对象关系图</h1>
+    <h1 class="page-title">数据血缘</h1>
     <p class="page-sub">以 TI 进程为中心，看它往哪个 Cube 的哪个切面写数据；上下游调用链为辅</p>
   </div>
 </div>
 
-{% include "task_help.html" %}
+<form class="graph-budget" action="/graph"><input type="hidden" name="ti" value="{{ ti or '' }}"><label>调用深度 <input type="number" name="depth" min="0" max="4" value="{{ depth }}"></label><label>节点预算 <input type="number" name="nodes" min="1" max="120" value="{{ node_budget }}"></label><button class="btn ghost">应用范围</button></form>
 <!-- ============ TI 搜索（自动联想） ============ -->
 <div class="search-hero">
   <div class="search-box">
@@ -30,7 +30,7 @@
 <div class="card empty-state">
   <div class="empty-icon">{% include "icons/graph.svg" %}</div>
   <div class="empty-title">输入一个 TI 进程名</div>
-  <div class="empty-desc">查看它往哪个 Cube 的哪个切面写数据。写入切面会展示维度、来源变量、取值与写入前提；上下游调用链为辅（已自动排除 <code>}bedrock.*</code> 框架搬运与 <code>}</code> 开头的系统对象）。</div>
+  <div class="empty-desc">查看它往哪个 Cube 的哪个切面写数据。写入切面会展示维度、来源变量、取值与写入前提；上下游调用链为辅（技术调用可在业务架构证据中查看）。</div>
 </div>
 {% else %}
 
@@ -52,80 +52,35 @@
   </div>
   {% endif %}
 
-  <!-- 写入切面（核心展示） -->
-  {% if slices and slices.writes %}
-  <div class="gr-slices">
-    <div class="gr-flow-label write">写入 {{ slices.writes|length }} 个 Cube 的切面</div>
+  <section class="lineage-slice-summary" data-lineage-process="{{ graph.root }}" data-auto="1"><h3>关键写入切面</h3><p role="status">正在核对当前 TI 的源码与写入定义…</p></section>
 
-    {% for w in slices.writes %}
-    <div class="slice-cube">
-      <div class="slice-cube-head">
-        <a class="cube-chip flow-target" href="/explorer/cube/{{ w.cube }}">{{ w.cube }}</a>
-        <span class="tag">{{ w.dimension_count }} 维</span>
-        <span class="tag op">{{ w.write_points|length }} 写入点</span>
-        {% set ops = w.write_points | map(attribute='operation_human') | unique | list %}
-        {% if ops %}<span class="muted small">{{ ops | join(' · ') }}</span>{% endif %}
-      </div>
-
-      {% if w.write_points|length > 1 %}
-      <!-- 多写入点：按差异维度折叠，只显示每个切面的差异摘要 -->
-      <div class="slice-collapsed">
-        {% for wp in w.write_points %}
-        <details class="wp-item" {% if w.write_points|length <= 4 %}open{% endif %}>
-          <summary class="wp-summary">
-            <span class="tag op">{{ wp.operation_human }}</span>
-            {% if wp.summary %}<span class="wp-diff" title="与其他写入点的差异维度">{{ wp.summary }}</span>
-            {% else %}<span class="muted small">写入 {{ wp.dims|length }} 个维度</span>{% endif %}
-            {% if wp.conditions_human %}<span class="tag">有条件</span>{% endif %}
-          </summary>
-          {{ render_slice_table(wp) }}
-        </details>
-        {% endfor %}
-      </div>
-      {% else %}
-      <!-- 单写入点：直接展开切面表格 -->
-      {% set wp = w.write_points[0] %}
-      {% if wp.conditions_human %}
-      <div class="cond"><strong>写入前提：</strong>
-        {% for c in wp.conditions_human %}<span class="cond-text">{{ c }}</span>{% endfor %}
-      </div>
-      {% endif %}
-      {{ render_slice_table(wp) }}
-      {% endif %}
-    </div>
-    {% endfor %}
-  </div>
-  {% elif graph.root_writes %}
-  <div class="gr-slices">
-    <div class="gr-flow-label write">写入 {{ graph.root_writes|length }} 个 Cube</div>
-    <div class="gr-chip-wrap">
-      {% for c in graph.root_writes %}<a class="cube-chip flow-target" href="/explorer/cube/{{ c }}">{{ c }}</a>{% endfor %}
-    </div>
-  </div>
-  {% endif %}
 </div>
 
 <!-- ============ 上游 / 下游 调用链（辅） ============ -->
-<div class="graph-columns">
+<p class="flow-note">调用索引用于发现上下游，不代表执行先后。切面按需使用 Formation 核对，不从共同读写推断值传输。</p>
+{% if graph.budget.truncated %}<p class="flow-boundary">已达到深度、分支或节点预算；当前调用图不完整，可选择某个 TI 为中心继续查看。</p>{% endif %}
+<div class="graph-columns {{ 'graph-balanced' if graph.callers|length > 6 or graph.callees|length > 6 or (graph.callers|length - graph.callees|length)|abs > 3 else '' }}">
   <div class="graph-col upstream-col">
     <h2 class="graph-col-title">↑ 上游（谁调用它）<span class="tag">{{ graph.callers|length }}</span></h2>
     {% if graph.callers %}
-      {% for node in graph.callers %}
+      {% for node in graph.callers[:8] %}
         {{ render_graph_node(node, 'caller') }}
       {% endfor %}
+      {% if graph.callers|length>8 %}<details><summary>其余 {{ graph.callers|length-8 }} 个上游调用</summary><div class="graph-side-list">{% for node in graph.callers[8:] %}{{ render_graph_node(node,'caller') }}{% endfor %}</div></details>{% endif %}
     {% else %}
-      <p class="muted small">无上游调用者（顶层 TI，通常由 Chore 或手动触发）。</p>
+      <p class="muted small">当前范围没有记录上游调用，不能据此判断实际触发方式。</p>
     {% endif %}
   </div>
 
   <div class="graph-col downstream-col">
     <h2 class="graph-col-title">↓ 下游（它调用谁）<span class="tag">{{ graph.callees|length }}</span></h2>
     {% if graph.callees %}
-      {% for node in graph.callees %}
+      {% for node in graph.callees[:8] %}
         {{ render_graph_node(node, 'callee') }}
       {% endfor %}
+      {% if graph.callees|length>8 %}<details><summary>其余 {{ graph.callees|length-8 }} 个下游调用</summary><div class="graph-side-list">{% for node in graph.callees[8:] %}{{ render_graph_node(node,'callee') }}{% endfor %}</div></details>{% endif %}
     {% else %}
-      <p class="muted small">无下游调用（叶子 TI）。</p>
+      <p class="muted small">当前范围没有记录子程序调用。</p>
     {% endif %}
   </div>
 </div>
@@ -178,7 +133,7 @@
 <div class="graph-node" style="margin-left: {{ (node.depth - 1) * 16 }}px;">
   <div class="gn-head">
     <span class="gn-kind {{ 'up' if kind == 'caller' else 'down' }}">{{ '上游' if kind == 'caller' else '下游' }}</span>
-    <a class="gn-name" href="/graph?ti={{ node.name }}" title="在对象关系图中以此 TI 为中心展开">{{ node.name }}</a>
+    <a class="gn-name" href="/graph?ti={{ node.name }}" title="在数据血缘中以此 TI 为中心展开">{{ node.name }}</a>
     <a class="gn-recenter" href="/graph?ti={{ node.name }}" title="以此为中心重新展开"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M12 15l-4-4M12 15l4-4"/></svg></a>
   </div>
   <div class="gn-flow">
@@ -193,17 +148,18 @@
     </div>
     {% endif %}
   </div>
+  <details class="lineage-node-summary"><summary>查看写入切面摘要</summary><section data-lineage-process="{{ node.name }}"></section></details>
   {% if node.children %}
-  <div class="gn-children">
+  <details><summary>展开 {{ node.children|length }} 个关联调用</summary><div class="gn-children">
     {% for child in node.children %}
       {{ render_graph_node(child, kind) }}
     {% endfor %}
-  </div>
+  </div></details>
   {% endif %}
 </div>
 {% endmacro %}
 
-{% block scripts %}
+{% block scripts %}<script src="/static/workbench-tables.js?v=2" defer></script><script src="/static/lineage-summary.js?v=2" defer></script>
 <script>
 // TI 自动联想（复用 /api/search 的 process 结果）
 let tiTimer = null;
@@ -228,9 +184,7 @@ function renderTiResults(results) {
     tiResults.hidden = false;
     return;
   }
-  tiResults.innerHTML = results.map(p =>
-    `<a class="sr-item" href="/graph?ti=${encodeURIComponent(p)}"><span class="sr-badge ti">T</span>${p}</a>`
-  ).join('');
+  tiResults.replaceChildren();results.forEach(p=>{const a=document.createElement('a');a.className='sr-item';a.href='/graph?ti='+encodeURIComponent(p);a.textContent=p;tiResults.append(a);});
   tiResults.hidden = false;
 }
 

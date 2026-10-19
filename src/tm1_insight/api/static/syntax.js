@@ -130,7 +130,7 @@
       if (line.substr(i, 3) === "@<>") op = 3;
       else if (line.substr(i, 2) === "@=" || line.substr(i, 2) === "<>" ||
                line.substr(i, 2) === "<=" || line.substr(i, 2) === ">=") op = 2;
-      else if ("=<>+-*/\\&%".indexOf(ch) >= 0 || (isTi === false && ch === "|")) op = 1;
+      else if ("=<>+-*/\\&%|^".indexOf(ch) >= 0 || (isTi === false && ch === "|")) op = 1;
       if (op) {
         out += wrap("operator", line.substr(i, op));
         i += op;
@@ -156,6 +156,7 @@
           else if (CONDITION_S[low] || RULES_KW_S[low]) cls = "kw2";
           else if (RULES_FUNC_S[low]) cls = "kw1";
         }
+        if(!cls && /^\s*\(/.test(line.slice(k)))cls='kw1';
         out += cls ? wrap(cls, word) : esc(word);
         i = k;
         continue;
@@ -184,18 +185,73 @@
     rules: function (code) { return render(code, "rules"); },
   };
 
-  // 自动对标记了 data-highlight 的 <pre> 做高亮（textContent 已是转义后的原始代码）
-  function autoHighlight() {
-    var pres = document.querySelectorAll("pre[data-highlight]");
-    for (var i = 0; i < pres.length; i++) {
-      var el = pres[i];
-      var mode = el.getAttribute("data-highlight") || "ti";
-      el.innerHTML = window.tm1Highlight[mode] ? window.tm1Highlight[mode](el.textContent) : esc(el.textContent);
+  // Shared, idempotent source viewer for static pages and asynchronous evidence.
+  var sources = new WeakMap();
+  function rawText(pre) {
+    var lines = pre.querySelectorAll('.line-code');
+    return lines.length ? Array.from(lines, function(x){return x.textContent;}).join('\n') : pre.textContent;
+  }
+  function mount(pre, options) {
+    options = options || {};
+    var code = options.code == null ? rawText(pre) : String(options.code);
+    var previous = sources.get(pre);
+    if (previous && options.code == null && previous.display === code) return pre;
+    var mode = options.mode || pre.dataset.highlight || 'ti';
+    var first = pre.querySelector('.lineno');
+    var start = options.start || Number(pre.dataset.sourceStart || (first && first.textContent) || 1);
+    var state = {raw:code, display:code.replace(/\r\n/g,'\n'), mode:mode};
+    sources.set(pre,state);
+    var wrapper = pre.parentElement;
+    if (!wrapper || !wrapper.classList.contains('source-viewer')) {
+      wrapper = document.createElement('div'); wrapper.className='source-viewer';
+      pre.before(wrapper); wrapper.append(pre);
+      var tools = document.createElement('div');tools.className='source-tools';wrapper.prepend(tools);
+      var label = document.createElement('span'); label.textContent='源码';tools.append(label);
+      var copy = document.createElement('button');copy.type='button';copy.className='btn ghost source-copy';copy.textContent='复制源码';tools.append(copy);
+      copy.addEventListener('click',async function(){
+        try { await navigator.clipboard.writeText(sources.get(pre).raw);copy.textContent='已复制'; }
+        catch(e){copy.textContent='复制失败，请选择源码复制';}
+        setTimeout(function(){if(copy.isConnected)copy.textContent='复制源码';},1800);
+      });
     }
+    pre.classList.add('source-code');pre.dataset.sourceMode=mode;
+    // Preserve all content. Very large sources use a bounded plain-text fallback.
+    if (code.length>1000000 || code.split('\n').length>10000) {
+      pre.textContent=code;wrapper.querySelector('.source-tools span').textContent='源码 · 大文件纯文本';
+    } else {
+      pre.innerHTML=render(code,mode);
+      pre.querySelectorAll('.lineno').forEach(function(x,i){x.textContent=start+i;x.setAttribute('aria-hidden','true');});
+    }
+    return pre;
   }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", autoHighlight);
-  } else {
-    autoHighlight();
+  window.tm1Source={mount:mount, text:function(pre){return sources.get(pre)?.raw ?? rawText(pre);}};
+  function scan(root) {
+    var pres=[];
+    if(root.nodeType!==1)return;
+    if(root.matches('pre.code,pre[data-highlight]'))pres.push(root);
+    root.querySelectorAll('pre.code,pre[data-highlight]').forEach(function(p){pres.push(p);});
+    pres.forEach(function(pre){
+      if(pre.classList.contains('dimension-expression') || pre.dataset.sourceMode==='json')return;
+      var text=rawText(pre).trim();
+      if(text[0]==='{' || text[0]==='['){try{JSON.parse(text);return;}catch(e){}}
+      mount(pre);
+    });
   }
+  function initialize(){
+    scan(document.body);
+    var pending=new Set(),scheduled=false;
+    var observer=new MutationObserver(function(records){
+      records.forEach(function(r){
+        var pre=r.target.nodeType===1?r.target.closest('pre.code,pre[data-highlight]'):r.target.parentElement?.closest('pre.code,pre[data-highlight]');
+        if(pre)pending.add(pre);
+        r.addedNodes.forEach(function(x){if(x.nodeType===1)pending.add(x);});
+      });
+      if(scheduled || !pending.size)return;scheduled=true;
+      queueMicrotask(function(){scheduled=false;var nodes=Array.from(pending);pending.clear();nodes.forEach(function(x){if(x.isConnected)scan(x);});});
+    });
+    observer.observe(document.body,{childList:true,subtree:true,characterData:true});
+    window.addEventListener('pagehide',function(){observer.disconnect();});
+    window.addEventListener('pageshow',function(e){if(e.persisted){scan(document.body);observer.observe(document.body,{childList:true,subtree:true,characterData:true});}});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialize);else initialize();
 })();

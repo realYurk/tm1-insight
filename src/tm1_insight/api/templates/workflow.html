@@ -11,7 +11,7 @@
 <p id="wf-error" class="err" role="alert" hidden></p>
 <section id="wf-workspace" hidden>
   <div class="workflow-scope"><h2 id="wf-root"></h2><p id="wf-summary" class="muted small"></p></div>
-  <nav class="knowledge-tabs" aria-label="工作流视图">{% for key,label in [('overview','Overview · 概览'),('execution','Execution · 调用'),('data','Data Flow · 数据关系'),('calculation','Calculation · 计算'),('evidence','Evidence · 原始代码'),('export','Export · 导出')] %}<button class="btn ghost" data-wf-view="{{ key }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ label }}</button>{% endfor %}</nav>
+  <nav class="knowledge-tabs" aria-label="工作流视图">{% for key,label in [('overview','Overview · 概览'),('execution','Execution · 调用'),('data','Data Flow · 数据关系'),('calculation','Calculation · 计算'),('evidence','Evidence · 原始源码'),('export','Export · 导出')] %}<button class="btn ghost" data-wf-view="{{ key }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ label }}</button>{% endfor %}</nav>
   <div class="workflow-layout">
     <aside class="workflow-processes" aria-label="相关 TI">
       <h3>范围内的 TI</h3><form id="wf-filter"><input class="input" id="wf-query" aria-label="在解析范围内查找 TI" placeholder="筛选已解析的 TI"><button class="btn ghost">查找</button></form><ul id="wf-processes" class="list"></ul>

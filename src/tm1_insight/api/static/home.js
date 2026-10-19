@@ -72,13 +72,14 @@ function renderResults(j) {
     ['cubes','Cube','cube','C','cube'], ['processes','TI 进程','ti','T','process'], ['chores','Chore','chore','H','chore']
   ]) {
     if (searchInput.dataset.workflow === 'true' && key !== 'processes') continue;
+    if (searchInput.dataset.architectureDiscover === 'true' && key === 'chores') continue;
     const items = j[key] || [];
     if (!items.length) continue;
     const heading = document.createElement('div'); heading.className = 'sr-group'; heading.textContent = label;
     searchResults.append(heading);
     for (const name of items) {
       const link = document.createElement('a'); link.className = 'sr-item';
-      link.href = searchInput.dataset.workflow === 'true' ? (searchInput.dataset.architecture === 'true' ? '/architecture?name=' : '/workflow?name=')+encodeURIComponent(name)+'&analyze=1' : '/explorer/' + route + '/' + encodeURIComponent(name);
+      link.href = searchInput.dataset.architectureDiscover === 'true' ? '/architecture?'+new URLSearchParams({kind:route,name,analyze:'1'}) : searchInput.dataset.workflow === 'true' ? (searchInput.dataset.architecture === 'true' ? '/architecture?name=' : '/workflow?name=')+encodeURIComponent(name)+'&analyze=1' : '/explorer/' + route + '/' + encodeURIComponent(name);
       const badge = document.createElement('span'); badge.className = 'sr-badge ' + kind; badge.textContent = badgeText;
       link.append(badge, document.createTextNode(name)); searchResults.append(link);
     }

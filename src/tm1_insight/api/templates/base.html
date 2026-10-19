@@ -6,7 +6,7 @@
   <title>{% block title %}TM1 Insight{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/workbench.css?v=architecture-1.2">
-  <script src="/static/syntax.js"></script>
+  <link rel="stylesheet" href="/static/human-workbench.css?v=2"><script src="/static/syntax.js?v=2"></script>
   <script>
     // 页面加载前应用主题，避免闪烁
     (function () {
@@ -42,7 +42,7 @@
         {{ nav('/','工作台','home',path == '/') }}
 
         {# 导航分组永久展开（静态结构，不使用 details/summary，禁止折叠）。 #}
-        <div class="nav-group-label">模型资产</div>
+        <div class="nav-group-label">模型浏览</div>
         <div class="nav-group-body">
           {{ nav('/cubes','Cube','cube',path.startswith('/cubes') or path.startswith('/explorer/cube')) }}
           {{ nav('/dimensions','Dimension','dimension',path.startswith('/dimensions')) }}
@@ -53,22 +53,20 @@
         </div>
 
         {{ nav('/graph','数据血缘','graph',path == '/graph') }}
-        {{ nav('/architecture','系统架构','network',path == '/architecture') }}
+        {{ nav('/architecture','业务架构','network',path == '/architecture') }}
 
-        <div class="nav-group-label">高级工具</div>
-        <div class="nav-group-body">
+        <div class="nav-group-label">模型管理</div>
+        {{ nav('/settings','连接设置','settings',path.startswith('/settings')) }}
+        {{ nav('/settings#data-source','数据源管理','assets',false) }}
+        {{ nav('/compare','快照与版本','assets',path.startswith('/compare')) }}
+        {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
+        <details class="nav-advanced" {{ 'open' if path in ['/impact','/workflow','/knowledge','/learn','/experience'] else '' }}><summary aria-label="高级工具" title="高级工具"><span class="nav-icon">{% include "icons/assets.svg" %}</span><span class="nav-text">高级工具</span></summary>
           {{ nav('/impact','影响分析','graph',path.startswith('/impact')) }}
-          {{ nav('/compare','快照与版本','assets',path.startswith('/compare')) }}
-          {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
           {{ nav('/workflow','工作流技术检查','graph',path == '/workflow') }}
           {{ nav('/knowledge','证据包导出','assets',path.startswith('/knowledge')) }}
           {{ nav('/learn','功能梳理（旧版）','assets',path.startswith('/learn')) }}
           {{ nav('/experience','我的经验','assets',path.startswith('/experience')) }}
-        </div>
-
-        <div class="nav-group-label">系统与数据</div>
-        {{ nav('/settings','连接设置','settings',path.startswith('/settings')) }}
-        <a class="nav-link" href="/settings#data-source" aria-label="数据源管理" title="数据源管理"><span class="nav-icon">{% include "icons/assets.svg" %}</span><span>数据源管理</span></a>
+        </details>
       </nav>
 
       <div class="sidebar-foot">

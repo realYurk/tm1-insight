@@ -49,15 +49,16 @@
         return;
       }
       if(view==='export'){
-        parent.replaceChildren();node('h3','保存当前工作流说明',parent);node('p','JSON 包含调用、读写事实、计算 DAG、参数、坐标、未知项、源码哈希和范围预算。Markdown 为可读说明。原始代码字符串不纳入导出；材料含私有对象名，请本地保管。',parent);
+        parent.replaceChildren();node('h3','保存当前工作流说明',parent);node('p','JSON 包含调用、读写事实、计算 DAG、参数、坐标、未知项、源码哈希和范围预算。Markdown 为可读说明。原始源码字符串不纳入导出；材料含私有对象名，请本地保管。',parent);
         link(parent,'下载 JSON',url('export',{format:'json'})).className='btn primary';link(parent,'下载 Markdown',url('export',{format:'markdown'})).className='btn ghost';node('h4','分析边界',parent);header.limits.forEach(x=>node('p',x,parent));return;
       }
       if(view==='evidence'){
         if(evidenceAuto){const scope=await request(url('result',{view:'processes',process:selected,limit:1}));if(serial!==renderSerial)return;evidenceSection=scope.items[0]?.sections.find(s=>s.characters>0)?.section||'prolog';evidenceStart=1;evidenceAuto=false;}
         const data=await request(url('evidence',{process:selected,section:evidenceSection,start:evidenceStart,limit:80}));if(serial!==renderSerial)return;parent.replaceChildren();node('h3',selected+' · '+data.section,parent);const tabs=node('div','',parent);tabs.className='study-actions';['prolog','metadata','data','epilog'].forEach(s=>button(tabs,s,()=>{evidenceSection=s;evidenceAuto=false;evidenceStart=1;evidenceLine=0;render();}));
-        node('p',`源码哈希 ${data.source_hash} · 共 ${data.total} 行。这里按需查看原始代码，包含原字符串值；导出默认隐藏它们。`,parent).className='muted small';
+        node('p',`源码哈希 ${data.source_hash} · 共 ${data.total} 行。这里按需查看原始源码，包含原字符串值；导出默认隐藏它们。`,parent).className='muted small';
         const pre=node('pre','',parent);pre.className='code workflow-code';pre.setAttribute('aria-label','原始 TI 源码');
-        if(window.tm1Highlight){pre.innerHTML=window.tm1Highlight.ti(data.lines.map(x=>x.code).join('\n'));pre.querySelectorAll('.lineno').forEach((n,i)=>{n.textContent=data.lines[i]?.line??'';if(data.lines[i]?.line===evidenceLine)n.parentElement.classList.add('source-location-current');});}else pre.textContent=data.lines.map(x=>`${x.line}  ${x.code}`).join('\n');if(!data.total)pre.textContent='（该 Section 为空）';
+        window.tm1Source.mount(pre,{code:data.lines.map(x=>x.code).join('\n'),start:data.start,mode:'ti'});pre.querySelectorAll('.code-line').forEach((row,i)=>{if(data.lines[i]?.line===evidenceLine)row.classList.add('source-location-current');});
+
         const pager=node('div','',parent);pager.className='workflow-pager';button(pager,'前 80 行',()=>{evidenceStart=Math.max(1,evidenceStart-80);render();}).disabled=evidenceStart===1;node('span',`${data.total?data.start:0}–${Math.min(data.start+79,data.total)} / ${data.total}`,pager);button(pager,'后 80 行',()=>{evidenceStart+=80;render();}).disabled=data.start+80>data.total;return;
       }
       const data=await request(url('result',{view,offset,limit:50,process:el('wf-only').checked?selected:''}));if(serial!==renderSerial)return;total=data.total;parent.replaceChildren();

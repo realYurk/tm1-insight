@@ -2,7 +2,7 @@
 
 验证 base.html 已从 <details>/<summary> 改为静态导航结构：
 - 无 .nav-group details / .nav-chevron 折叠箭头
-- 模型资产 / 高级工具下的所有入口永久可见
+- 模型浏览保持可见；Human-First 2.0 将低频工具折叠，旧路由全部保留
 - navigation.js 不再读写 tm1-nav-group-* 折叠偏好（改为清理）
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ def test_base_html_has_no_collapsible_nav_group():
     assert 'nav-group-summary' not in html
 
 
-def test_base_html_nav_entries_all_visible():
+def test_base_html_nav_entries_all_retained():
     html = _read(BASE_HTML)
     # 所有核心入口必须存在（模型资产 + 高级工具 + 系统与数据）
     for href, label in [
@@ -40,7 +40,7 @@ def test_base_html_nav_entries_all_visible():
         ("/chores", "Chore 调度"),
         ("/codegen", "代码生成"),
         ("/graph", "数据血缘"),
-        ("/architecture", "系统架构"),
+        ("/architecture", "业务架构"),
         ("/impact", "影响分析"),
         ("/compare", "快照与版本"),
         ("/audit", "前端资产"),
@@ -56,9 +56,9 @@ def test_base_html_nav_entries_all_visible():
 
 def test_nav_group_labels_present():
     html = _read(BASE_HTML)
-    assert '模型资产' in html
+    assert '模型浏览' in html
     assert '高级工具' in html
-    assert '系统与数据' in html
+    assert '模型管理' in html
 
 
 def test_navigation_js_clears_stale_preferences_not_saves():

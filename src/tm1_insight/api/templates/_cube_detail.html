@@ -5,7 +5,7 @@
     <h1 class="page-title">{{ cube.name }}</h1>
     <p class="page-sub">Cube 概览 · 血缘与前端展示一览</p>
   </div>
-  <div class="study-actions"><a class="btn primary" href="/architecture?kind=cube&amp;name={{ cube.name|urlencode }}&amp;analyze=1&amp;view=functional_flow">业务流程图</a><a class="btn primary" href="/architecture?kind=cube&amp;name={{ cube.name|urlencode }}&amp;analyze=1">解析数据形成</a><a class="btn ghost" href="/graph?cube={{ cube.name|urlencode }}">在血缘视图打开</a></div>
+  <div class="study-actions"><a class="btn primary" href="/architecture?kind=cube&amp;name={{ cube.name|urlencode }}&amp;analyze=1&amp;view=functional_flow">解析数据形成 · 业务流程图</a><a class="btn ghost" href="/graph?cube={{ cube.name|urlencode }}">在血缘视图打开</a></div>
 </div>
 
 <div class="cube-overview">
@@ -146,7 +146,7 @@
             <span class="muted small">写入 {{ wp.dims|length }} 个维度</span>
             {% endif %}
             {% if wp.source_cubes %}
-            <span class="muted small">源头：</span>
+            <span class="muted small">读取 / 候选来源：</span>
             {% for s in wp.source_cubes %}<a class="cube-chip flow-source" href="/explorer/cube/{{ s }}" onclick="event.stopPropagation();">{{ s }}</a>{% endfor %}
             {% endif %}
             {% if wp.conditions_human %}<span class="tag">有条件</span>{% endif %}
@@ -167,7 +167,7 @@
                 <th style="width:24%;">写入维度</th>
                 <th style="width:20%;">来源变量</th>
                 <th>取值 / 表达式</th>
-                <th>来源 Cube</th>
+                <th>读取 / 候选 Cube</th>
               </tr>
             </thead>
             <tbody>
@@ -195,7 +195,7 @@
                     <a class="cube-chip {{ s | hash_color }}" href="/explorer/cube/{{ s }}">{{ s }}</a>
                     {% endfor %}
                     {% if d.source_inferred %}
-                    <span class="muted small" title="变量是数据源视图字段，源头为该 TI 的数据源 cube">（来自数据源）</span>
+                    <span class="muted small" title="仅保留旧索引的 VIEW 来源候选，未证明该变量对应源字段">（字段映射待核对）</span>
                     {% endif %}
                   {% elif d.is_param %}
                     <span class="muted small" title="由调用方传入的参数入参">入参</span>
@@ -280,6 +280,15 @@
 <div class="card" id="rules">
   <h2>规则 {% if cube.has_rules %}<span class="tag rule">有规则</span>{% endif %}</h2>
 
+  {% if cube.rules.strip() %}
+  <details open class="rule-raw" style="margin-top:10px;">
+    <summary>Rule 原始源码</summary>
+    <pre class="code" data-highlight="rules">{{ cube.rules }}</pre>
+  </details>
+  {% elif not (rule_semantics and rule_semantics.rules) %}
+  <p class="muted">（无规则）</p>
+  {% endif %}
+  <details class="rule-analysis"><summary>Rule 计算摘要与 Feeder 分析</summary>
   {% if rule_semantics and rule_semantics.available %}
     {% if rule_semantics.directives %}
     <div class="dim-tags" style="margin-bottom:8px;">
@@ -292,7 +301,7 @@
 
     <div class="rule-semantics" style="margin-top:6px;">
       {% for r in rule_semantics.rules %}
-      <details class="rule-ir" {% if loop.first and rule_semantics.rules|length <= 3 %}open{% endif %}>
+      <details class="rule-ir" >
         <summary class="rule-ir-summary">
           <span class="mono-dim">L{{ r.line_start }}{% if r.line_end != r.line_start %}–{{ r.line_end }}{% endif %}</span>
           <span class="tag op">{{ r.qualifier or '计算' }}</span>
@@ -341,7 +350,7 @@
     <h3 style="margin-top:14px;">Feeder 馈送关系 <span class="muted small">（稀疏性支持，非数值公式）</span></h3>
     <div class="rule-semantics">
       {% for f in rule_semantics.feeders %}
-      <details class="feeder-ir" {% if loop.first and rule_semantics.feeders|length <= 3 %}open{% endif %}>
+      <details class="feeder-ir" >
         <summary class="rule-ir-summary">
           <span class="mono-dim">L{{ f.line_start }}</span>
           <span class="tag">Feeder</span>
@@ -363,12 +372,6 @@
     {% endif %}
   {% endif %}
 
-  {% if cube.rules.strip() %}
-  <details class="rule-raw" style="margin-top:10px;">
-    <summary>查看原始 Rule 源码</summary>
-    <pre class="code" data-highlight="rules">{{ cube.rules }}</pre>
+
   </details>
-  {% elif not (rule_semantics and rule_semantics.rules) %}
-  <p class="muted">（无规则）</p>
-  {% endif %}
 </div>

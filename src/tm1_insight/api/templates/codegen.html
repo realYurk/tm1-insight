@@ -235,11 +235,7 @@ function getGlobalPrefix() {
   return v || '}APQ';
 }
 
-function highlightCode(el) {
-  if (window.tm1Highlight && window.tm1Highlight.ti) {
-    el.innerHTML = window.tm1Highlight.ti(el.textContent);
-  }
-}
+function highlightCode(el) { window.tm1Source.mount(el,{code:el.textContent,mode:'ti'}); }
 
 function bindOutputSegs(outputId, codeId, stateKey) {
   const segs = document.querySelectorAll(`#${outputId} .cg-seg`);
@@ -266,7 +262,7 @@ function showOutput(outputId, stateKey) {
 document.querySelectorAll('.cg-copy').forEach(btn => {
   btn.addEventListener('click', () => {
     const codeId = btn.getAttribute('data-copy') + '-code';
-    const text = document.getElementById(codeId).textContent;
+    const text = window.tm1Source.text(document.getElementById(codeId));
     navigator.clipboard.writeText(text).then(() => {
       const old = btn.textContent;
       btn.textContent = '已复制 ✓';

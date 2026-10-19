@@ -82,11 +82,13 @@ def test_navigation_reorganization(client):
     # 工作台 first
     assert '>工作台<' in text
     # 模型资产分组 + 四个对象 + 代码生成
-    assert '模型资产' in text
+    assert '模型浏览' in text
     assert '/cubes' in text and '/dimensions' in text and '/processes' in text and '/chores' in text
     assert '代码生成' in text
     # 数据血缘 / 系统架构 / 高级工具 / 系统与数据
-    assert '数据血缘' in text and '系统架构' in text and '高级工具' in text and '系统与数据' in text
+    # Human-First 2.0: labels follow the new grouping; all old routes remain.
+    assert '数据血缘' in text and '业务架构' in text and '高级工具' in text and '模型管理' in text
+    assert '/architecture' in text and '/settings' in text
     # 不再有「浏览模型对象」旧分组
     assert '浏览模型对象' not in text
 
