@@ -1284,6 +1284,21 @@ def api_cube_rules(cube: str) -> dict:
         con.close()
 
 
+@app.get("/api/cube/{cube}/formation")
+def api_cube_formation(cube: str, mdx: Optional[str] = None) -> dict:
+    """Cube 数据形成专项视图：整合 Rule 声明式计算 + TI 写入 + MDX 切面匹配。
+
+    默认优先展示 Rule 计算关系（而非仅读取该 Cube 的 TI）。纯本地静态分析，
+    不执行规则、不连接服务器；无法解析的表达式标记 UNKNOWN。
+    """
+    store = _store()
+    con = store.connect(read_only=True)
+    try:
+        return queries.cube_formation_view(con, cube, mdx)
+    finally:
+        con.close()
+
+
 @app.get("/api/search")
 def api_search(q: str, limit: int = 50) -> dict:
     store = _store()
