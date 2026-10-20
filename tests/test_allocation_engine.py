@@ -75,7 +75,7 @@ def test_missing_driver_target_gets_zero():
     assert result['ok']
     nodriver = [r for r in result['results'] if r['target'].get('品牌') == 'NODRIVER']
     assert nodriver and Decimal(nodriver[0]['allocated']) == 0
-    assert any('缺少驱动因子' in a for a in result['anomalies'])
+    assert any('缺失驱动因子' in a for a in result['anomalies'])
     # 守恒不受影响
     assert Decimal(sum(Decimal(r['allocated']) for r in result['results'])) == Decimal('1500000')
 
@@ -85,7 +85,9 @@ def test_negative_driver_total_skipped():
     config['source_rows'].append({'基地': 'D', '费用': '100'})
     config['target_rows'].append({'基地': 'D', '品牌': 'N', '驱动': '-5'})
     result = allocate(config)
-    assert any('驱动因子合计为负' in a for a in result['anomalies'])
+    # 唯一目标为负驱动 → 有效驱动合计为零，整组跳过（含负驱动提示）
+    assert any('有效驱动因子合计为零' in a and '负驱动' in a for a in result['anomalies'])
+    assert not [r for r in result['results'] if r['group'] == {'基地': 'D'}]
 
 
 def test_rounding_tail_absorbed_by_last_row():
@@ -140,4 +142,4 @@ def test_config_hash_changes_with_input():
 
 
 def test_version_tag():
-    assert VERSION == 'allocation-engine-1'
+    assert VERSION == 'allocation-engine-2'
