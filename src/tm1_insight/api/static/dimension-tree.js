@@ -518,6 +518,12 @@
   async function showElementDetail(name) {
     const detail = document.getElementById('dimension-element-detail');
     if (!detail) return;
+    // Toggle：再次点击当前已展示的元素时关闭详情，避免重复弹层
+    const titleEl = document.getElementById('dimension-element-detail-name');
+    if (!detail.hidden && titleEl && titleEl.textContent === name) {
+      detail.hidden = true;
+      return;
+    }
     detail.hidden = false;
     const title = document.getElementById('dimension-element-detail-name');
     const parents = document.getElementById('dimension-element-detail-parents');

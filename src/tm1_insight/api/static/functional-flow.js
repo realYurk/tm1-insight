@@ -39,19 +39,21 @@
     const btnMmd = make('button', 'Mermaid 图', viewSwitch); btnMmd.type = 'button'; btnMmd.className = 'btn ghost';
     const selfView = make('div', '', parent); selfView.className = 'flow-self-view';
     const mmdView = make('div', '', parent); mmdView.className = 'flow-mmd-view'; mmdView.hidden = true;
+    let mmdInstance = null;
     const switchView = (mode) => {
       const isMmd = mode === 'mermaid';
       selfView.hidden = isMmd; mmdView.hidden = !isMmd;
       btnFlow.classList.toggle('active', !isMmd); btnMmd.classList.toggle('active', isMmd);
       if (isMmd) {
         try {
+          // 稳定 ID 映射：mermaid 节点 id 'n0','n1',... -> 业务节点对象
           const idMap = {}; flow.nodes.forEach((n, i) => { idMap['n' + i] = n; });
-          window.TM1Mermaid.mount(mmdView, {
-            code: toMermaid(flow), title: '业务流程图',
-            onNodeClick: (id) => { const n = idMap[id]; if (n) { selectNode(n); layout.scrollIntoView({ block: 'start' }); } },
+          mmdInstance = window.TM1Mermaid.mount(mmdView, {
+            code: toMermaid(flow), title: '业务流程图', idMap: idMap,
+            onNodeClick: (node) => { if (node) { selectNode(node); layout.scrollIntoView({ block: 'start' }); } },
           });
         } catch (e) { make('p', e.message, mmdView); }
-      } else { if (window.TM1Mermaid) window.TM1Mermaid.unmount(); }
+      } else { if (mmdInstance) { mmdInstance.destroy(); mmdInstance = null; } }
     };
     btnFlow.addEventListener('click', () => switchView('flow'));
     btnMmd.addEventListener('click', () => switchView('mermaid'));

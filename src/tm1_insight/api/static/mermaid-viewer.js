@@ -17,20 +17,33 @@
    - 点击节点回调（用于打开对象详情）
    - Mermaid 出错时回退为源码 <pre>
 
-   用法：
-     TM1Mermaid.mount(container, {
-       code: 'flowchart LR\n  A["Foo"]-->B["Bar"]',
-       onNodeClick: function(nodeId, label) { ... },
-       title: '数据形成'
-     })
+   关键设计（多实例 + 稳定 ID 映射 + 异步竞态防护）：
+   - 每个 mount 返回独立实例，互不干扰；不再使用全局单例强占。
+   - 渲染节点 ID → 业务节点 ID 的稳定映射：调用方通过 opts.idMap
+     提供 { mermaidNodeId: businessId }，或 opts.onNodeClick(nodeId, label)
+     收到 mermaid 节点 id 后自行反查。节点 id 在 toMermaid 时由调用方
+     用稳定、可反查的标识（如 'n0'）命名，mermaid 生成的 SVG 节点
+     id 形如 'flowchart-n0-0'，可从该 id 反查出 'n0'。
+   - 每次渲染/切换方向都递增 generation；异步 render() 完成后检查
+     generation，旧结果不再覆盖新图（防止竞态）。
+   - 所有 window/document 级监听器在 unmount 时统一移除，不泄漏。
 
-   全局单例挂载：window.TM1Mermaid = { mount, unmount, isAvailable }。
+   用法：
+     const inst = TM1Mermaid.mount(container, {
+       code: 'flowchart LR\n  n0["Foo"]-->n1["Bar"]',
+       idMap: { n0: businessId0, n1: businessId1 },   // 可选：稳定 id → 业务 id
+       onNodeClick: function(businessId, nodeId, label) { ... },
+       title: '数据形成'
+     });
+     // 销毁：inst.destroy()
+
+   全局：window.TM1Mermaid = { mount, unmountAll, isAvailable }。
 */
 (function () {
   'use strict';
 
   var ZOOM_MIN = 0.15, ZOOM_MAX = 4, ZOOM_STEP = 1.2;
-  var current = null; // { container, destroy }
+  var instances = new Set();
 
   function isAvailable() {
     return typeof window.mermaid !== 'undefined';
@@ -79,7 +92,7 @@
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
   }
 
-  function buildToolbar(state, container, opts) {
+  function buildToolbar(state, opts) {
     var bar = document.createElement('div');
     bar.className = 'mm-toolbar';
 
@@ -99,7 +112,9 @@
     var fit = btn('适应画布', function () { fitView(state); });
     var one = btn('1:1', function () { state.pan = { x: 0, y: 0 }; setZoom(state, 1); });
     var dir = btn(state.vertical ? '纵向' : '横向', function () {
-      state.vertical = !state.vertical; reflow(state, container, opts);
+      state.vertical = !state.vertical;
+      dir.textContent = state.vertical ? '纵向' : '横向';
+      reflow(state, opts);
     });
     dir.title = '切换布局方向';
     var full = btn('全屏', function () { toggleFullscreen(state.wrapper); });
@@ -142,34 +157,47 @@
     applyTransform(state);
   }
 
-  function reflow(state, container, opts) {
+  function reflow(state, opts) {
     var code = state.vertical
       ? state.code.replace(/^\s*flowchart\s+LR/m, 'flowchart TB').replace(/^\s*graph\s+LR/m, 'graph TB')
       : state.code.replace(/^\s*flowchart\s+TB/m, 'flowchart LR').replace(/^\s*graph\s+TB/m, 'graph LR');
-    renderDiagram(state, container, opts, code);
+    renderDiagram(state, opts, code);
   }
 
-  function renderDiagram(state, container, opts, code) {
+  // 从 mermaid 渲染出的 SVG 节点 id（'flowchart-n0-0'）反查稳定节点 id（'n0'）。
+  // mermaid 的节点 id 形如 'flowchart-<nodeId>-<index>' 或 'flowchart-<nodeId>'。
+  function extractNodeId(svgNodeId) {
+    if (!svgNodeId) return null;
+    // 'flowchart-n0-0' -> 'n0'; 'flowchart-n0' -> 'n0'
+    var m = svgNodeId.match(/^flowchart-(.+?)(?:-\d+)?$/);
+    return m ? m[1] : null;
+  }
+
+  function renderDiagram(state, opts, code) {
+    var gen = ++state.generation;
     state.code = code;
     state.inner.replaceChildren();
     var p = document.createElement('pre');
     p.className = 'mm-rendering';
     p.textContent = '正在离线渲染…';
     state.inner.appendChild(p);
-    // 使用唯一的临时容器：mermaid 10 要求 id 元素存在时由它自己写入，
+    // 使用唯一的临时容器 id：mermaid 10 要求 id 元素存在时由它自己写入，
     // 我们直接读返回值再注入，避免手动创建同 id 元素造成冲突。
     var renderId = 'mm-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     window.mermaid.render(renderId, code).then(function (res) {
-      if (state.disposed) return;
+      if (state.disposed || gen !== state.generation) return;  // 竞态：旧结果不覆盖新图
       var el = document.createElement('div');
       el.className = 'mm-render';
       el.innerHTML = res.svg;
       state.inner.replaceChildren(el);
       state.svg = res.svg;
       bindNodes(state, opts);
-      requestAnimationFrame(function () { fitView(state); });
+      requestAnimationFrame(function () {
+        if (state.disposed || gen !== state.generation) return;
+        fitView(state);
+      });
     }).catch(function (err) {
-      if (state.disposed) return;
+      if (state.disposed || gen !== state.generation) return;
       showFallback(state, code, err);
     });
   }
@@ -191,15 +219,22 @@
     if (!opts.onNodeClick) return;
     var svg = state.inner.querySelector('svg');
     if (!svg) return;
+    // 记录已绑定的事件监听器，unmount 时移除（防泄漏）。
+    state.nodeHandlers = state.nodeHandlers || [];
     svg.querySelectorAll('.node').forEach(function (node) {
-      var id = node.id;
+      var svgNodeId = node.id;
+      var nodeId = extractNodeId(svgNodeId);
       node.style.cursor = 'pointer';
-      node.addEventListener('click', function () {
+      var handler = function () {
         var labels = node.querySelectorAll('.nodeLabel, text');
         var label = '';
         labels.forEach(function (t) { label += t.textContent; });
-        opts.onNodeClick(id, label);
-      });
+        // 优先通过 idMap 反查业务 id；否则传 mermaid 稳定节点 id。
+        var businessId = (opts.idMap && nodeId != null) ? opts.idMap[nodeId] : null;
+        opts.onNodeClick(businessId !== undefined ? businessId : null, nodeId, label);
+      };
+      node.addEventListener('click', handler);
+      state.nodeHandlers.push([node, handler]);
     });
   }
 
@@ -243,11 +278,12 @@
 
   function mount(container, opts) {
     if (!container) throw new Error('缺少容器');
-    unmount();
     opts = opts || {};
     var state = {
       container: container, code: opts.code || '', vertical: !!opts.vertical,
       zoom: 1, pan: { x: 0, y: 0 }, disposed: false, svg: null,
+      generation: 0, nodeHandlers: [],
+      listeners: [],  // window/document 级监听器 + 对应事件类型，用于清理
     };
     var wrapper = document.createElement('div');
     wrapper.className = 'mm-wrapper';
@@ -264,43 +300,64 @@
 
     // 拖动平移
     var dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
-    viewport.addEventListener('mousedown', function (e) {
+    var onMouseDown = function (e) {
       if (e.button !== 0) return;
       dragging = true; startX = e.clientX; startY = e.clientY; origX = state.pan.x; origY = state.pan.y;
       viewport.style.cursor = 'grabbing';
       e.preventDefault();
-    });
-    window.addEventListener('mousemove', function (e) {
+    };
+    var onMouseMove = function (e) {
       if (!dragging || state.disposed) return;
       state.pan = { x: origX + (e.clientX - startX), y: origY + (e.clientY - startY) };
       applyTransform(state);
-    });
-    window.addEventListener('mouseup', function () { dragging = false; viewport.style.cursor = 'grab'; });
-    viewport.addEventListener('wheel', function (e) {
+    };
+    var onMouseUp = function () { dragging = false; viewport.style.cursor = 'grab'; };
+    var onWheel = function (e) {
       e.preventDefault();
       setZoom(state, state.zoom * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
-    }, { passive: false });
+    };
+    viewport.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    viewport.addEventListener('wheel', onWheel, { passive: false });
+    // 记录监听器用于清理
+    state.listeners.push([viewport, 'mousedown', onMouseDown]);
+    state.listeners.push([window, 'mousemove', onMouseMove]);
+    state.listeners.push([window, 'mouseup', onMouseUp]);
+    state.listeners.push([viewport, 'wheel', onWheel]);
 
-    var toolbar = buildToolbar(state, container, opts);
+    var toolbar = buildToolbar(state, opts);
     wrapper.insertBefore(toolbar, viewport);
     container.appendChild(wrapper);
 
-    current = { container: container, destroy: unmount };
+    var destroy = function () {
+      if (state.disposed) return;
+      state.disposed = true;
+      state.generation++;  // 使任何在途异步结果失效
+      // 移除节点点击监听器
+      (state.nodeHandlers || []).forEach(function (p) { p[0].removeEventListener('click', p[1]); });
+      state.nodeHandlers = [];
+      // 移除 window/document 级监听器
+      state.listeners.forEach(function (l) { l[0].removeEventListener(l[1], l[2]); });
+      state.listeners = [];
+      container.replaceChildren();
+      instances.delete(instance);
+    };
+    var instance = { container: container, destroy: destroy };
+    instances.add(instance);
 
-    ensureMermaid().then(function () { renderDiagram(state, container, opts, state.code); }).catch(function (err) {
+    ensureMermaid().then(function () { renderDiagram(state, opts, state.code); }).catch(function (err) {
       if (state.disposed) return;
       showFallback(state, state.code, err);
     });
-    return { destroy: unmount };
+    return instance;
   }
 
-  function unmount() {
-    if (current) {
-      current.destroy = null;
-      if (current.container) current.container.replaceChildren();
-      current = null;
-    }
+  // 销毁所有实例（页面卸载等场景）。
+  function unmountAll() {
+    Array.from(instances).forEach(function (inst) { inst.destroy(); });
   }
 
-  window.TM1Mermaid = { mount: mount, unmount: unmount, isAvailable: isAvailable };
+  window.TM1Mermaid = { mount: mount, unmountAll: unmountAll, isAvailable: isAvailable };
+  window.addEventListener('pagehide', unmountAll);
 })();
