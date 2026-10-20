@@ -91,8 +91,19 @@
     }
 
     function render(data) {
+      if (data.available === false) {
+        status.textContent = data.unavailable_reason || '当前范围未发现该 Cube';
+        chartMount.replaceChildren();
+        el('p', 'cf-empty muted', data.unavailable_reason || '当前范围未发现该 Cube', chartMount);
+        ruleTable.replaceChildren();
+        tiTable.replaceChildren();
+        sliceBody.replaceChildren();
+        limBody.replaceChildren();
+        return;
+      }
+      var srcTag = data.rule_source_hash ? (' · 源码 SHA-256 ' + data.rule_source_hash.slice(0, 12) + '…') : '';
       status.textContent = data.rule_count + ' 条 Rule · ' + data.feeder_count + ' 条 Feeder · ' +
-        data.ti_writes.length + ' 个写入 TI · ' + data.unknown_count + ' 处 UNKNOWN';
+        data.ti_writes.length + ' 个写入 TI · ' + data.unknown_count + ' 处 UNKNOWN' + srcTag;
       renderChart(data);
       renderRules(data);
       renderTi(data);
@@ -359,6 +370,10 @@
 
     function renderLimits(data) {
       limBody.replaceChildren();
+      if (data.rule_source_hash) {
+        el('p', 'cf-source-evidence', '来源版本：Rule 源码 SHA-256 = ' + data.rule_source_hash +
+          '（与历史离线分析包一致性可据此核对）', limBody);
+      }
       data.limitations.forEach(function (l) {
         el('p', 'muted small', '· ' + l, limBody);
       });

@@ -2,10 +2,12 @@
 
 验证：
 1. BP Management Report PnL 的 Rule 计算关系默认优先展示（而非仅 TI）。
-2. CM09001（实为 BP09000）/PL01010 等目标区域及其公式。
+2. CM09001（销售公司费用扣除）、BP09000（官方 STD）、PL01010（消费税）均真实存在。
 3. 本 Cube 区域引用、跨 Cube DB 引用、IF 条件。
 4. MDX 切面匹配（parse_mdx + trace_cell_value）。
 5. 无法解析的 MDX 不伪造结果。
+6. Rule 源码 SHA-256 来源版本可追溯。
+7. 范围外 Cube 提示「当前范围未发现」而非「源模型不存在」。
 
 纯本地静态分析，不连接 TM1 Server，不执行规则。
 """
@@ -50,17 +52,45 @@ def test_formation_defaults_to_rules_not_ti(con):
     assert any(r["target"] for r in f["rules"]), "Rule 应有目标区域"
 
 
-def test_formation_extracts_pl01010_and_bp09000(con):
-    """真实数据中 PL01010（目标区域）与 BP09000（计算引用）可被解析。
+def test_formation_extracts_cm09001_bp09000_pl01010(con):
+    """CM09001、BP09000、PL01010 三者均真实存在，不可互相替代。
 
-    交接线索误报为「CM09001」；真实数据里对应的是 BP09000（作为计算表达式里的
-    静态指标引用出现），PL01010 是真实的目标区域（行 70-71）。
+    证据：本地快照 Rule 源码 SHA-256 与历史离线分析包 rule-0005.json 一致
+    （5a67e123a45b8961490ed82a95fa4d2346ac5381a9bb9608e4fe4e0c003d23df）。
+
+    - CM09001 = 销售公司费用扣除（目标区域，行 8、81、432、511、570 等）
+    - BP09000 = 官方 STD（计算表达式引用，行 59、204、415 等）
+    - PL01010 = 消费税（目标区域，行 70-71、87、439 等）
+
+    三者语义不同，不是同一指标的别名，也不是「CM09001 误报、实为 BP09000」。
     """
     f = queries.cube_formation_view(con, "BP Management Report PnL")
     targets = " ".join(r["target"] or "" for r in f["rules"])
     exprs = " ".join(r["expression"] or "" for r in f["rules"])
-    assert "PL01010" in targets, "应解析出 PL01010 目标区域"
-    assert "BP09000" in exprs, "应解析出 BP09000 指标引用（交接误报为 CM09001）"
+    # CM09001 是真实目标区域（销售公司费用扣除）
+    assert "CM09001" in targets, "应解析出 CM09001 目标区域（销售公司费用扣除）"
+    # BP09000 是真实引用（官方 STD）
+    assert "BP09000" in exprs or "BP09000" in targets, "应解析出 BP09000 指标引用"
+    # PL01010 是真实目标区域（消费税）
+    assert "PL01010" in targets, "应解析出 PL01010 目标区域（消费税）"
+
+
+def test_formation_rule_source_hash_traceable(con):
+    """形成视图应返回 Rule 源码 SHA-256，用于追溯快照与历史分析包一致性。"""
+    f = queries.cube_formation_view(con, "BP Management Report PnL")
+    assert f["rule_source_hash"], "应返回 Rule 源码 SHA-256 来源版本证据"
+    # 与历史离线分析包 rule-0005.json 的 source 字段一致
+    assert f["rule_source_hash"] == (
+        "5a67e123a45b8961490ed82a95fa4d2346ac5381a9bb9608e4fe4e0c003d23df"
+    )
+
+
+def test_formation_unavailable_distinguishes_scope_not_absence(con):
+    """不存在的 Cube 应提示「当前范围未发现」，而非断言「源模型不存在」。"""
+    f = queries.cube_formation_view(con, "ZZZ__Definitely_Not_A_Cube__ZZZ")
+    assert f["available"] is False
+    assert f["unavailable_reason"], "应给出未发现原因"
+    assert "当前范围未发现" in f["unavailable_reason"], "不得断言源模型不存在"
 
 
 def test_formation_has_cross_cube_refs_and_conditions(con):

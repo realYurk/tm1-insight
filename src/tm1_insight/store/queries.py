@@ -746,7 +746,10 @@ def cube_rule_semantics(con: duckdb.DuckDBPyConnection, cube: str) -> dict:
         "SELECT rules FROM cubes WHERE name = ?", [cube]
     ).fetchone()
     if not row:
-        return {"cube": cube, "available": False, "reason": "cube 不存在"}
+        # 语义区分：cube 不在当前快照范围内 vs 源模型本身不存在。
+        # 当前快照只覆盖采样的模型范围，不能据此断言「源模型不存在」。
+        return {"cube": cube, "available": False,
+                "reason": "当前范围未发现该 Cube（可能不在本次快照采样范围内，不代表源模型不存在）"}
     code = row[0] or ""
     dims = [r[0] for r in con.execute(
         "SELECT dimension_name FROM cube_has_dimension WHERE cube_name = ? ORDER BY dim_order",
@@ -1820,9 +1823,13 @@ def cube_formation_view(con: duckdb.DuckDBPyConnection, cube: str, mdx: str | No
     return {
         "cube": cube,
         "dimensions": dims,
+        "available": semantics.get("available", False),
+        "unavailable_reason": semantics.get("reason"),
         "rule_count": len(rules),
         "feeder_count": len(semantics.get("feeders", [])),
         "unknown_count": len(semantics.get("unknowns", [])),
+        # 来源版本证据：Rule 源码 SHA-256，用于追溯快照与历史分析包的一致性。
+        "rule_source_hash": semantics.get("source_hash"),
         "rules": rules,
         "ti_writes": ti_writes,
         "source_cubes": lineage.get("sources", []),
