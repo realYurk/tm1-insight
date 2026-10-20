@@ -17,7 +17,7 @@ def main():
     output=ROOT/"release"/("portable-"+stamp)
     output.mkdir(parents=True,exist_ok=False)
     def source_hashes():
-        files=[p for p in (ROOT/"src"/"tm1_insight").rglob("*") if p.is_file() and p.suffix in {".py",".html",".css",".js",".svg"}]
+        files=[p for p in (ROOT/"src"/"tm1_insight").rglob("*") if p.is_file() and p.suffix in {".py",".html",".css",".js",".svg",".txt"}]
         files += [ROOT/"launcher.py",ROOT/"tm1_insight.spec",ROOT/"PORTABLE_README.txt",ROOT/"requirements-build.lock"]
         return {str(p.relative_to(ROOT)).replace("\\","/"):hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.exists()}
     initial_hashes=source_hashes()

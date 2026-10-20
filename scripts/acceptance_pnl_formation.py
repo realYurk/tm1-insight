@@ -70,11 +70,14 @@ def main():
             assert_true("Rule" in svg_text or "TI" in svg_text, "数据形成图应区分 Rule/TI 节点")
             print(f"[5] 中文无乱码，节点类型标注正常")
 
-            # 6. 紧凑规则表：应含 PL01010 / Per Car / SC00300
+            # 6. 紧凑规则表：应含 PL01010 / Per Car / SC00300 / CM09001 / BP09000
             rule_text = page.inner_text("#cube-formation .cf-rule-table")
-            assert_true("PL01010" in rule_text, "规则表应含 PL01010 目标区域")
+            assert_true("PL01010" in rule_text, "规则表应含 PL01010 目标区域（消费税）")
             assert_true("Per Car" in rule_text or "SC00300" in rule_text, "规则表应含 Per Car / SC00300 计算关系")
-            print("[6] 规则表含 PL01010 / Per Car / SC00300")
+            # 关键审计点：CM09001（销售公司费用扣除）与 BP09000（官方 STD）均真实存在，不可互相替代
+            assert_true("CM09001" in rule_text, "规则表应含 CM09001（销售公司费用扣除），不得误报为不存在")
+            assert_true("BP09000" in rule_text, "规则表应含 BP09000（官方 STD）引用")
+            print("[6] 规则表含 PL01010 / Per Car / SC00300 / CM09001 / BP09000")
 
             page.screenshot(path=f"{OUT}/20_pnl_formation.png")
 

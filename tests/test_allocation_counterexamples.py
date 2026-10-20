@@ -321,3 +321,84 @@ def test_config_dimension_overlap_rejected():
         target_rows=[{'品牌': 'A', '驱动': '1'}],
     )
     assert validate_config(config)
+
+
+# ---------------------------------------------------------------------------
+# 缺陷 8：尾差策略的确定性契约（顺序 / 100 目标 / 等额 / 幂等）
+# ---------------------------------------------------------------------------
+
+def test_tail_difference_deterministic_for_fixed_input_order():
+    """同一输入（含目标顺序）重复运行，尾差吸收位置与结果必须完全一致（幂等）。"""
+    def build():
+        return dict(
+            group_dimensions=['基地'], allocation_dimensions=['品牌'],
+            driver_field='驱动', value_field='费用', write_policy='overwrite',
+            source_rows=[{'基地': 'A', '费用': '0.01'}],
+            target_rows=[
+                {'基地': 'A', '品牌': 'X', '驱动': '1'},
+                {'基地': 'A', '品牌': 'Y', '驱动': '1'},
+                {'基地': 'A', '品牌': 'Z', '驱动': '1'},
+            ],
+        )
+    r1 = allocate(build())
+    r2 = allocate(build())
+    assert r1['results'] == r2['results'], "同一输入重复运行必须得到完全一致的结果（幂等）"
+    # 尾差 0.01 只落到一个有效目标，其余为 0，总额守恒
+    by = {x['target']['品牌']: Decimal(x['allocated']) for x in r1['results']}
+    assert sum(by.values()) == Decimal('0.01')
+    assert sum(1 for v in by.values() if v != 0) == 1
+
+
+def test_tail_difference_with_100_equal_driver_targets_conserves():
+    """100 个等驱动目标、源 0.01：总额必须精确守恒，且只有一个目标承接 0.01。"""
+    config = dict(
+        group_dimensions=['基地'], allocation_dimensions=['品牌'],
+        driver_field='驱动', value_field='费用', write_policy='overwrite',
+        source_rows=[{'基地': 'A', '费用': '0.01'}],
+        target_rows=[{'基地': 'A', '品牌': f'B{i}', '驱动': '1'} for i in range(100)],
+    )
+    result = allocate(config)
+    assert result['ok']
+    by = {x['target']['品牌']: Decimal(x['allocated']) for x in result['results']}
+    assert len(by) == 100
+    assert sum(by.values()) == Decimal('0.01')
+    nonzero = [v for v in by.values() if v != 0]
+    assert len(nonzero) == 1 and nonzero[0] == Decimal('0.01')
+    rec = reconcile(config, result)
+    assert rec['balanced'] == 'True'
+
+
+def test_equal_drivers_split_evenly_no_spurious_bias():
+    """驱动相等时按比例均分，尾差最多集中到末个有效目标，不产生系统性偏差。"""
+    config = dict(
+        group_dimensions=['基地'], allocation_dimensions=['品牌'],
+        driver_field='驱动', value_field='费用', write_policy='overwrite',
+        source_rows=[{'基地': 'A', '费用': '100'}],
+        target_rows=[
+            {'基地': 'A', '品牌': 'X', '驱动': '1'},
+            {'基地': 'A', '品牌': 'Y', '驱动': '1'},
+            {'基地': 'A', '品牌': 'Z', '驱动': '1'},
+        ],
+    )
+    result = allocate(config)
+    by = {x['target']['品牌']: Decimal(x['allocated']) for x in result['results']}
+    # 33.33 / 33.33 / 33.34 —— 前两个按两位小数舍入，末个吸收尾差
+    assert by['X'] == Decimal('33.33') and by['Y'] == Decimal('33.33') and by['Z'] == Decimal('33.34')
+    assert sum(by.values()) == Decimal('100')
+
+
+def test_all_drivers_equal_and_one_should_get_zero_never_negative():
+    """尾差吸收不得使任何目标金额变为负数（即使源金额极小）。"""
+    config = dict(
+        group_dimensions=['基地'], allocation_dimensions=['品牌'],
+        driver_field='驱动', value_field='费用', write_policy='overwrite',
+        source_rows=[{'基地': 'A', '费用': '0.01'}],
+        target_rows=[
+            {'基地': 'A', '品牌': 'X', '驱动': '1'},
+            {'基地': 'A', '品牌': 'Y', '驱动': '1'},
+        ],
+    )
+    result = allocate(config)
+    by = {x['target']['品牌']: Decimal(x['allocated']) for x in result['results']}
+    assert all(v >= 0 for v in by.values()), "尾差吸收不得产生负数结果"
+    assert sum(by.values()) == Decimal('0.01')
