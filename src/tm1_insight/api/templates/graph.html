@@ -34,6 +34,16 @@
 </div>
 {% else %}
 
+<!-- ============ 调用关系 Mermaid 图（统一组件） ============ -->
+<div class="card" id="lineage-mermaid">
+  <h2>调用关系图 <span class="tag">{{ (graph.callers|length) + (graph.callees|length) }}</span></h2>
+  <p class="muted small">以当前 TI 为中心，展示上游调用者与下游被调用者。点击节点查看对应 TI 源码。</p>
+  <div id="lineage-mermaid-mount"></div>
+</div>
+
+<!-- 调用关系图数据（供前端生成 Mermaid） -->
+<script type="application/json" id="lineage-mermaid-data">{{ graph | tojson }}</script>
+
 <!-- ============ 中心 TI：写入切面（核心） ============ -->
 <div class="graph-root-card">
   <div class="gr-head">
@@ -159,7 +169,7 @@
 </div>
 {% endmacro %}
 
-{% block scripts %}<script src="/static/workbench-tables.js?v=2" defer></script><script src="/static/lineage-summary.js?v=2" defer></script>
+{% block scripts %}<script src="/static/workbench-tables.js?v=2" defer></script><script src="/static/lineage-summary.js?v=2" defer></script><script src="/static/mermaid-viewer.js?v=2" defer></script>
 <script>
 // TI 自动联想（复用 /api/search 的 process 结果）
 let tiTimer = null;
@@ -201,6 +211,46 @@ tiInput.addEventListener('keydown', (e) => {
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.search-hero')) tiResults.hidden = true;
+});
+
+// ---- 调用关系 Mermaid 图（统一组件，离线渲染） ----
+// 注：mermaid-viewer.js 为 defer 加载，须等 DOMContentLoaded 后再挂载，避免 TM1Mermaid 未就绪。
+document.addEventListener('DOMContentLoaded', function () {
+  const mount = document.getElementById('lineage-mermaid-mount');
+  const dataEl = document.getElementById('lineage-mermaid-data');
+  if (!mount || !dataEl) return;
+  let graph;
+  try { graph = JSON.parse(dataEl.textContent); } catch (e) { return; }
+  if (!graph || !graph.root) return;
+
+  // 从 graph 数据生成 Mermaid 文本，节点 id 稳定可反查（n0=root, c0..=callers, d0..=callees）
+  const mmLabel = (v) => String(v ?? '')
+    .replace(/&/g, '&amp;').replace(/"/g, '#quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/`/g, "'").replace(/\n/g, ' ');
+  const nodes = []; const idMap = {};
+  function addNode(id, name, kind) {
+    nodes.push({ id, name, kind });
+    idMap[id] = name;
+  }
+  addNode('n0', graph.root, 'root');
+  (graph.callers || []).forEach((n, i) => addNode('c' + i, n.name, 'caller'));
+  (graph.callees || []).forEach((n, i) => addNode('d' + i, n.name, 'callee'));
+  const lines = ['flowchart LR'];
+  nodes.forEach((n) => {
+    const role = n.kind === 'root' ? '中心 TI' : n.kind === 'caller' ? '上游调用' : '下游被调用';
+    lines.push('  ' + n.id + '["' + mmLabel(n.name) + ' · ' + role + '"]');
+  });
+  (graph.callers || []).forEach((n, i) => { lines.push('  c' + i + ' -.->|"调用"| n0'); });
+  (graph.callees || []).forEach((n, i) => { lines.push('  n0 -.->|"调用"| d' + i); });
+  const code = lines.join('\n') + '\n';
+
+  if (window.TM1Mermaid) {
+    window.TM1Mermaid.mount(mount, {
+      code, title: 'TI 调用关系',
+      idMap,
+      onNodeClick: (name) => { if (name) location.href = '/graph?ti=' + encodeURIComponent(name); },
+    });
+  }
 });
 </script>
 {% endblock %}

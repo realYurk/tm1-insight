@@ -38,3 +38,74 @@
 .flow-slice p {margin:4px 0;color:var(--text)}
 @media(max-width:1100px){.flow-layout{grid-template-columns:minmax(0,1fr)}.flow-detail{position:static;max-height:500px}.flow-viewport{max-height:68vh}}
 @media(prefers-reduced-motion:reduce){.flow-node{transition:none}}
+
+/* ---- 离线 Mermaid 查看器（mermaid-viewer.js） ---- */
+.mm-wrapper {display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden}
+.mm-toolbar {display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg)}
+.mm-toolbar .btn {font-size:11px;padding:5px 10px}
+.mm-viewport {position:relative;overflow:auto;min-height:480px;max-height:72vh;background:var(--bg);cursor:grab}
+.mm-viewport:active {cursor:grabbing}
+.mm-inner {position:relative;display:inline-block;min-width:100%;transform-origin:0 0}
+.mm-rendering {padding:40px;color:var(--muted);font-size:12px;text-align:center}
+.mm-render {padding:20px;text-align:center}
+.mm-render svg {max-width:none;height:auto}
+.mm-fallback {padding:16px}
+.mm-fallback p {color:#b47824;font-size:12px;margin:0 0 10px}
+.mm-fallback pre {max-height:400px;overflow:auto}
+
+/* ---- 视图切换（自绘流程图 <-> Mermaid 图） ---- */
+.flow-view-switch {display:inline-flex;gap:2px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.flow-view-switch .btn {border:none;border-radius:0;background:transparent;color:var(--muted)}
+.flow-view-switch .btn.active {background:var(--accent);color:#fff}
+.flow-self-view,.flow-mmd-view {margin:20px 0}
+
+/* ---- 可配置分摊页面 ---- */
+.alloc-layout {display:grid;grid-template-columns:400px minmax(0,1fr);gap:18px;align-items:start}
+.alloc-config h2 {margin-top:0}
+.alloc-config h3 {font-size:13px;margin:16px 0 6px}
+.alloc-config textarea {width:100%;font-family:var(--font-mono);font-size:12px;line-height:1.6}
+.al-row {display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.al-row label {display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.alloc-results {display:flex;flex-direction:column;gap:18px}
+.alloc-results .card h2 {margin-top:0}
+.al-recon-summary p {font-size:14px;font-weight:600}
+.al-ok {color:#2e7d4f}
+.al-bad {color:#b3443c}
+.al-warn {color:#b47824}
+.al-file input {font-size:12px}
+@media(max-width:1100px){.alloc-layout{grid-template-columns:1fr}}
+
+/* ---- Cube 数据形成专项视图（cube-formation.js） ---- */
+#cube-formation { margin-top: 22px; display: flex; flex-direction: column; gap: 18px; }
+.cf-head h2 { margin: 0 0 6px; }
+.cf-sub { margin: 0 0 12px; }
+.cf-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.cf-mdx-input { flex: 1 1 320px; min-width: 0; font-family: var(--font-mono); font-size: 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+.cf-status { font-size: 12px; }
+.cf-section-title { margin: 0 0 12px; font-size: 14px; }
+.cf-chart { min-height: 260px; }
+.cf-table { width: 100%; }
+.cf-table td, .cf-table th { vertical-align: top; }
+.cf-line { white-space: nowrap; font-size: 12px; color: var(--muted); }
+.cf-rule-row:hover { background: var(--accent-soft); }
+.cf-rule-row.cf-flash { background: var(--accent-soft); transition: background .3s; }
+.cf-source-panel { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 12px; }
+.cf-source-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.cf-source-panel pre.code { margin: 0; max-height: 320px; overflow: auto; }
+.cf-source-refs { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.cf-ti { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; background: var(--card); }
+.cf-ti summary { padding: 8px 12px; cursor: pointer; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cf-ti-body { padding: 6px 12px 12px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 6px; }
+.cf-ti-wp { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.cf-slice-dims { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.cf-slice-count { font-size: 13px; font-weight: 600; margin: 6px 0; }
+.cf-slice-list { display: flex; flex-direction: column; gap: 6px; }
+.cf-slice-item { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cf-limits summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.cf-limits p { margin: 4px 0; }
+.cf-fallback { font-size: 12px; max-height: 360px; overflow: auto; }
+
+/* 规则表长文本列：限宽 + 正常换行，避免竖排 */
+.cf-table td code.var-inline { display: inline-block; max-width: 300px; overflow-wrap: anywhere; white-space: normal; word-break: break-all; font-size: 11.5px; }
+.cf-table td:nth-child(2) { min-width: 200px; }
+.cf-table td:nth-child(3) { min-width: 220px; }

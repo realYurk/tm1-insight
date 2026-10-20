@@ -746,7 +746,10 @@ def cube_rule_semantics(con: duckdb.DuckDBPyConnection, cube: str) -> dict:
         "SELECT rules FROM cubes WHERE name = ?", [cube]
     ).fetchone()
     if not row:
-        return {"cube": cube, "available": False, "reason": "cube 不存在"}
+        # 语义区分：cube 不在当前快照范围内 vs 源模型本身不存在。
+        # 当前快照只覆盖采样的模型范围，不能据此断言「源模型不存在」。
+        return {"cube": cube, "available": False,
+                "reason": "当前范围未发现该 Cube（可能不在本次快照采样范围内，不代表源模型不存在）"}
     code = row[0] or ""
     dims = [r[0] for r in con.execute(
         "SELECT dimension_name FROM cube_has_dimension WHERE cube_name = ? ORDER BY dim_order",
@@ -1725,3 +1728,116 @@ def list_audit_mappings(con: duckdb.DuckDBPyConnection) -> list[dict]:
             "FROM front_backend_mapping ORDER BY menu, excel_file"
         ).fetchall()
     ]
+
+
+def cube_formation_view(con: duckdb.DuckDBPyConnection, cube: str, mdx: str | None = None) -> dict:
+    """Cube 数据形成专项视图：整合 Rule 声明式计算 + TI 写入 + 切面匹配。
+
+    与 cube_lineage（深血缘）不同，本视图面向「这个 Cube 的值是怎么形成的」这一业务问题，
+    默认优先展示 Rule 计算关系（而非仅读取该 Cube 的 TI），并显式区分：
+      - rule_declared：Rule 声明式计算（目标区域 → 表达式 → 引用指标 → 来源 Cube）
+      - ti_writes：TI 显式写入（含固定成员 / 动态成员 / 条件）
+      - consolidation：维度层级汇总（仅当 Rule/TI 均不覆盖时的候选，标注为「可能」）
+      - mdx_slice：MDX 反解的切面匹配（哪些写入点命中该切面）
+
+    不连接服务器、不执行规则；无法解析的表达式标记 UNKNOWN，不伪造运行结果。
+    """
+    dims = [r[0] for r in con.execute(
+        "SELECT dimension_name FROM cube_has_dimension WHERE cube_name = ? ORDER BY dim_order",
+        [cube],
+    ).fetchall()]
+
+    # 1. Rule 语义（默认优先）
+    semantics = cube_rule_semantics(con, cube)
+    rules = []
+    for r in semantics.get("rules", []):
+        # 目标区域坐标：固定成员 vs 动态成员
+        fixed_members: list[str] = []
+        dynamic_members: list[str] = []
+        lhs = r.get("lhs", {}) or {}
+        for c in lhs.get("coordinates", []) or []:
+            if c.get("member"):
+                fixed_members.append(f"{c.get('dimension','?')}={c.get('member')}")
+            elif c.get("members"):
+                fixed_members.append(f"{c.get('dimension','?')}={{{','.join(c['members'])}}}")
+            elif c.get("raw"):
+                dynamic_members.append(f"{c.get('dimension','?')}←{c.get('raw')}")
+        refs = []
+        for d in r.get("db_references", []) or []:
+            refs.append({"cube": d.get("cube"), "status": d.get("status", "UNKNOWN"),
+                         "raw": d.get("raw")})
+        rules.append({
+            "line_start": r.get("line_start"),
+            "line_end": r.get("line_end"),
+            "raw": r.get("raw", ""),
+            "target": lhs.get("raw"),
+            "target_kind": lhs.get("kind"),
+            "fixed_members": fixed_members,
+            "dynamic_members": dynamic_members,
+            "expression": (r.get("rhs", {}) or {}).get("expression", ""),
+            "qualifier": r.get("qualifier"),
+            "conditions": r.get("conditions", []),
+            "db_references": refs,
+            "special": r.get("special"),
+            "status": r.get("status", "UNKNOWN"),
+            "unresolved": r.get("unresolved_reasons", []),
+        })
+
+    # 2. TI 写入（cube_lineage 的 writers 部分）
+    lineage = cube_lineage(con, cube)
+    ti_writes = []
+    for w in lineage.get("writers", []) or []:
+        writes = []
+        for wp in w.get("write_points", []) or []:
+            fixed = []
+            dynamic = []
+            for d in wp.get("dims", []) or []:
+                val = (d.get("value") or "").strip()
+                if val.startswith("<") and val.endswith(">"):
+                    dynamic.append(f"{d.get('dim_name')}={val}")
+                elif val:
+                    fixed.append(f"{d.get('dim_name')}={val}")
+            writes.append({
+                "operation": wp.get("operation_human"),
+                "conditions": wp.get("conditions_human", []),
+                "fixed_members": fixed,
+                "dynamic_members": dynamic,
+                "source_cubes": wp.get("source_cubes", []),
+            })
+        ti_writes.append({"process": w.get("process"), "writes": writes})
+
+    # 3. MDX 切面匹配（若有）
+    mdx_slice = None
+    if mdx:
+        parsed = parse_mdx(mdx)
+        members = parsed.get("members") or None
+        trace = trace_cell_value(con, cube, members)
+        mdx_slice = {
+            "cube": parsed.get("cube"),
+            "members": parsed.get("members", {}),
+            "matched_count": trace.get("matched_count", 0),
+            "relaxed": trace.get("relaxed", False),
+            "candidates": trace.get("candidates", []),
+        }
+
+    return {
+        "cube": cube,
+        "dimensions": dims,
+        "available": semantics.get("available", False),
+        "unavailable_reason": semantics.get("reason"),
+        "rule_count": len(rules),
+        "feeder_count": len(semantics.get("feeders", [])),
+        "unknown_count": len(semantics.get("unknowns", [])),
+        # 来源版本证据：Rule 源码 SHA-256，用于追溯快照与历史分析包的一致性。
+        "rule_source_hash": semantics.get("source_hash"),
+        "rules": rules,
+        "ti_writes": ti_writes,
+        "source_cubes": lineage.get("sources", []),
+        "mdx_slice": mdx_slice,
+        "mdx_parse": parse_mdx(mdx) if mdx else None,
+        "limitations": [
+            "Rule/Feeder 仅做静态语义解析，未执行；运行路径、最终金额与新旧等价需隔离运行验证。",
+            "动态坐标、Subset/MDX 成员、Data Row Variables 未求值，标注为 UNKNOWN/可能。",
+            "TI 读写关系是代码证据，不等于值一定由此传输；共同读写/静态调用边不视为实际值传输证明。",
+        ],
+    }

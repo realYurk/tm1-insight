@@ -43,7 +43,7 @@ tm1-insight = "tm1_insight.cli:app"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tm1_insight = ["api/static/*", "api/templates/*"]
+tm1_insight = ["api/static/*", "api/static/vendor/*", "api/templates/*", "api/templates/icons/*"]
 
 [tool.ruff]
 line-length = 100

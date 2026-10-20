@@ -11,9 +11,13 @@
 
 {% block content %}
 {% include "_cube_detail.html" %}
+<div id="cube-formation" data-cube="{{ cube.name }}"></div>
 {% endblock %}
 
 {% block scripts %}
+<link rel="stylesheet" href="/static/functional-flow.css?v=3">
+<script src="/static/mermaid-viewer.js?v=3" defer></script>
+<script src="/static/cube-formation.js?v=3" defer></script>
 <script>
 // 从列表页进来时，「返回列表」恢复上次的搜索词与页码（按模型隔离）
 (function () {

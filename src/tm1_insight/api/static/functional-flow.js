@@ -5,6 +5,21 @@
   const make = (tag, text, parent) => { const x = document.createElement(tag); x.textContent = text ?? ''; if (parent) parent.append(x); return x; };
   const details = (p, title) => { const d = make('details', '', p); make('summary', title, d); return d; };
   function dispose() { ++generation; if (observer) observer.disconnect(); observer = null; }
+  // 与后端 functional_flow.mermaid() 保持一致的标签转义：保留中文与括号，
+  // 仅中和会破坏 Mermaid 语法或注入标记的字符。
+  const mmLabel = (v) => String(v ?? '')
+    .replace(/&/g, '&amp;').replace(/"/g, '#quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/`/g, "'").replace(/\n/g, ' ');
+  function toMermaid(flow) {
+    const ids = {}; flow.nodes.forEach((n, i) => { ids[n.id] = 'n' + i; });
+    const lines = ['flowchart LR'];
+    flow.nodes.forEach((n) => { lines.push('  ' + ids[n.id] + '["' + mmLabel(n.title) + ' · ' + mmLabel(n.role) + '"]'); });
+    flow.edges.forEach((e) => {
+      const arrow = (e.action === 'PROCESS_CALL' || e.action === 'CHORE_SCHEDULE') ? '-.->' : '-->';
+      lines.push('  ' + ids[e.source] + ' ' + arrow + '|"' + mmLabel(e.label) + '"| ' + ids[e.target]);
+    });
+    return lines.join('\n') + '\n';
+  }
   async function render(parent, api) {
     dispose();
     const serial = generation, active = () => api.current() && serial === generation;
@@ -18,10 +33,34 @@
     [['human-markdown', '人类阅读版 Markdown'], ['mermaid', 'Mermaid 图'], ['flow-json', '流程 JSON'], ['ai-package', 'AI 分析完整版 ZIP']].forEach(([format, label]) => {
       const a = make('a', label, toolbar); a.className = 'btn ghost'; a.href = api.url('export', { format, include_context:includeContext });
     });
+    // 视图切换：自绘 SVG 流程图 <-> 离线 Mermaid 图
+    const viewSwitch = make('div', '', toolbar); viewSwitch.className = 'flow-view-switch';
+    const btnFlow = make('button', '流程图', viewSwitch); btnFlow.type = 'button'; btnFlow.className = 'btn ghost active';
+    const btnMmd = make('button', 'Mermaid 图', viewSwitch); btnMmd.type = 'button'; btnMmd.className = 'btn ghost';
+    const selfView = make('div', '', parent); selfView.className = 'flow-self-view';
+    const mmdView = make('div', '', parent); mmdView.className = 'flow-mmd-view'; mmdView.hidden = true;
+    let mmdInstance = null;
+    const switchView = (mode) => {
+      const isMmd = mode === 'mermaid';
+      selfView.hidden = isMmd; mmdView.hidden = !isMmd;
+      btnFlow.classList.toggle('active', !isMmd); btnMmd.classList.toggle('active', isMmd);
+      if (isMmd) {
+        try {
+          // 稳定 ID 映射：mermaid 节点 id 'n0','n1',... -> 业务节点对象
+          const idMap = {}; flow.nodes.forEach((n, i) => { idMap['n' + i] = n; });
+          mmdInstance = window.TM1Mermaid.mount(mmdView, {
+            code: toMermaid(flow), title: '业务流程图', idMap: idMap,
+            onNodeClick: (node) => { if (node) { selectNode(node); layout.scrollIntoView({ block: 'start' }); } },
+          });
+        } catch (e) { make('p', e.message, mmdView); }
+      } else { if (mmdInstance) { mmdInstance.destroy(); mmdInstance = null; } }
+    };
+    btnFlow.addEventListener('click', () => switchView('flow'));
+    btnMmd.addEventListener('click', () => switchView('mermaid'));
     const options = make('label', '', toolbar); options.className='flow-context'; const check=make('input','',options); check.type='checkbox'; check.checked=includeContext; options.append(document.createTextNode(' 展开调用入口、消费者与来源规则')); check.addEventListener('change',()=>{includeContext=check.checked;render(parent,api).catch(e=>make('p',e.message,parent));});
     make('p', flow.note, parent).className = 'flow-note';
     if (flow.statistics.truncated) make('p', '已达到展示范围上限，当前图不完整。请缩小入口，完整事实可在架构导出中查看。', parent).className = 'flow-boundary';
-    const layout = make('div', '', parent); layout.className = 'flow-layout';
+    const layout = make('div', '', selfView); layout.className = 'flow-layout';
     const viewport = make('div', '', layout); viewport.className = 'flow-viewport'; viewport.tabIndex = 0; viewport.setAttribute('aria-label', '业务流程图，可滚动');
     const canvas = make('div', '', viewport); canvas.className = 'flow-canvas';
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); canvas.append(svg); svg.classList.add('flow-lines'); svg.setAttribute('aria-label', '流程动作连线');
@@ -122,8 +161,8 @@
       });
     }
     observer = new ResizeObserver(draw); observer.observe(canvas); requestAnimationFrame(draw);
-    window.TM1Workbench.flowTables(parent,flow,{selectNode:n=>{selectNode(n);layout.scrollIntoView({block:'start'});},selectEdge:e=>{selectEdge(e);layout.scrollIntoView({block:'start'});}});
-    const folded = details(parent, '技术执行细节（Bedrock / 框架调用）及辅助关系已折叠');
+    window.TM1Workbench.flowTables(selfView,flow,{selectNode:n=>{selectNode(n);layout.scrollIntoView({block:'start'});},selectEdge:e=>{selectEdge(e);layout.scrollIntoView({block:'start'});}});
+    const folded = details(selfView, '技术执行细节（Bedrock / 框架调用）及辅助关系已折叠');
     make('p', '折叠基于现有引擎的技术角色与源码效果分类；核心读写仍保留在所属处理步骤中。', folded);
     make('p', '技术关系 ' + (flow.statistics.folded.technical || 0) + '；其余辅助、未确认或展示预算外的关系请在“关系与计算”及完整架构中核对。', folded);
     smallButton(folded, '查看技术关系与原始依据', () => api.technical());
