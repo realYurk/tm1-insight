@@ -72,6 +72,8 @@ app.include_router(learning_router)
 app.include_router(experience_router)
 app.include_router(workflow_router)
 app.include_router(architecture_router)
+from tm1_insight.api.allocation import router as allocation_router
+app.include_router(allocation_router)
 
 
 # ---- 全局异常处理：任何未捕获异常都返回友好错误页，而非白屏 500 ----
