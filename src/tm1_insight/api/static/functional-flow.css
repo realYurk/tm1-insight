@@ -38,3 +38,39 @@
 .flow-slice p {margin:4px 0;color:var(--text)}
 @media(max-width:1100px){.flow-layout{grid-template-columns:minmax(0,1fr)}.flow-detail{position:static;max-height:500px}.flow-viewport{max-height:68vh}}
 @media(prefers-reduced-motion:reduce){.flow-node{transition:none}}
+
+/* ---- 离线 Mermaid 查看器（mermaid-viewer.js） ---- */
+.mm-wrapper {display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden}
+.mm-toolbar {display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg)}
+.mm-toolbar .btn {font-size:11px;padding:5px 10px}
+.mm-viewport {position:relative;overflow:auto;min-height:480px;max-height:72vh;background:var(--bg);cursor:grab}
+.mm-viewport:active {cursor:grabbing}
+.mm-inner {position:relative;display:inline-block;min-width:100%;transform-origin:0 0}
+.mm-rendering {padding:40px;color:var(--muted);font-size:12px;text-align:center}
+.mm-render {padding:20px;text-align:center}
+.mm-render svg {max-width:none;height:auto}
+.mm-fallback {padding:16px}
+.mm-fallback p {color:#b47824;font-size:12px;margin:0 0 10px}
+.mm-fallback pre {max-height:400px;overflow:auto}
+
+/* ---- 视图切换（自绘流程图 <-> Mermaid 图） ---- */
+.flow-view-switch {display:inline-flex;gap:2px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.flow-view-switch .btn {border:none;border-radius:0;background:transparent;color:var(--muted)}
+.flow-view-switch .btn.active {background:var(--accent);color:#fff}
+.flow-self-view,.flow-mmd-view {margin:20px 0}
+
+/* ---- 可配置分摊页面 ---- */
+.alloc-layout {display:grid;grid-template-columns:400px minmax(0,1fr);gap:18px;align-items:start}
+.alloc-config h2 {margin-top:0}
+.alloc-config h3 {font-size:13px;margin:16px 0 6px}
+.alloc-config textarea {width:100%;font-family:var(--font-mono);font-size:12px;line-height:1.6}
+.al-row {display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.al-row label {display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.alloc-results {display:flex;flex-direction:column;gap:18px}
+.alloc-results .card h2 {margin-top:0}
+.al-recon-summary p {font-size:14px;font-weight:600}
+.al-ok {color:#2e7d4f}
+.al-bad {color:#b3443c}
+.al-warn {color:#b47824}
+.al-file input {font-size:12px}
+@media(max-width:1100px){.alloc-layout{grid-template-columns:1fr}}

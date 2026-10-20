@@ -204,17 +204,30 @@ def from_artifact(path, **options):
 
 
 def mermaid(flow):
-    # Numeric character entities prevent quotes/brackets/newlines injecting syntax.
+    """Render nodes/edges as Mermaid flowchart text with safe labels.
+
+    Labels keep their original characters (Chinese, parentheses, brackets and
+    special TM1 names) so the diagram displays correctly. Only characters that
+    would break Mermaid node/edge syntax are escaped: double quotes become the
+    ``#quot;`` entity, backticks and newlines are stripped. Node ids are stable
+    ``n<i>`` tokens, so untrusted object names never reach id position.
+    """
     def label(value):
-        return ''.join(c if c.isalnum() or c in ' .·' else f'#{ord(c)};' for c in str(value))
+        # Preserve real text (Chinese, parentheses, brackets, special TM1 names).
+        # Only neutralize characters that would break Mermaid syntax or inject
+        # markup: double quotes (``#quot;``), angle brackets (``&lt;/&gt;`` which
+        # Mermaid decodes back for display), backticks and newlines.
+        return (str(value).replace('&', '&amp;').replace('"', '#quot;')
+                .replace('<', '&lt;').replace('>', '&gt;')
+                .replace('`', "'").replace('\n', ' '))
     lines = ['flowchart LR']
-    ids = {n['id']:f'n{i}' for i,n in enumerate(flow['nodes'])}
+    ids = {n['id']: f'n{i}' for i, n in enumerate(flow['nodes'])}
     for n in flow['nodes']:
         lines.append(f'  {ids[n["id"]]}["{label(n["title"])} · {label(n["role"])}"]')
     for e in flow['edges']:
-        arrow = '-.->' if e['action'] in {'PROCESS_CALL','CHORE_SCHEDULE'} else '-->'
+        arrow = '-.->' if e['action'] in {'PROCESS_CALL', 'CHORE_SCHEDULE'} else '-->'
         lines.append(f'  {ids[e["source"]]} {arrow}|"{label(e["label"])}"| {ids[e["target"]]}')
-    return '\n'.join(lines)+'\n'
+    return '\n'.join(lines) + '\n'
 
 
 def markdown(flow, *, include_evidence=True):
