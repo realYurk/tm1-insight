@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}可配置分摊 · TM1 Insight{% endblock %}
+{% block content %}
+<header class="page-head"><div>
+  <h1 class="page-title">可配置分摊（合成数据原型）</h1>
+  <p class="page-sub">配置分组、目标、驱动因子与写入策略，对<strong>本地合成数据</strong>执行分摊计算并核对守恒。不连接 TM1 Server，不写任何模型数据。</p>
+</div></header>
+
+<div class="alloc-layout">
+  <section class="card alloc-config">
+    <h2>方案配置</h2>
+    <form id="al-form">
+      <div class="al-row">
+        <label>分组维度（逗号分隔，如 基地）<input class="input" id="al-groups" value="基地" required></label>
+        <label>分配维度（逗号分隔，如 品牌）<input class="input" id="al-allocs" value="品牌" required></label>
+      </div>
+      <div class="al-row">
+        <label>金额字段<input class="input" id="al-value" value="费用" required></label>
+        <label>驱动字段<input class="input" id="al-driver" value="驱动" required></label>
+      </div>
+      <div class="al-row">
+        <label>写入策略<select class="input" id="al-policy"><option value="overwrite">覆盖</option><option value="increment">累加</option></select></label>
+        <label>方案名（保存 / 加载）<div style="display:flex;gap:6px"><input class="input" id="al-name" placeholder="如 两基地样例"><button type="button" class="btn ghost" id="al-save">保存</button></div></label>
+      </div>
+
+      <h3>源数据（每行一个 JSON 对象）</h3>
+      <textarea class="input code" id="al-source" rows="4">[{"基地": "A", "费用": "1000000"}, {"基地": "B", "费用": "500000"}]</textarea>
+      <h3>目标数据（含驱动因子）</h3>
+      <textarea class="input code" id="al-target" rows="6">[
+ {"基地": "A", "品牌": "X", "驱动": "100"},
+ {"基地": "A", "品牌": "Y", "驱动": "200"},
+ {"基地": "A", "品牌": "Z", "驱动": "700"},
+ {"基地": "B", "品牌": "X", "驱动": "50"},
+ {"基地": "B", "品牌": "W", "驱动": "50"}
+]</textarea>
+      <div class="study-actions" style="margin-top:12px">
+        <button type="submit" class="btn primary" id="al-run">执行分摊</button>
+        <button type="button" class="btn ghost" id="al-load">加载方案</button>
+        <button type="button" class="btn ghost" id="al-export">导出方案 JSON</button>
+        <label class="al-file" hidden><input type="file" id="al-import" accept=".json"></label>
+        <button type="button" class="btn ghost" id="al-import-btn">导入 JSON</button>
+      </div>
+      <p class="err" id="al-error" hidden></p>
+    </form>
+  </section>
+
+  <section class="alloc-results" id="al-results" hidden>
+    <div class="card">
+      <h2>分摊流程</h2>
+      <div id="al-flow"></div>
+    </div>
+    <div class="card">
+      <h2>驱动因子与分摊结果</h2>
+      <p class="muted small" id="al-policy-note"></p>
+      <div class="table-wrap"><table class="table" id="al-table"><thead><tr>
+        <th>分组</th><th>目标</th><th>驱动因子</th><th>分摊比例</th><th>分摊金额</th><th>源组合计</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>分摊前后对账</h2>
+      <div id="al-recon"></div>
+    </div>
+    <div class="card" id="al-anomaly-card" hidden>
+      <h2>异常与待确认</h2>
+      <div id="al-anomalies"></div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/functional-flow.css?v=3"><script src="/static/mermaid-viewer.js?v=1" defer></script><script src="/static/allocation.js?v=1" defer></script>{% endblock %}
