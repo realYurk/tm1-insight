@@ -19,7 +19,7 @@
   const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
   const button=(text,fn)=>{const b=element('button',text,'btn ghost');b.type='button';b.onclick=()=>run(async()=>{b.disabled=true;try{await fn();}finally{b.disabled=false;}});return b;};
   async function run(fn){try{await fn();}catch(e){if(e.name!=='AbortError')status(e.message,true);}}
-  function changed(){dirty=true;remember();scheduleStale();}
+  function changed(){dirty=true;remember();scheduleStale();window.TM1Shell&&TM1Shell.setSaveState('dirty','未保存');}
   function currentWorkspace(){
     return {schema_version:'architecture-workspace-3',snapshot_id:snapshot,design:design,name:$('ew-name').value.trim()||'我的架构研究',query:{...query,snapshot_id:snapshot},
       objects:[...known.values()].map(n=>({type:n.type,name:n.name})), selected:[...selected],visible:graph.nodes.map(n=>n.id),edge_ids:graph.edges.map(e=>e.id),hidden:[...hidden],groups,drafts,
@@ -108,7 +108,7 @@
       process_names:e.process_names,process_ids:e.process_ids,label:e.label,status:e.status,
       generated:e.generated,hint:edgeHint(e)}));
     if(!canvas)canvas=mountCanvas();
-    canvas.setGraph({nodes,edges,positions:o.positions||(preserve?positions:{}),fit:!!o.fit,layout:o.layout||'breadthfirst'});
+    canvas.setGraph({nodes,edges,positions:o.positions||(preserve?positions:{}),fit:!!o.fit,layout:o.layout||'auto'});
     nodeMap=Object.fromEntries(nodes.map(n=>[n.id,n.id]));
     $('ew-summary').textContent=`${shown.size} 个可见对象 · ${displayEdges.length} 条可见关系 · ${hidden.size} 个隐藏。虚线是候选共同读写，不是已证明的值流。`;
     renderTable();renderGroups();updateSelection();
@@ -141,6 +141,10 @@
         openMapping(rel.id);
       },
       onContextMenu:(id,x,y)=>openNodeMenu(id,x,y),
+      onCanvasContext:(x,y)=>openCanvasMenu(x,y),
+      onConnectCancel:()=>status('已取消连线：松手位置不在目标图标上，未创建关系。'),
+      onStrategy:(strategy)=>{if(strategy==='radial')status('已按「中心辐射」排列：高连接度 Cube 居中，周边对象按环分布。');
+        else if(strategy==='layered')status('已按「加工链分层」排列：自左向右分层，环已收缩为分组。');},
     });
     window.__ewCanvas=inst;  // 调试与自动化验收用：读取节点屏幕坐标
     return inst;
@@ -151,6 +155,23 @@
     if(canvas)setTimeout(()=>canvas.resize(),60);
     $('ew-detail').replaceChildren(element('h2','对象与关系详情'),
       element('p','从画布或关系表选择对象。详情在这里切换，画布保持原样。','muted'));
+  }
+
+  function openCanvasMenu(x,y){
+    const existing=document.querySelector('.ew-ctx');if(existing)existing.remove();
+    const menu=element('div','','ew-ctx');
+    menu.style.left=Math.min(x,window.innerWidth-200)+'px';menu.style.top=Math.min(y,window.innerHeight-200)+'px';
+    const add=(label,fn)=>{const b=element('button',label,'btn ghost');b.type='button';b.onclick=()=>{menu.remove();fn();};menu.appendChild(b);};
+    const sep=()=>menu.appendChild(element('hr',''));
+    if(design.mode==='design'){
+      add('在此新增 Cube 草稿',()=>{addCubeDraft();});
+      add('新增 CSV Schema',()=>{$('ew-cs-name')?.closest('details')?.setAttribute('open','');$('ew-cs-name')?.focus();});
+      sep();
+    }
+    add('自动布局',()=>{canvas.layout('auto');changed();});
+    add('适应画布',()=>canvas.fit());
+    document.body.appendChild(menu);
+    setTimeout(()=>document.addEventListener('mousedown',function off(ev){if(!menu.contains(ev.target)){menu.remove();document.removeEventListener('mousedown',off);}}),0);
   }
 
   function openNodeMenu(id,x,y){
@@ -175,6 +196,7 @@
 
   function updateSelection(){
     canvas?.select([...selected],edgeSelection||null);
+    window.TM1Shell&&TM1Shell.setSelectionCount(selected.size);
     document.querySelectorAll('#ew-relations tr[data-edge]').forEach(tr=>tr.setAttribute('aria-selected',String(tr.dataset.edge===edgeSelection)));
     // 图 → 表联动：选中边时把对应记录滚入视野，而非只改颜色。
     if(edgeSelection){const row=document.querySelector('#ew-relations tr[data-edge="'+CSS.escape(edgeSelection)+'"]');if(row)row.scrollIntoView({block:'nearest'});}
@@ -306,7 +328,7 @@
     p.appendChild(button('移除这个人工模块',()=>{groups=groups.filter(x=>x.id!==id);render();panel('模块已移除，模型对象保留');changed();}));
   }
   async function savedList(){const data=await files.list();if(snapshot&&snapshot!==data.snapshot_id)throw new Error('模型已变化，不能混用工作区。');snapshot=data.snapshot_id;$('ew-saved').replaceChildren(new Option('选择已保存工作区',''));data.workspaces.forEach(w=>{const o=new Option(w.name+(w.compatible?'':'（其他模型 / 不兼容）'),w.id);o.disabled=!w.compatible;$('ew-saved').appendChild(o);});}
-  async function save(asNew){const w=currentWorkspace();const result=await files.save(w,asNew?'':workspaceId,asNew?'':revision);workspaceId=result.id;revision=result.revision;dirty=false;remember();history.replaceState(null,'','/architecture?view=workbench&workspace_id='+workspaceId);await savedList();status('工作区已保存到独立用户目录；采集模型保持只读。');}
+  async function save(asNew){window.TM1Shell&&TM1Shell.setSaveState('saving','保存中…');try{const w=currentWorkspace();const result=await files.save(w,asNew?'':workspaceId,asNew?'':revision);workspaceId=result.id;revision=result.revision;dirty=false;remember();history.replaceState(null,'','/architecture?view=workbench&workspace_id='+workspaceId);await savedList();status('工作区已保存到独立用户目录；采集模型保持只读。');window.TM1Shell&&TM1Shell.setSaveState('saved','已保存');}catch(e){window.TM1Shell&&TM1Shell.setSaveState('error','保存失败');throw e;}}
   async function restore(data){
     const w=data.workspace;if(w.snapshot_id!==snapshot)throw new Error('工作区绑定其他模型；没有按名称自动重绑。');
     const restoreQuery={...w.query,snapshot_id:snapshot,objects:w.objects,depth:0,node_budget:120,edge_budget:300,source_prefix:'',target_prefix:'',view:'objects'};
@@ -736,13 +758,15 @@
   }
 
   $('ew-fit').onclick=()=>canvas&&canvas.fit();
-  $('ew-zoom-in').onclick=()=>canvas&&canvas.zoomBy(1.25);
-  $('ew-zoom-out').onclick=()=>canvas&&canvas.zoomBy(0.8);
-  $('ew-layout').onclick=()=>{if(!canvas)return;canvas.layout('breadthfirst');positions=canvas.getPositions();changed();status('已自动排列；位置随工作区保存。');};
-  $('ew-toggle-rail').onclick=()=>{const r=$('ew-root');r.classList.toggle('rail-collapsed');if(canvas)setTimeout(()=>canvas.resize(),60);};
+  $('ew-layout').onclick=()=>{if(!canvas)return;canvas.layout('auto');positions=canvas.getPositions();changed();status('已自动排列；位置随工作区保存。');};
+  // 资源栏折叠由 canvas-shell.js 统一处理（含记忆与画布 resize 事件），此处不重复绑定。
   $('ew-add-cube').onclick=()=>{if(design.mode!=='design')return status('先切到设计模式。',true);addCubeDraft();};
   $('ew-mode-explore').onclick=()=>setMode('explore');
   $('ew-mode-design').onclick=()=>{setMode('design');run(loadDesignMeta);};
+  // 图例折叠
+  const legendHead=$('ew-legend-head'),legendBody=$('ew-legend-body');
+  if(legendHead&&legendBody){const toggleLegend=()=>{const open=legendBody.hidden;legendBody.hidden=!open;legendHead.setAttribute('aria-expanded',String(open));};
+    legendHead.onclick=toggleLegend;legendHead.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleLegend();}};}
   $('ew-cs-parse').onclick=parseSchema;
   $('ew-cs-create').onclick=createSchema;
   $('ew-dc-create').onclick=createCubeDraft;
@@ -753,6 +777,13 @@
   $('ew-export').onclick=()=>files.download('architecture-workspace.json',currentWorkspace());
   $('ew-import').onchange=()=>run(async()=>{const file=$('ew-import').files[0];if(!file)return;if(file.size>1024*1024)throw new Error('工作区文件超过 1MB 上限。');const workspace=JSON.parse(await file.text());const result=await files.save(workspace,'','');await restore(await files.load(result.id));await savedList();});
   ['ew-notes','ew-mdx','ew-name'].forEach(id=>$(id).oninput=changed);
+  // 外壳事件：Esc 关闭详情、HUD 缩放、面板开合后重算画布尺寸
+  window.addEventListener('tm1-canvas-escape',()=>{
+    if(selected.size||edgeSelection){selected.clear();edgeSelection=null;updateSelection();}
+    hideDetail();
+  });
+  window.addEventListener('tm1-canvas-zoom',e=>{if(canvas&&e.detail)canvas.zoomBy(e.detail);});
+  window.addEventListener('tm1-canvas-resize',()=>{if(canvas)canvas.resize();});
   window.addEventListener('pagehide',remember);
   window.addEventListener('beforeunload',e=>{remember();if(dirty){e.preventDefault();e.returnValue='';}});
   run(async()=>{await savedList();const params=new URLSearchParams(location.search),id=params.get('workspace_id'),session=window.WorkbenchContext?.get('engineering-workspace');

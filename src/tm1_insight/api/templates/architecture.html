@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block title %}业务架构 · TM1 Insight{% endblock %}
 {% block content %}
+{% if initial_view == 'workbench' %}
+{# Canvas-first 工作台：独占视口，不渲染页面级标题与旧分析表单 #}
+{% include 'architecture_workbench.html' %}
+{% else %}
 <header class="page-head"><div><h1 class="page-title">业务架构</h1><p class="page-sub">数据从哪里来，经过哪些处理，结果写到哪里。</p></div></header>
 <nav class="study-actions"><a class="btn" href="/architecture?view=workbench">连续探索工作台</a><a class="btn ghost" href="/architecture">原有业务流程与架构分析</a></nav>
-{% if initial_view == 'workbench' %}{% include 'architecture_workbench.html' %}<div hidden>{% endif %}
 {% set source = current_data_source() %}{% set build = build_info() %}{% set model = model_fingerprint() %}
 <section class="architecture-identity" aria-label="当前运行版本与模型">
   <strong>{{ '本地真实模型' if source.type == 'real_local' else source.label }}</strong>
@@ -26,6 +29,6 @@
   <div id="ar-content" aria-live="polite"></div>
   <div id="ar-pager" class="workflow-pager"><button type="button" class="btn ghost" id="ar-prev">上一页</button><span id="ar-page"></span><button type="button" class="btn ghost" id="ar-next">下一页</button></div>
 </section>
-{% if initial_view == 'workbench' %}</div>{% endif %}
+{% endif %}
 {% endblock %}
-{% block scripts %}<link rel="stylesheet" href="/static/functional-flow.css?v=3"><script src="/static/workbench-tables.js?v=2" defer></script><script src="/static/mermaid-viewer.js?v=3" defer></script>{% if initial_view == 'workbench' %}<link rel="stylesheet" href="/static/architecture-workbench.css?v=7"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-graph.js?v=12" defer></script><script src="/static/workspace-persistence.js?v=1" defer></script><script src="/static/architecture-workbench.js?v=15" defer></script>{% else %}<script src="/static/functional-flow.js?v=3" defer></script><script src="/static/architecture.js?v=human-first-2" defer></script>{% endif %}{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/functional-flow.css?v=3"><script src="/static/workbench-tables.js?v=2" defer></script><script src="/static/mermaid-viewer.js?v=3" defer></script>{% if initial_view == 'workbench' %}<link rel="stylesheet" href="/static/canvas.css?v=1"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=1" defer></script><script src="/static/canvas-graph.js?v=13" defer></script><script src="/static/canvas-shell.js?v=1" defer></script><script src="/static/workspace-persistence.js?v=1" defer></script><script src="/static/architecture-workbench.js?v=16" defer></script>{% else %}<script src="/static/functional-flow.js?v=3" defer></script><script src="/static/architecture.js?v=human-first-2" defer></script>{% endif %}{% endblock %}

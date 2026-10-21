@@ -87,6 +87,10 @@
           'text-margin-y': 8,
           'text-wrap': 'wrap',
           'text-max-width': '104px',
+          'text-background-color': '#ffffff',
+          'text-background-opacity': 0.85,
+          'text-background-padding': '2px',
+          'text-background-shape': 'roundrectangle',
           'overlay-opacity': 0,
           'transition-property': 'border-width, border-color',
           'transition-duration': '90ms',
@@ -126,7 +130,7 @@
           'text-background-padding': '3px',
           'text-max-width': '140px',
           'text-margin-y': -2,
-          'overlay-padding': 9,
+          'overlay-padding': 13,
           'overlay-opacity': 0,
           'transition-property': 'line-color, width',
           'transition-duration': '90ms',
@@ -134,6 +138,7 @@
       },
       { selector: 'edge.cn-hover', style: { width: 2.8 } },
       { selector: 'edge.cn-selected', style: { width: 3, 'line-color': '#1d4ed8', 'target-arrow-color': '#1d4ed8' } },
+      { selector: 'node.cn-connect-target', style: { 'border-width': 3, 'border-color': '#b45309' } },
       { selector: 'edge[status="CANDIDATE"]', style: { 'line-style': 'dashed' } },
       { selector: 'edge.cn-dim', style: { opacity: 0.25 } },
     ];
@@ -206,6 +211,15 @@
 
     let drag = null;
     let box = null;
+    let lastStrategy = '';
+    // 视图归属：程序化 fit/缩放不标记 userView；用户滚轮/拖拽平移后不再自动重适配
+    let userView = false;
+    let programmatic = false;
+    let settleUntil = 0;
+    function runProgrammatic(fn) {
+      programmatic = true;
+      try { fn(); } finally { window.setTimeout(function () { programmatic = false; }, 0); }
+    }
 
     function modelPos(evt) {
       const rect = container.getBoundingClientRect();
@@ -251,18 +265,48 @@
       const mid = { x: (drag.from.x + p.x) / 2, y: Math.min(drag.from.y, p.y) - 40 };
       connectLine.setAttribute('d', 'M' + drag.from.x + ',' + drag.from.y
         + ' Q' + mid.x + ',' + mid.y + ' ' + p.x + ',' + p.y);
+      // 拖动过程中实时高亮合法目标；非法位置（空白）不高亮
+      const target = nodeAtPoint(p);
+      if (target && target.id() !== drag.source) {
+        if (!connectTarget || connectTarget.id() !== target.id()) {
+          if (connectTarget) connectTarget.removeClass('cn-connect-target');
+          connectTarget = target;
+          connectTarget.addClass('cn-connect-target');
+        }
+      } else if (connectTarget) {
+        connectTarget.removeClass('cn-connect-target');
+        connectTarget = null;
+      }
     }
 
-    function endConnect(evt) {
+    function cleanupConnect() {
       window.removeEventListener('mousemove', moveConnect, true);
       window.removeEventListener('mouseup', endConnect, true);
       connectLine.style.display = 'none';
+      if (connectTarget) { connectTarget.removeClass('cn-connect-target'); connectTarget = null; }
+      drag = null;
+    }
+
+    let connectTarget = null;
+
+    function endConnect(evt) {
+      const source = drag && drag.source;
+      cleanupConnect();
       const p = modelPos(evt);
       const target = nodeAtPoint(p);
-      const source = drag && drag.source;
-      drag = null;
-      if (!source || !target || target.id() === source) return;
+      if (!source || !target || target.id() === source) {
+        if (source && opt.onConnectCancel) opt.onConnectCancel();
+        return;
+      }
       if (opt.onConnect) opt.onConnect(source, target.id());
+    }
+
+    // Esc 取消拖线（供外壳快捷键调用）；返回是否确实取消了进行中的拖线
+    function cancelConnect() {
+      if (!drag) return false;
+      cleanupConnect();
+      if (opt.onConnectCancel) opt.onConnectCancel();
+      return true;
     }
 
     anchor.addEventListener('mousedown', startConnect);
@@ -304,6 +348,28 @@
       cy.on('cxttap', 'node', function (evt) {
         const oe = evt.originalEvent || {};
         if (opt.onContextMenu) { oe.preventDefault && oe.preventDefault(); opt.onContextMenu(evt.target.id(), oe.clientX || 0, oe.clientY || 0); }
+      });
+
+      cy.on('cxttap', function (evt) {
+        if (evt.target === cy && opt.onCanvasContext) {
+          const oe = evt.originalEvent || {};
+          opt.onCanvasContext(oe.clientX || 0, oe.clientY || 0);
+        }
+      });
+
+      // 语义缩放：低倍率下隐藏边标签（节点标签保留但缩短），高倍率恢复
+      let lowZoom = false;
+      cy.on('zoom', function () {
+        const z = cy.zoom();
+        const nowLow = z < 0.55;
+        if (nowLow === lowZoom) return;
+        lowZoom = nowLow;
+        cy.batch(function () {
+          cy.edges().forEach(function (e) {
+            if (nowLow) { e.data('shownLabel', e.data('label') || ''); e.data('label', ''); }
+            else if (e.data('shownLabel') !== undefined) { e.data('label', e.data('shownLabel')); }
+          });
+        });
       });
 
       cy.on('mouseover', 'node', function (evt) {
@@ -358,7 +424,10 @@
 
       container.addEventListener('mouseleave', function () { if (!drag) anchor.hidden = true; });
 
-      cy.on('pan zoom', function () { if (!anchor.hidden && hoverNode) showAnchor(cy.getElementById(hoverNode)); });
+      cy.on('pan zoom', function () {
+        if (!programmatic) userView = true;
+        if (!anchor.hidden && hoverNode) showAnchor(cy.getElementById(hoverNode));
+      });
     }
 
     function stopBox(evt) {
@@ -412,7 +481,13 @@
     // 否则视野与元素坐标会停留在初始化那一刻的尺寸上（节点跑到可视区外）。
     let observer = null;
     if (typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(function () { if (cy) cy.resize(); });
+      observer = new ResizeObserver(function () {
+        if (!cy) return;
+        cy.resize();
+        // 安定窗口内容器尺寸变化（详情开合、字体加载）→ 重新适应；
+        // 用户一旦手动平移/缩放（userView）或窗口过期，绝不覆盖用户视口。
+        if (!userView && cy.elements().length && Date.now() < settleUntil) api.fit();
+      });
       observer.observe(container);
     }
     window.requestAnimationFrame(function () { if (cy) cy.resize(); });
@@ -497,33 +572,48 @@
           if (payload.view) api.applyView(payload.view);
           if (payload.fit) api.fit();
         } else if (nodes.length) {
-          api.layout(payload.layout || 'breadthfirst');
+          // 全新图（无保存坐标、无保存视口）：布局并适应画布；
+          // 否则节点默认落在模型原点 (0,0)，会被画布左上角裁掉。
+          api.layout(payload.layout || 'auto');
+          if (!payload.view) {
+            settleUntil = Date.now() + 2500;
+            api.fit();
+            window.requestAnimationFrame(function () { api.fit(); });
+            setTimeout(function () { api.fit(); }, 320);
+          }
         }
         positionsCache = api.getPositions();
       },
 
       layout: function (name) {
         if (!cy || !cy.nodes().length) return;
-        const visible = cy.nodes(':visible');
+        const visibleNodes = cy.nodes(':visible').filter(function (n) { return n.data('type') !== 'group'; });
+        if (!visibleNodes.length) return;
         if (name === 'grid') {
           cy.layout({ name: 'grid', padding: 40, avoidOverlap: true, condense: true }).run();
         } else {
-          // breadthfirst：入口（无入边）在左，逐层向右；对 Cube 主干最易读
-          const indeg = {};
-          cy.edges().forEach(function (e) {
-            const t = e.target().id();
-            indeg[t] = (indeg[t] || 0) + 1;
-          });
-          const roots = visible.filter(function (n) { return !indeg[n.id()] && !n.data('type').match(/group|process/); });
-          cy.layout({
-            name: 'breadthfirst',
-            directed: true,
-            padding: 40,
-            spacingFactor: 1.15,
-            avoidOverlap: true,
-            grid: true,
-            roots: roots.length ? roots : undefined,
-          }).run();
+          // auto：分层 / 辐射 / 环分解由 TM1CanvasLayout 依据图形态决定
+          const nodes = visibleNodes.map(function (n) { return { id: n.id(), type: n.data('type'), name: n.data('name') }; });
+          const nodeIds = new Set(nodes.map(function (n) { return n.id; }));
+          const edges = cy.edges().filter(function (e) {
+            return e.target().id() !== e.source().id()
+              && nodeIds.has(e.source().id()) && nodeIds.has(e.target().id());
+          }).map(function (e) { return { source: e.source().id(), target: e.target().id() }; });
+          const result = window.TM1CanvasLayout
+            ? window.TM1CanvasLayout.compute(nodes, edges)
+            : null;
+          if (result) {
+            lastStrategy = result.strategy;
+            cy.batch(function () {
+              nodes.forEach(function (n) {
+                const p = result.positions[n.id];
+                if (p) cy.getElementById(n.id).position(p);
+              });
+            });
+            if (opt.onStrategy) opt.onStrategy(result.strategy, result);
+          } else {
+            cy.layout({ name: 'breadthfirst', directed: true, padding: 40, spacingFactor: 1.15, avoidOverlap: true, grid: true }).run();
+          }
         }
         positionsCache = api.getPositions();
         if (opt.onLayout) opt.onLayout(positionsCache);
@@ -531,12 +621,14 @@
 
       applyView: function (view) {
         if (!cy || !view) return;
-        if (view.zoom) cy.zoom(view.zoom);
-        if (typeof view.x === 'number' && typeof view.y === 'number') {
-          cy.pan({ x: view.x, y: view.y });
-        } else if (view.pan && typeof view.pan === 'object') {
-          cy.pan(view.pan);  // 兼容旧工作区
-        }
+        runProgrammatic(function () {
+          if (view.zoom) cy.zoom(view.zoom);
+          if (typeof view.x === 'number' && typeof view.y === 'number') {
+            cy.pan({ x: view.x, y: view.y });
+          } else if (view.pan && typeof view.pan === 'object') {
+            cy.pan(view.pan);  // 兼容旧工作区
+          }
+        });
       },
 
       getView: function () {
@@ -574,22 +666,28 @@
 
       fit: function () {
         if (!cy || !cy.elements().length) return;
-        cy.fit(cy.elements(), 46);
-        if (cy.zoom() > 1.15) {
-          cy.zoom({ level: 1.15, renderedPosition: { x: container.clientWidth / 2, y: container.clientHeight / 2 } });
-          cy.center(cy.elements());
-        }
+        runProgrammatic(function () {
+          cy.fit(cy.elements(), 46);
+          if (cy.zoom() > 1.15) {
+            cy.zoom({ level: 1.15, renderedPosition: { x: container.clientWidth / 2, y: container.clientHeight / 2 } });
+            cy.center(cy.elements());
+          }
+        });
       },
 
       focus: function (id) {
         if (!cy) return;
         const n = cy.getElementById(id);
-        if (n && n.length) cy.animate({ center: { eles: n }, zoom: Math.max(cy.zoom(), 0.9) }, { duration: 220 });
+        if (n && n.length) runProgrammatic(function () {
+          cy.animate({ center: { eles: n }, zoom: Math.max(cy.zoom(), 0.9) }, { duration: 220 });
+        });
       },
 
       zoomBy: function (factor) {
         if (!cy) return;
-        cy.zoom({ level: cy.zoom() * factor, renderedPosition: { x: container.clientWidth / 2, y: container.clientHeight / 2 } });
+        runProgrammatic(function () {
+          cy.zoom({ level: cy.zoom() * factor, renderedPosition: { x: container.clientWidth / 2, y: container.clientHeight / 2 } });
+        });
       },
 
       centerModel: function () {
@@ -605,6 +703,8 @@
       },
 
       resize: function () { if (cy) cy.resize(); },
+      cancelConnect: cancelConnect,
+      layoutStrategy: function () { return lastStrategy; },
       destroy: function () {
         window.removeEventListener('mousemove', moveConnect, true);
         window.removeEventListener('mouseup', endConnect, true);
