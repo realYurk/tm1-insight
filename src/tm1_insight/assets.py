@@ -330,6 +330,11 @@ def validate_bindings(blueprint: ReusableBlueprint, bindings: list[RoleBinding])
     issues: list[str] = []
     given = {b.role: b for b in bindings}
     known = {r.id for r in blueprint.roles}
+    seen: set[str] = set()
+    for b in bindings:
+        if b.role in seen:
+            issues.append('角色被重复绑定：%s（同一角色只能有一个值）' % b.role)
+        seen.add(b.role)
     for extra in sorted(set(given) - known):
         issues.append('未知角色：%s' % extra)
     for role in blueprint.roles:

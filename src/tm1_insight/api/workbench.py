@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from tm1_insight import design as dg
 from tm1_insight import workbench as wb
 from tm1_insight.api.knowledge_tasks import fingerprint
 from tm1_insight.config import get_settings
@@ -238,11 +239,24 @@ def design_generate(body: DesignBody):
     guard(snapshot)
     payload = dict(snapshot_id=snapshot, status=result['status'], blockers=result['blockers'],
                    issues=result.get('issues', []), code=result.get('code'),
-                   summary=result.get('summary'), dependencies=result.get('dependencies'))
+                   summary=result.get('summary'), dependencies=result.get('dependencies'),
+                   process_config=result.get('process_config'),
+                   warnings=result.get('warnings') or [])
     artifact = result.get('artifact')
     if artifact is not None:
         payload['artifact'] = artifact if isinstance(artifact, dict) else json.loads(artifact.model_dump_json())
     return payload
+
+
+class StaleBody(BaseModel):
+    design: dg.Design
+    relation_ids: list[str] = Field(default_factory=list, max_length=80)
+
+
+@router.post('/api/workbench/design/stale')
+def design_stale(body: StaleBody):
+    """判定哪些已生成的关系因设计变化而过期。"""
+    return dict(stale=dg.stale_relations(body.design, body.relation_ids))
 
 
 @router.post('/api/workbench/design/cube-spec')

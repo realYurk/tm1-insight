@@ -149,10 +149,19 @@ def generate_project(body: GenerateBody):
         project.status = 'FAILED'
         project.verification_status = ''
     A.save('project', project, root(), rev)
+    verification = dict(
+        level=project.verification_status or '',
+        label={'CODE_STATIC_CHECKED': '静态结构检查通过（未在 TM1 编译或执行）'}.get(
+            project.verification_status, '未验证'),
+        checked=['目标维度顺序', '映射完整性', '写入函数参数个数', '清空范围可描述'],
+        not_verified=['TM1 编译', 'TM1 执行结果', '数值转换的区域设置', '}APQ / Bedrock 依赖是否就绪'],
+    )
     return dict(project=project.model_dump(), status=result['status'],
                 blockers=result['blockers'], issues=result.get('issues', []),
                 code=result.get('code'), summary=result.get('summary'),
-                dependencies=result.get('dependencies'))
+                dependencies=result.get('dependencies'),
+                process_config=result.get('process_config'), warnings=result.get('warnings') or [],
+                verification=verification)
 
 
 class ExportBody(BaseModel):
@@ -258,13 +267,29 @@ def update(kind: str, key: str, body: SaveBody):
 
 
 @router.delete('/api/assets/{kind}/{key}')
-def remove(kind: str, key: str):
+def remove(kind: str, key: str, force: bool = False):
+    """删除资产。被项目实例引用时拒绝，需显式 force 才删除。"""
     if kind not in A.KINDS:
         raise HTTPException(404, '未知资产类型')
+    refs: list[dict] = []
+    if kind in ('blueprint', 'pattern', 'verification'):
+        for row in A.listing('project', root()):
+            try:
+                proj = A.load('project', row['id'], root())[0]
+            except Exception:
+                continue
+            if getattr(proj, 'blueprint_id', '') == key:
+                refs.append(dict(id=proj.id, name=proj.name))
+    if refs and not force:
+        raise HTTPException(409, {
+            'message': '该资产仍被 %d 个项目引用；删除后这些项目将无法重新生成。'
+                       '确认删除请附带 force=true。' % len(refs),
+            'referencing_projects': refs,
+        })
     try:
         A.delete(kind, key, root())
     except FileNotFoundError as exc:
         raise HTTPException(404, '资产不存在') from exc
-    return dict(deleted=key)
+    return dict(deleted=key, referencing_projects=refs)
 
 

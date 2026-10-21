@@ -16,6 +16,9 @@ from pathlib import Path
 from tm1_insight import assets as A
 
 MAX_BYTES = 5 * 1024 * 1024
+MAX_UNCOMPRESSED = 20 * 1024 * 1024      # 解压后总量上限（防 zip bomb）
+MAX_ENTRY_BYTES = 2 * 1024 * 1024        # 单文件解压上限
+MAX_ENTRIES = 500                        # 条目数量上限
 ALLOWED_DIRS = ('blueprints/', 'patterns/', 'verifications/', 'projects/')
 
 ABS_PATH = re.compile(r'(?:[A-Za-z]:\\|[A-Za-z]:/|/home/|/Users/)')
@@ -62,10 +65,30 @@ def scan_blueprint(bp: A.ReusableBlueprint) -> list[dict]:
     return findings
 
 
+def scan_model(kind: str, obj) -> list[dict]:
+    """对任意资产模型做内容审查（与 scan_blueprint 同一套规则）。
+
+    Pattern 描述、验证契约备注同样可能夹带企业信息，导出前必须一起扫。
+    """
+    findings: list[dict] = []
+    for path, value in _walk(obj.model_dump()):
+        text = str(value)
+        if ABS_PATH.search(text):
+            findings.append(dict(code='ABSOLUTE_PATH', severity='BLOCKER', path=path,
+                                 hint='包含本机绝对路径，请改为相对或占位'))
+        if CRED.search(text):
+            findings.append(dict(code='CREDENTIAL_LIKE', severity='BLOCKER', path=path,
+                                 hint='疑似凭据内容，必须移除'))
+    return [dict(item=dict(kind=kind, id=getattr(obj, 'id', '')), **f) for f in findings]
+
+
 def export_preflight(blueprints, patterns, verifications, scope: str) -> dict:
     findings = []
     for bp in blueprints:
         findings += [dict(item=dict(kind='blueprint', id=bp.id), **f) for f in scan_blueprint(bp)]
+    for kind, items in (('pattern', patterns), ('verification', verifications)):
+        for item in items:
+            findings += scan_model(kind, item)
     blockers = [f for f in findings if f['severity'] == 'BLOCKER']
     if scope == 'public' and blockers:
         return dict(ok=False, scope=scope, findings=findings, blockers=blockers,
@@ -107,11 +130,19 @@ def import_package(data: bytes, base: Path, *, max_bytes: int = MAX_BYTES) -> di
     except zipfile.BadZipFile:
         return dict(imported=[], skipped=[], errors=['不是有效的 zip 文件'])
     with zf:
+        infos = zf.infolist()
+        if len(infos) > MAX_ENTRIES:
+            return dict(imported=[], skipped=[], errors=['压缩包条目过多（%d）' % len(infos)])
+        total = sum(i.file_size for i in infos)
+        if total > MAX_UNCOMPRESSED:
+            return dict(imported=[], skipped=[], errors=[
+                '解压后体积超过上限（%d > %d 字节）' % (total, MAX_UNCOMPRESSED)])
         names = zf.namelist()
         if 'manifest.json' not in names:
             return dict(imported=[], skipped=[], errors=['缺少 manifest.json'])
         for name in names:
-            if name.startswith('/') or '..' in Path(name).parts or ':' in name.split('/')[0]:
+            if (name.startswith('/') or '..' in Path(name).parts or '\\' in name
+                    or ':' in name.split('/')[0]):
                 return dict(imported=[], skipped=[], errors=['包含不安全路径：%s' % name])
             if name != 'README.txt' and name != 'manifest.json' and not name.startswith(ALLOWED_DIRS):
                 return dict(imported=[], skipped=[], errors=['包含不允许的目录：%s' % name])
@@ -123,10 +154,16 @@ def import_package(data: bytes, base: Path, *, max_bytes: int = MAX_BYTES) -> di
             return dict(imported=[], skipped=[], errors=['资产包版本不受支持：%s' % manifest.get('schema')])
         imported, skipped, errors = [], [], []
         for item in manifest.get('items', []):
+            if not isinstance(item, dict) or 'file' not in item or 'kind' not in item:
+                errors.append('manifest 条目结构非法，已跳过')
+                continue
             try:
-                blob = zf.read(item['file'])
+                blob = _read_capped(zf, item['file'])
             except KeyError:
                 errors.append('缺少文件：%s' % item.get('file'))
+                continue
+            except ValueError as exc:
+                errors.append('%s：%s' % (item.get('file'), exc))
                 continue
             if hashlib.sha256(blob).hexdigest() != item.get('sha256'):
                 errors.append('校验和不匹配：%s' % item.get('file'))
@@ -146,6 +183,18 @@ def import_package(data: bytes, base: Path, *, max_bytes: int = MAX_BYTES) -> di
                 errors.append('写入失败（%s）：%s' % (obj.id, exc))
         return dict(imported=imported, skipped=skipped, errors=errors,
                     visibility=manifest.get('visibility'))
+
+
+def _read_capped(zf: zipfile.ZipFile, name: str, limit: int = MAX_ENTRY_BYTES) -> bytes:
+    """有界读取：即使 zip 伪造了 file_size，也不会一次性解压出巨量数据。"""
+    info = zf.getinfo(name)
+    if info.file_size > limit:
+        raise ValueError('单文件解压后超过上限（%d 字节）' % info.file_size)
+    with zf.open(name) as fh:
+        blob = fh.read(limit + 1)
+    if len(blob) > limit:
+        raise ValueError('单文件解压后超过上限（%d 字节）' % limit)
+    return blob
 
 
 def _parse(kind: str, blob: bytes):
