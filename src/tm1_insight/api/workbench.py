@@ -237,7 +237,8 @@ def design_generate(body: DesignBody):
                       generated_at=datetime.now(timezone.utc).isoformat(timespec='seconds'))
     guard(snapshot)
     payload = dict(snapshot_id=snapshot, status=result['status'], blockers=result['blockers'],
-                   code=result.get('code'), summary=result.get('summary'))
+                   issues=result.get('issues', []), code=result.get('code'),
+                   summary=result.get('summary'), dependencies=result.get('dependencies'))
     artifact = result.get('artifact')
     if artifact is not None:
         payload['artifact'] = artifact if isinstance(artifact, dict) else json.loads(artifact.model_dump_json())

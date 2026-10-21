@@ -299,6 +299,7 @@
       div.appendChild(element('p',(r.template==='csv-to-cube'?'CSV → Cube':'Cube → Cube')+' · 写入 '+(r.write_policy==='overwrite'?'覆盖':'累加')+' · '+r.mapping.length+' 条映射','small muted'));
       div.appendChild(button('配置映射',()=>{openMapping(r.id);}));
       div.appendChild(button('生成 TI 草案',()=>generateFor(r.id)));
+      div.appendChild(button('提炼为 Blueprint',()=>extractBlueprint(r.id)));
       relBox.appendChild(div);
     });
     const dl=$('ew-design-list');dl.replaceChildren();
@@ -387,6 +388,12 @@
     const pol=element('select','','input');pol.id='ew-wpolicy';pol.append(new Option('覆盖（CellPutN）','overwrite'),new Option('累加（CellIncrementN）','accumulate'));
     pol.value=rel.write_policy;pol.onchange=()=>{rel.write_policy=pol.value;changed();};
     p.appendChild(element('label','写入策略'));p.appendChild(pol);
+    const clr=element('select','','input');clr.id='ew-cclear';
+    clr.append(new Option('清空目标范围（}bedrock.cube.data.clear）','target_scope'),new Option('不清空（不生成任何删除语句）','none'));
+    clr.value=rel.clear_policy||'target_scope';
+    clr.onchange=()=>{rel.clear_policy=clr.value;changed();status(clr.value==='none'?'已设为不清空：重复执行会累加，请自行确认目标数据。':'已设为清空目标范围：生成代码会先删除目标交叉点。',clr.value==='none');};
+    p.appendChild(element('label','清空策略（与写入策略独立）'));p.appendChild(clr);
+    p.appendChild(element('p',(rel.clear_policy==='none'?'当前不清空：重复运行会重复写入。':'当前会先清空目标范围：请确认筛选范围不会覆盖业务数据。'),'muted small'));
     const confAll=button('全部标记为已确认',()=>{rel.mapping=rel.mapping.map(m=>({...m,confirmed:true}));openMapping(relId);changed();});
     p.appendChild(confAll);
     p.appendChild(button('校验并生成 TI 草案',()=>generateFor(relId)));
@@ -418,6 +425,25 @@
     p.appendChild(button('导出 .ti 文本',()=>files.download((design.cubes.find(c=>c.id===rel.target.ref)?.name||'draft')+'.ti',all)));
     p.appendChild(element('p','已知限制：未做运行验证；字符分隔源全部按字符串读取，数值经 StringToNumberEx 转换；目标坐标必须与维度顺序一致。','muted small'));
     status('已生成 TI 草案（仅本地草稿，未部署）。');
+  }
+
+
+  async function extractBlueprint(relId){
+    const rel=design.relations.find(r=>r.id===relId);if(!rel)return;
+    const bpName=(prompt('Blueprint 名称（可复用角色，不保留项目专有含义）','Multidimensional Data Load')||'').trim();
+    if(!bpName)return;
+    const generic=confirm('是否将名称/成员视为通用（导出到公开资产包前仍需人工复核）？\n确定=标记为通用；取消=标记为含项目信息');
+    try{
+      const data=await req('/api/assets/extract',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({design:design,relation_id:relId,name:bpName,
+          summary:name(rel.source.ref)+' → '+name(rel.target.ref),mark_generic:generic})});
+      const findings=(data.findings||[]).filter(f=>f.severity==='BLOCKER');
+      status('已生成 Blueprint（'+data.id+'）。'+(findings.length?'有 '+findings.length+' 项导出阻断项，请在工程资产页查看。':''));
+      const p=panel('Blueprint 已创建');
+      p.appendChild(element('p','角色已按维度顺序生成，需要在「工程资产」中绑定到新项目。','muted'));
+      p.appendChild(element('p','含 '+ ((data.blueprint||{}).roles||[]).length +' 个角色，维度顺序 '+((data.blueprint||{}).dimension_order||[]).length+' 位。'));
+      const link=element('a','打开工程资产','btn');link.href='/assets';p.appendChild(link);
+    }catch(e){status(e.message,true);}
   }
 
   function createCubeDraft(){
