@@ -19,7 +19,7 @@ from tm1_insight.domain.model import Dependency, DependencyKind
 from tm1_insight.lineage.engine import build_adjacency, get_downstream
 from tm1_insight.design import Design
 
-VERSION = 'architecture-workspace-2'
+VERSION = 'architecture-workspace-3'
 
 
 def stable_id(*parts):
@@ -212,7 +212,8 @@ class DraftCube(BaseModel):
 
 class Workspace(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    schema_version: Literal['architecture-workspace-1', 'architecture-workspace-2'] = VERSION
+    schema_version: Literal['architecture-workspace-1', 'architecture-workspace-2',
+                            'architecture-workspace-3'] = VERSION
     snapshot_id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=200)
     query: GraphQuery = Field(default_factory=GraphQuery)
@@ -226,6 +227,8 @@ class Workspace(BaseModel):
     notes: str = Field(default='', max_length=30000)
     mdx: str = Field(default='', max_length=30000)
     layout: dict[str, float] = Field(default_factory=dict, max_length=5)
+    # 画布节点坐标（仅展示用途；不改变任何关系语义）
+    positions: dict[str, dict[str, float]] = Field(default_factory=dict, max_length=400)
     template_ref: Literal['', 'cube-data-transfer'] = ''
     design: Design = Field(default_factory=Design)
 

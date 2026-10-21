@@ -1,5 +1,4 @@
-<section id="ew-root" data-name="{{ name }}" data-kind="{{ kind }}">
-  <p class="muted">局部模型探索 · 关系来自本地索引 · 人工编组与草稿独立保存 · 不执行 TI / Rule / MDX</p>
+<section id="ew-root" class="detail-hidden" data-name="{{ name }}" data-kind="{{ kind }}">
   <div class="ew-modes" role="tablist" aria-label="工作模式">
     <button type="button" class="btn" id="ew-mode-explore" role="tab" aria-selected="true">探索模式 Explore</button>
     <button type="button" class="btn ghost" id="ew-mode-design" role="tab" aria-selected="false">设计模式 Design</button>
@@ -51,9 +50,12 @@
           <p class="muted small">只解析表头文本，不打开文件、不读取数据行；字段类型为建议值，需你确认。</p>
         </details>
         <details open><summary>④ 新建设计关系</summary>
-          <label>来源<select id="ew-rel-source" class="input"></select></label>
-          <label>目标<select id="ew-rel-target" class="input"></select></label>
-          <button id="ew-rel-create" class="btn">建立设计关系</button>
+          <p class="muted small">主用法：在画布上把鼠标移到来源图标右侧的 <b>＋</b>，拖到目标图标再松手。</p>
+          <details><summary>或按名称精确建立</summary>
+            <label>来源<select id="ew-rel-source" class="input"></select></label>
+            <label>目标<select id="ew-rel-target" class="input"></select></label>
+            <button id="ew-rel-create" class="btn">建立设计关系</button>
+          </details>
         </details>
         <details open><summary>⑤ 设计关系与生成</summary><div id="ew-rel-list" class="ew-list"></div></details>
         <details><summary>⑥ Blueprint</summary>
@@ -66,13 +68,29 @@
       </div>
     </aside>
     <div class="ew-center">
-      <div class="study-actions"><button id="ew-clear" class="btn ghost">清空选择</button><button id="ew-hide" class="btn ghost">局部隐藏选中对象</button><button id="ew-show" class="btn ghost">恢复隐藏对象</button></div>
-      <p class="muted small">点击查看 · Ctrl / ⌘ 点击多选 · Shift 拖动或“框选模式” · 拖动画布平移。隐藏与模块折叠只改变展示。</p>
-      <div id="ew-graph" aria-label="连续探索画布"></div>
+      <div class="cn-toolbar">
+        <button id="ew-toggle-rail" class="btn ghost" title="收起 / 展开左侧对象清单">☰ 对象</button>
+        <button id="ew-add-cube" class="btn primary" hidden title="在设计模式下向画布添加 Cube 草稿">+ Cube</button>
+        <span class="spacer"></span>
+        <button id="ew-fit" class="btn ghost" title="适应画布">适应</button>
+        <button id="ew-zoom-out" class="btn ghost" title="缩小">－</button>
+        <button id="ew-zoom-in" class="btn ghost" title="放大">＋</button>
+        <button id="ew-layout" class="btn ghost" title="自动排列">自动布局</button>
+        <button id="ew-clear" class="btn ghost">清空选择</button>
+        <button id="ew-hide" class="btn ghost">隐藏</button>
+        <button id="ew-show" class="btn ghost">恢复</button>
+      </div>
+      <div class="ew-legend">
+        <span><i style="border-color:#64748b;border-top-style:dashed"></i>TI 共同读写（值流待核对）</span>
+        <span><i style="border-color:#2563eb"></i>Rule 引用（声明式）</span>
+        <span><i style="border-color:#b45309;border-top-style:dashed"></i>设计关系（未部署）</span>
+        <span class="muted">点击 Cube 看维度 · 点击连线看 Process · 设计模式拖右侧 ＋ 到底座建关系</span>
+      </div>
+      <div id="ew-graph" aria-label="架构画布"></div>
       <p id="ew-summary" class="muted small"></p>
       <details open><summary>关系与证据索引（点击行定位图）</summary><label>类型<select id="ew-table-kind" class="input"><option value="">全部</option><option value="TI_CANDIDATE">候选加工</option><option value="RULE_REFERENCE">Rule 引用</option><option value="TI_READ">TI 读取</option><option value="TI_WRITE">TI 写入</option><option value="CALL">调用</option><option value="SCHEDULE">调度</option><option value="STRUCTURE">结构</option><option value="DESIGN_RELATION">设计关系</option></select></label><div id="ew-relations" class="ew-table"></div></details>
     </div>
-    <aside id="ew-detail" class="ew-detail"><h2>对象与关系详情</h2><p class="muted">从图或关系表选择对象。详情在这里切换，保留画布。</p></aside>
+    <aside id="ew-detail" class="ew-detail" aria-label="选中对象或关系详情"><h2>对象与关系详情</h2><p class="muted">从画布或关系表选择对象。详情在这里切换，画布保持原样。</p></aside>
   </div>
   <details class="ew-notebook" open><summary>研究上下文（人工输入，不代表模型事实）</summary><div class="ew-notes"><label>MDX / 切面描述 · 只保存，不执行<textarea id="ew-mdx" class="input" rows="4" maxlength="30000"></textarea></label><label>设计笔记<textarea id="ew-notes" class="input" rows="4" maxlength="30000"></textarea></label></div></details>
 </section>
