@@ -60,10 +60,45 @@ def main():
         # 1. 打开工作台
         page.goto(BASE + "/architecture?view=workbench&kind=cube&name=" + urllib.parse.quote(CUBE),
                   wait_until="networkidle")
-        page.wait_for_selector("#ew-graph svg", timeout=30000)
+        page.wait_for_selector("#ew-graph canvas", timeout=30000)
+
+        def node_count():
+            return page.evaluate("() => window.__ewCanvas.cy().nodes().length")
+
+        def edge_count():
+            return page.evaluate("() => window.__ewCanvas.cy().edges().length")
+
+        def click_node(pattern, ctrl=False):
+            """按名称片段在画布上做真实鼠标点击。"""
+            pt = page.evaluate("""(pat) => {
+                const cy = window.__ewCanvas.cy();
+                const n = cy.nodes().filter(x => (x.data('fullName') || '').includes(pat))[0];
+                if (!n) return null;
+                const b = n.renderedBoundingBox({ includeLabels: false });
+                const r = document.querySelector('#ew-graph').getBoundingClientRect();
+                return { x: r.left + (b.x1 + b.x2) / 2, y: r.top + (b.y1 + b.y2) / 2 };
+            }""", pattern)
+            if not pt:
+                return False
+            if ctrl:
+                page.keyboard.down("Control")
+            page.mouse.click(pt["x"], pt["y"])
+            if ctrl:
+                page.keyboard.up("Control")
+            page.wait_for_timeout(1200)
+            return True
+
+        def close_detail():
+            if page.locator("#ew-detail button:has-text('关闭详情')").count():
+                page.click("#ew-detail button:has-text('关闭详情')")
+                page.wait_for_timeout(500)
+
+        def refit():
+            page.click("#ew-fit")
+            page.wait_for_timeout(450)
         page.screenshot(path=OUT + "/30_workbench_initial.png", full_page=False)
-        nodes = page.locator("#ew-graph svg .node").count()
-        check(nodes >= 3, "首次进入即渲染局部图（%d 个节点）" % nodes)
+        nodes = node_count()
+        check(nodes >= 3, "首次进入即渲染局部图（%d 个 Cube 图标）" % nodes)
 
         # 2. 搜索并切换对象
         page.fill("#ew-search", CUBE)
@@ -75,7 +110,7 @@ def main():
         title = page.inner_text("#ew-detail")
         check(CUBE in title, "点击搜索结果后详情切换到该 Cube")
         check("实际维度顺序" in title, "详情展示真实维度顺序")
-        check(page.locator("#ew-graph svg .node").count() >= 3, "图在详情打开后仍然保留")
+        check(node_count() >= 3, "图在详情打开后仍然保留")
 
         # 3. 展开直接 TI 关系
         page.get_by_role("button", name="展开直接 TI / 调用关系").first.click()
@@ -84,14 +119,11 @@ def main():
         check("个可见对象" in summary, "展开后出现对象/关系统计：" + summary.split("。")[0])
 
         # 4. 点击 TI 节点，检查源码与写入切面
-        page.evaluate(
-            """(act) => {
-                const nodes=[...document.querySelectorAll('#ew-graph svg .node')];
-                const target=nodes.find(n=>n.textContent.includes('ACT'));
-                (target||nodes.find(n=>n.textContent.includes('Data.Load')))?.dispatchEvent(
-                    new MouseEvent('click',{bubbles:true}));
-            }""", ACT)
-        page.wait_for_timeout(2500)
+        close_detail()
+        refit()
+        if not (click_node("ACT") or click_node("Data.Load")):
+            check(False, "画布上应能找到目标 TI 节点")
+        page.wait_for_timeout(1500)
         detail = page.inner_text("#ew-detail")
         check("读取" in detail or "写入" in detail, "TI 详情显示读取/写入 Cube")
 
@@ -117,11 +149,34 @@ def main():
         check(lines > 5, "源码区块可展开并渲染行号（%d 行）" % lines)
 
         # 6. 多选 + 框选 + 人工模块
-        page.evaluate("""() => {
-            const nodes=[...document.querySelectorAll('#ew-graph svg .node')];
-            nodes.slice(0,2).forEach((n,i)=>n.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:i>0})));
+        close_detail()
+        refit()
+        first = page.evaluate("""() => {
+            const cy = window.__ewCanvas.cy();
+            const n = cy.nodes().filter(x => x.data('type') === 'cube')[0];
+            if (!n) return null;
+            const b = n.renderedBoundingBox({ includeLabels: false });
+            const r = document.querySelector('#ew-graph').getBoundingClientRect();
+            return { id: n.id(), x: r.left + (b.x1 + b.x2) / 2, y: r.top + (b.y1 + b.y2) / 2 };
         }""")
-        page.wait_for_timeout(1200)
+        page.mouse.click(first["x"], first["y"])
+        page.wait_for_timeout(900)
+        close_detail()
+        refit()
+        second = page.evaluate("""(skip) => {
+            const cy = window.__ewCanvas.cy();
+            const n = cy.nodes().filter(x => x.data('type') === 'cube' && x.id() !== skip)[0];
+            if (!n) return null;
+            const b = n.renderedBoundingBox({ includeLabels: false });
+            const r = document.querySelector('#ew-graph').getBoundingClientRect();
+            return { x: r.left + (b.x1 + b.x2) / 2, y: r.top + (b.y1 + b.y2) / 2 };
+        }""", first["id"])
+        page.keyboard.down("Control")
+        page.mouse.click(second["x"], second["y"])
+        page.keyboard.up("Control")
+        page.wait_for_timeout(1000)
+        check(page.evaluate("() => window.__ewCanvas.cy().nodes().filter(n => n.hasClass('cn-selected')).length") == 2,
+              "真实鼠标 Ctrl 多选两个 Cube")
         page.fill("#ew-group-name", "验收模块A")
         page.click("#ew-group-create")
         page.wait_for_timeout(800)
@@ -129,15 +184,22 @@ def main():
         check("验收模块A" in groups, "从选中对象创建人工模块")
         check("人工解释" in groups, "人工模块标注为人工解释")
 
-        # 框选
-        page.click("#ew-graph .mm-toolbar button:has-text('框选模式')")
-        box = page.locator("#ew-graph .mm-viewport").bounding_box()
-        page.mouse.move(box["x"] + 20, box["y"] + 20)
+        # 框选（Shift + 拖动）
+        close_detail()
+        refit()
+        box = page.locator("#ew-graph").bounding_box()
+        page.mouse.move(box["x"] + 12, box["y"] + 12)
+        page.keyboard.down("Shift")
         page.mouse.down()
-        page.mouse.move(box["x"] + box["width"] - 20, box["y"] + box["height"] - 20, steps=8)
+        for i in range(1, 10):
+            page.mouse.move(box["x"] + 12 + i * (box["width"] - 24) / 9,
+                            box["y"] + 12 + i * (box["height"] - 24) / 9)
+            page.wait_for_timeout(20)
         page.mouse.up()
+        page.keyboard.up("Shift")
         page.wait_for_timeout(800)
-        check(page.locator("#ew-graph svg .ew-selected").count() >= 2, "Shift/框选多选在图上高亮")
+        check(page.evaluate("() => window.__ewCanvas.cy().nodes().filter(n => n.hasClass('cn-selected')).length") >= 2,
+              "Shift + 框选在画布上高亮多个 Cube")
 
         # 7. 备注与 MDX
         page.fill("#ew-mdx", "SELECT {[Scenario].[SP75]} ON 0")
@@ -159,32 +221,57 @@ def main():
         check("验收备注" in page.input_value("#ew-notes"), "设计笔记恢复")
         restored_groups = page.inner_text("#ew-groups")
         check("验收模块A" in restored_groups, "人工模块恢复")
-        check(page.locator("#ew-graph svg .node").count() >= 2, "刷新后图重新渲染")
+        check(node_count() >= 2, "刷新后画布重新渲染")
         page.screenshot(path=OUT + "/32_workbench_restored.png", full_page=False)
 
         # 9. 图 → 表联动：点击一条边应在关系表中定位并标记
-        edge_count = page.locator("#ew-graph svg .flowchart-link").count()
-        check(edge_count > 0, "图上存在可点击的关系边（%d）" % edge_count)
-        if edge_count:
-            # 边路径中心的命中点可能被节点覆盖，这里直接触发绑定的事件处理器，
-            # 验证的是真实的事件绑定与联动语义，而不是像素命中。
-            page.evaluate("""() => {
-                const e=document.querySelector('#ew-graph svg .flowchart-link');
-                e.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+        edges_now = edge_count()
+        check(edges_now > 0, "画布上存在可点击的关系边（%d）" % edges_now)
+        if edges_now:
+            close_detail()
+            refit()
+            pt = page.evaluate("""() => {
+                const cy = window.__ewCanvas.cy();
+                const e = cy.edges()[0];
+                const p = e.midpoint();
+                const pan = cy.pan(), z = cy.zoom();
+                const r = document.querySelector('#ew-graph').getBoundingClientRect();
+                return { x: r.left + p.x * z + pan.x, y: r.top + p.y * z + pan.y };
             }""")
+            page.mouse.click(pt["x"], pt["y"])
             page.wait_for_timeout(1500)
             selected_rows = page.locator("#ew-relations tr[data-edge][aria-selected='true']").count()
-            check(selected_rows == 1, "点击图上的边，关系表定位到唯一对应记录（%d）" % selected_rows)
+            check(selected_rows == 1, "点击画布上的边，关系表定位到唯一对应记录（%d）" % selected_rows)
             edge_text = page.evaluate("() => document.querySelector('#ew-detail').textContent")
             check(any(k in edge_text for k in ("尚未证明", "不是", "索引观察", "待核对")),
                   "边详情说明关系语义，不把候选当值流")
 
         # 10. 代码模板往返：选中两个 Cube
-        page.evaluate("""() => {
-            const nodes=[...document.querySelectorAll('#ew-graph svg .node')]
-                .filter(n=>/Cube\\s*$/.test(n.textContent.trim()));
-            nodes.slice(0,2).forEach((n,i)=>n.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:i>0})));
+        close_detail()
+        refit()
+        cube_pts = page.evaluate("""() => {
+            const cy = window.__ewCanvas.cy();
+            const r = document.querySelector('#ew-graph').getBoundingClientRect();
+            return cy.nodes().filter(n => n.data('type') === 'cube').slice(0, 2).map(n => {
+                const b = n.renderedBoundingBox({ includeLabels: false });
+                return { x: r.left + (b.x1 + b.x2) / 2, y: r.top + (b.y1 + b.y2) / 2 };
+            });
         }""")
+        page.mouse.click(cube_pts[0]["x"], cube_pts[0]["y"])
+        page.wait_for_timeout(700)
+        close_detail()
+        refit()
+        cube_pts = page.evaluate("""() => {
+            const cy = window.__ewCanvas.cy();
+            const r = document.querySelector('#ew-graph').getBoundingClientRect();
+            return cy.nodes().filter(n => n.data('type') === 'cube').slice(0, 2).map(n => {
+                const b = n.renderedBoundingBox({ includeLabels: false });
+                return { x: r.left + (b.x1 + b.x2) / 2, y: r.top + (b.y1 + b.y2) / 2 };
+            });
+        }""")
+        page.keyboard.down("Control")
+        page.mouse.click(cube_pts[1]["x"], cube_pts[1]["y"])
+        page.keyboard.up("Control")
         page.wait_for_timeout(1500)
         link = page.locator("#ew-detail button:has-text('将两个 Cube 带入现有代码模板')")
         check(link.count() > 0, "两个 Cube 选中后出现代码模板入口")

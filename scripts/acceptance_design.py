@@ -72,14 +72,20 @@ def main():
         page.wait_for_timeout(1200)
         design_text = page.inner_text("#ew-design-list")
         check("SalesCost · Cube 草稿" in design_text, "Cube 草稿已创建")
-        check(page.locator("#ew-graph svg .node").count() >= 1, "Cube 草稿出现在画布上")
+        check(page.evaluate("() => window.__ewCanvas.cy().nodes().length") >= 1, "Cube 草稿出现在画布上")
 
-        # 点击草稿节点查看维度顺序
-        page.evaluate("""() => {
-            const n=[...document.querySelectorAll('#ew-graph svg .node')].find(x=>x.textContent.includes('SalesCost'));
-            n?.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+        # 用真实鼠标点击草稿节点查看维度顺序
+        pt = page.evaluate("""() => {
+            const cy = window.__ewCanvas.cy();
+            const n = cy.nodes().filter(x => x.data('name') === 'SalesCost')[0];
+            if (!n) return null;
+            const b = n.renderedBoundingBox({ includeLabels: false });
+            const r = document.querySelector('#ew-graph').getBoundingClientRect();
+            return { x: r.left + (b.x1 + b.x2) / 2, y: r.top + (b.y1 + b.y2) / 2 };
         }""")
-        page.wait_for_timeout(1000)
+        check(pt is not None, "画布上能找到 SalesCost 草稿节点")
+        page.mouse.click(pt["x"], pt["y"])
+        page.wait_for_timeout(1200)
         detail = page.inner_text("#ew-detail")
         check("维度顺序" in detail and "Product" in detail, "草稿详情显示维度顺序")
         check("未部署" in detail, "草稿明确标注未部署")
@@ -96,7 +102,13 @@ def main():
         page.wait_for_timeout(800)
         check("CSV Schema：ProductSource.csv" in page.inner_text("#ew-design-list"), "Schema 草稿已保存")
 
-        # 5. 设计关系
+        # 5. 设计关系（精确输入表单默认折叠，先展开）
+        page.evaluate("""() => {
+            const d=[...document.querySelectorAll('#ew-design details')]
+                .find(x => (x.querySelector('summary')||{}).textContent?.includes('或按名称精确建立'));
+            if (d) d.open = true;
+        }""")
+        page.wait_for_timeout(300)
         page.evaluate("""() => {
             const s=document.getElementById('ew-rel-source');
             s.value=[...s.options].find(o=>o.text.includes('ProductSource.csv')).value;
