@@ -6,6 +6,63 @@
 > 快照：本地只读 DuckDB（路径与快照指纹保存在本地验收记录，不写入公开仓库）
 > 全程离线，未连接任何 TM1 Server。
 
+---
+
+# Round 2 — Visual Development 2.0（设计模式）
+
+| 项 | 结果 |
+|---|---|
+| 全量 pytest | **948 collected / 948 passed / 0 failed / 0 skipped**（148s） |
+| 新增专项 | `tests/test_visual_development.py` **25 项** |
+| 设计模式浏览器验收 | `acceptance_design.py` **24 项全绿** |
+| 工作台 1.0 回归 | `acceptance_workbench.py` 37 项全绿 |
+| 真实鼠标验收 | `acceptance_pointer.py` 10 项全绿（单击 / Ctrl 多选 / 平移 / 点击边 / 框选） |
+| 正式库 | 未修改（哈希与 Round 1 一致） |
+| 生成代码 | 离线静态校验通过；**未在 TM1 执行** |
+
+测试覆盖（`test_visual_development.py`）：
+
+- Cube 草稿维度顺序保留、重复维度拒绝、空维度拒绝
+- 草稿维度引用必须存在；草稿对象来源恒为 `DESIGN_DRAFT`
+- CSV Schema 字段重复拒绝、来源标记、表头解析与类型建议（不读数据行）
+- 映射未确认 / 固定成员为空 / 来源字段为空 阻断生成
+- 缺失目标坐标、映射维度不属于目标 Cube、模板不匹配 阻断生成
+- CSV 生成：维度顺序、固定成员、来源字段、`StringToNumberEx`、`CellPutN` 参数顺序
+- 累加策略切换 `CellIncrementN`
+- Cube → Cube 复用既有 `data_transfer`（`cCubSrc` 存在、固定成员正确）
+- Cube 创建规格区分草稿维度与快照维度
+- Blueprint 悬挂引用拒绝、版本保留
+- 工作区设计态往返（Cube/维度/Schema/关系/映射）
+- v1 工作区文件仍可加载
+- API：meta / generate / blocked / cube-spec / 异快照 409
+- `data_transfer` 新参数默认 `None`，旧调用兼容
+
+生成代码静态校验项：
+
+| 检查 | 方式 |
+|---|---|
+| 四段（prolog/metadata/data/epilog）齐全 | 断言字段非空 |
+| 写入参数个数 = 维度数 | 断言 `CellPutN(vValue, cCubTgt, v1…vN)` 全串匹配 |
+| 参数顺序 = 目标维度顺序 | 断言 `tgt_dims` 与语句一致 |
+| 固定成员 / 来源字段正确 | 断言具体赋值行 |
+| 缺失映射不生成 | 断言 `status=blocked` 且 `code=None` |
+| 写入策略一致 | `overwrite→CellPutN` / `accumulate→CellIncrementN` |
+
+浏览器验收（真实 Chrome，真实鼠标）：
+
+1. 切设计模式 → 2. 建维度草稿 → 3. 建 Cube 草稿（5 维含草稿维度）→ 4. 画布出现草稿节点
+5. 点节点看维度顺序 → 6. 粘贴表头建 Schema → 7. 建 CSV→Cube 关系
+8. 配置 5 条映射 + 数值列 → 9. 生成并检查写入顺序/固定成员/转换
+10. 保存 → 刷新 → 草稿/关系/映射恢复 → 11. 保存 Blueprint → 刷新恢复
+12. 切回探索模式，真实对象搜索与详情仍可用
+
+已知限制（设计模式）：
+
+- 生成代码未在 TM1 编译或执行；`}APQ` 框架对象需目标环境已存在。
+- 未实现一对多 / 聚合 / 分配映射；`LOOKUP`、`FROM_CONTEXT` 只保存意图。
+- 未做 Cube 实际创建与部署。
+- Blueprint 仅支持同 Snapshot 内保存与重开。
+
 ## 1. 单元 / 集成测试
 
 命令：

@@ -95,3 +95,49 @@ TM1_BASE=http://127.0.0.1:8011 .venv/Scripts/python.exe scripts/perf_workbench.p
 - 未修改正式采集库，未删除 WAL，未触碰 `collections/`。
 - 未引入任何 AI / 遥测 / 外网调用。
 - 提交前已确认工作区目录属于本地用户数据、不入库。
+
+---
+
+# 第二轮：Visual Development 2.0
+
+## 交付内容
+
+| 模块 | 文件 |
+|---|---|
+| 设计契约与生成编排 | `src/tm1_insight/design.py`（模型、校验、生成、Cube 规格、表头解析） |
+| 代码模板扩展 | `store/codegen.py`：`data_transfer` 支持显式维度与映射；新增 `csv_to_cube` |
+| API | `api/workbench.py`：`design/meta|validate|generate|cube-spec` |
+| 工作区 | `workbench.py`：`architecture-workspace-2`，新增 `design` 段；v1 兼容 |
+| 前端 | `architecture-workbench.js`：模式切换、草稿、Schema、关系、映射、生成、Blueprint |
+| 模板 | `architecture_workbench.html`：设计面板（①维度 ②Cube ③Schema ④关系 ⑤生成 ⑥Blueprint） |
+| 测试 | `tests/test_visual_development.py`（25 项） |
+| 验收 | `scripts/acceptance_design.py`（24 项）、`scripts/acceptance_pointer.py`（10 项） |
+| 文档 | `DESIGN_MODE.md`、`MAPPING_CONTRACT.md`、`CODEGEN_BRIDGE.md`、`BLUEPRINT_SCHEMA.md` |
+
+## 关键设计决定
+
+- **复用而不重建**：CSV→Cube 在既有 `store/codegen.py` 内新增函数，共用 `}APQ` 框架块；未新增平行生成器。
+- **保存宽松、生成严格**：映射可暂存未填完状态；生成前硬校验，缺一项就不出代码。
+- **不自动确认同名维度**：所有映射默认未确认，必须人工勾选。
+- **草稿身份隔离**：`DESIGN_DRAFT` / `DESIGN_RELATION` 贯穿模型、API、UI、画布样式。
+- **不宣称部署**：生成状态恒为 `DESIGN_DRAFT`；Cube 创建只给规格与步骤。
+
+## 复跑
+
+```bash
+PYTHONPATH=src .venv/Scripts/python.exe -m pytest -q
+TM1_BASE=http://127.0.0.1:8011 .venv/Scripts/python.exe scripts/acceptance_design.py
+TM1_BASE=http://127.0.0.1:8011 .venv/Scripts/python.exe scripts/acceptance_pointer.py
+TM1_BASE=http://127.0.0.1:8011 .venv/Scripts/python.exe scripts/acceptance_workbench.py
+```
+
+## 下一步
+
+- 草稿 → 既有代码模板页的深度绑定（当前生成在工作台内完成，模板页保留给真实 Cube）。
+- 一对多 / 聚合映射的显式声明与阻断策略。
+- Blueprint 版本比较与参数化角色。
+
+## 边界声明
+
+未连接 TM1 Server、未读业务 Cell、未执行 TI/MDX、未改正式 DuckDB、未内置 AI。
+生成代码未经 TM1 编译或运行验证。

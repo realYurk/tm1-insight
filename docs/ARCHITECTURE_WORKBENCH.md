@@ -154,3 +154,50 @@ MDX 只保存与静态解析，**不执行**；`Scenario=SP75, Version=WIP` 这�
 - 外部数据源只展示类型与已采集声明，不打开文件、不执行 SQL、不含连接信息。
 - 草稿 Cube / 草稿关系不会写入 TM1，也不会进入血缘计算。
 - 工作区不参与版本控制（`.gitignore`），也不随 Portable 分发包携带。
+
+---
+
+# 第二部分：Visual Development 2.0（设计模式）
+
+> 详见 `DESIGN_MODE.md`、`MAPPING_CONTRACT.md`、`CODEGEN_BRIDGE.md`、`BLUEPRINT_SCHEMA.md`。
+
+## 11. 模式与状态
+
+- 顶栏「探索模式 / 设计模式」切换，共用同一画布与同一工作区（`architecture-workspace-2`）。
+- `design.mode` 随工作区保存；切换不清空画布、选中、备注、MDX 与人工模块。
+- 设计对象全部带 `DESIGN_DRAFT` / `DESIGN_RELATION` 来源标记，不参与服务端血缘计算。
+
+## 12. 设计对象与渲染
+
+| 对象 | 渲染 |
+|---|---|
+| Cube 草稿 | 黄色虚线节点，标注「Cube 草稿 · 未部署」 |
+| CSV Schema | 紫色虚线节点，标注「CSV Schema · 未接入」 |
+| 设计关系 | 虚线边，标注「设计关系 · 未部署」 |
+
+点击草稿节点 → 右侧详情显示维度顺序、每个维度位来源（快照/草稿 id）、创建说明入口。
+关系表新增「设计关系」类型过滤项。
+
+## 13. 设计 API
+
+| 端点 | 说明 |
+|---|---|
+| `GET /api/workbench/design/meta` | 快照维度/ Cube 名（只读）、可用模板；受限说明 |
+| `POST /api/workbench/design/validate` | 逐关系返回阻断原因 |
+| `POST /api/workbench/design/generate` | 调用既有 `store.codegen` 产出 TI 草案；阻断时不返回代码 |
+| `POST /api/workbench/design/cube-spec` | Cube 创建规格与步骤 |
+
+## 14. 生成与部署的边界
+
+- 生成结果为 `DESIGN_DRAFT`，未在 TM1 Server 部署或执行。
+- 依据既有 `}APQ` 框架模板输出 prolog / metadata / data / epilog 四段。
+- 目标维度顺序来自草稿声明或快照，写入语句参数顺序与之一致。
+- 任一映射缺失即 `status=blocked`，不产出空赋值。
+
+## 15. 设计模式限制
+
+- 无自由拖拽建边：关系用「来源/目标」选择建立（准确性优先）。
+- 无一对多 / 聚合 / 分配映射；此类需求保持未映射并被阻断。
+- `LOOKUP`、`FROM_CONTEXT` 目前保存意图但不生成代码。
+- 未做部署、未做运行验证、未做 Cube 实际创建。
+- Blueprint 仅支持同 Snapshot 内保存与重开。
