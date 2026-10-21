@@ -282,6 +282,11 @@ def roles_from_design(design, relation_id: str) -> dict:
     target = design.cube(rel.target.ref)
     if target is None:
         raise ValueError('仅支持从 Cube 草稿关系提炼 Blueprint')
+    if not rel.value_source:
+        # 角色模型以「数值来源字段」为核心；Cube→Cube 没有该字段，
+        # 在此之前会抛出 Pydantic 校验栈，用户看不懂。
+        raise ValueError('提炼 Blueprint 需要数值来源字段：请使用 CSV 数据来源并指定数值列；'
+                         'Cube→Cube 关系暂不支持提炼为 Blueprint。')
     roles: list[RoleSpec] = [RoleSpec(id='target_cube', label=target.name, kind='cube',
                                       hint='目标分析 Cube 的名称')]
     order: list[str] = []
