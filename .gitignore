@@ -35,6 +35,9 @@ data/inputs/
 # 日志（运行时生成，不入库）
 logs/
 
+# 用户工作区（含企业对象名、备注与 MDX 研究文本，属用户本地数据，不入库/不分发）
+workspaces/
+
 # 扫描缓存（本地增量缓存）
 _audit_scan_cache.json
 

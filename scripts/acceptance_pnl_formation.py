@@ -15,7 +15,7 @@ import sys, time, os, re
 from urllib.parse import quote
 from playwright.sync_api import sync_playwright
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("TM1_BASE", "http://127.0.0.1:8000")
 OUT = "logs/browser_acceptance"
 os.makedirs(OUT, exist_ok=True)
 
