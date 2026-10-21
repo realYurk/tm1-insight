@@ -138,6 +138,7 @@ class DesignRelation(BaseModel):
     mapping: list[MappingEntry] = Field(default_factory=list, max_length=80)
     value_source: str = Field(default='', max_length=200)
     write_policy: Literal['overwrite', 'accumulate'] = 'overwrite'
+    clear_policy: Literal['target_scope', 'none'] = 'target_scope'
     template: Literal['cube-data-transfer', 'csv-to-cube'] = 'csv-to-cube'
     confirmed: bool = False
     note: str = Field(default='', max_length=2000)
@@ -263,59 +264,96 @@ def _source_variables(design: Design, rel: DesignRelation) -> list[str]:
     return cube.dim_names if cube else []
 
 
-def validate_relation(design: Design, rel: DesignRelation,
-                      existing_cube_dims: dict[str, list[str]] | None = None) -> list[str]:
-    """返回阻断问题列表（空 = 可以生成）。消息面向用户，不暴露内部异常。"""
-    blockers: list[str] = []
+def preflight(design: Design, rel: DesignRelation,
+              existing_cube_dims: dict[str, list[str]] | None = None) -> list[dict]:
+    """生成前预检：返回结构化问题列表（空 = 可以生成）。
+
+    每条：{code, message, dimension?}。message 面向用户；code 供测试与 UI 分类。
+    """
+    from tm1_insight.codegen_safety import validate_expression
+
+    issues: list[dict] = []
+
+    def add(code, message, dim=None):
+        item = {'code': code, 'message': message}
+        if dim:
+            item['dimension'] = dim
+        issues.append(item)
+
     target = design.cube(rel.target.ref) if rel.target.kind == 'cube_draft' else None
     if rel.target.kind == 'cube_draft' and target is None:
-        return ['目标 Cube 草稿不存在']
+        add('TARGET_MISSING', '目标 Cube 草稿不存在')
+        return issues
     if rel.target.kind == 'cube':
         dims = (existing_cube_dims or {}).get(rel.target.ref) or []
         if not dims:
-            return ['目标 Cube 不在当前快照中，无法取得维度顺序']
+            add('TARGET_NOT_IN_SNAPSHOT', '目标 Cube 不在当前快照中，无法取得维度顺序')
+            return issues
     else:
         dims = target.dim_names
+    if not dims:
+        add('DIM_ORDER_EMPTY', '目标 Cube 没有维度顺序')
+        return issues
 
+    fields = set()
     if rel.source.kind == 'csv':
         schema = design.schema(rel.source.ref)
         if schema is None:
-            return ['CSV Schema 不存在']
+            add('SOURCE_MISSING', 'CSV Schema 不存在')
+            return issues
+        fields = {f.name for f in schema.fields}
         if rel.template != 'csv-to-cube':
-            blockers.append('CSV 来源必须使用 csv-to-cube 模板')
+            add('TEMPLATE_MISMATCH', 'CSV 来源必须使用 csv-to-cube 模板')
         if not rel.value_source:
-            blockers.append('未指定数值来源列')
-        elif rel.value_source not in {f.name for f in schema.fields}:
-            blockers.append('数值来源列不在 Schema 字段中：%s' % rel.value_source)
+            add('VALUE_SOURCE_MISSING', '未指定数值来源列（vValue 无法确定）')
+        elif rel.value_source not in fields:
+            add('VALUE_SOURCE_UNKNOWN', '数值来源列不在 Schema 字段中：%s' % rel.value_source)
     else:
         if rel.template != 'cube-data-transfer':
-            blockers.append('Cube 来源必须使用 cube-data-transfer 模板')
-        src_dims = _source_variables(design, rel)
-        if not src_dims:
-            blockers.append('源 Cube 缺少维度顺序')
+            add('TEMPLATE_MISMATCH', 'Cube 来源必须使用 cube-data-transfer 模板')
+        if not _source_variables(design, rel):
+            add('SOURCE_DIMS_MISSING', '源 Cube 缺少维度顺序')
 
     declared = {m.target_dimension for m in rel.mapping}
     for dim in dims:
         entry = next((m for m in rel.mapping if m.target_dimension == dim), None)
         if entry is None or entry.kind == 'UNMAPPED':
-            blockers.append('目标维度未映射：%s' % dim)
-        elif entry.kind == 'FIXED' and not entry.fixed_member.strip():
-            blockers.append('固定成员为空：%s' % dim)
-        elif entry.kind in ('FROM_SOURCE', 'LOOKUP') and not entry.source_field.strip():
-            blockers.append('来源字段为空：%s' % dim)
-        elif entry.kind == 'EXPRESSION' and not entry.expression.strip():
-            blockers.append('表达式为空：%s' % dim)
-        elif not entry.confirmed:
-            blockers.append('目标维度映射尚未确认：%s' % dim)
-    for extra in sorted(declared - set(dims)):
-        blockers.append('映射维度不属于目标 Cube：%s' % extra)
+            add('DIM_UNMAPPED', '目标维度未映射：%s' % dim, dim)
+            continue
+        if entry.kind == 'FIXED':
+            if not entry.fixed_member.strip():
+                add('FIXED_MEMBER_EMPTY', '固定成员为空：%s' % dim, dim)
+            elif any(ch in entry.fixed_member for ch in '\r\n') or any(ord(c) < 32 for c in entry.fixed_member):
+                add('FIXED_MEMBER_UNSAFE', '固定成员包含换行或控制字符：%s' % dim, dim)
+        elif entry.kind == 'FROM_SOURCE':
+            if not entry.source_field.strip():
+                add('SOURCE_FIELD_EMPTY', '来源字段为空：%s' % dim, dim)
+            elif rel.source.kind == 'csv' and entry.source_field not in fields:
+                add('SOURCE_FIELD_UNKNOWN', '映射的源字段不在 Schema 中：%s' % entry.source_field, dim)
+        elif entry.kind == 'LOOKUP':
+            add('LOOKUP_UNSUPPORTED', '查找映射（LOOKUP）当前模板不支持生成：%s' % dim, dim)
+        elif entry.kind == 'FROM_CONTEXT':
+            add('CONTEXT_UNSUPPORTED', '上下文映射（FROM_CONTEXT）当前模板不支持生成：%s' % dim, dim)
+        elif entry.kind == 'EXPRESSION':
+            if not entry.expression.strip():
+                add('EXPRESSION_EMPTY', '表达式为空：%s' % dim, dim)
+            else:
+                ok, reason = validate_expression(entry.expression)
+                if not ok:
+                    add('UNSAFE_EXPRESSION', '表达式不在安全子集内（%s）：%s' % (reason, dim), dim)
+        if entry.kind != 'UNMAPPED' and not entry.confirmed:
+            add('DIM_UNCONFIRMED', '目标维度映射尚未确认：%s' % dim, dim)
 
-    if rel.source.kind == 'csv':
-        fields = {f.name for f in (design.schema(rel.source.ref).fields if design.schema(rel.source.ref) else [])}
-        for m in rel.mapping:
-            if m.kind == 'FROM_SOURCE' and m.source_field not in fields:
-                blockers.append('映射的源字段不在 Schema 中：%s' % m.source_field)
-    return blockers
+    for extra in sorted(declared - set(dims)):
+        add('EXTRA_DIM_MAPPING', '映射维度不属于目标 Cube：%s' % extra, extra)
+
+    return issues
+
+
+def validate_relation(design: Design, rel: DesignRelation,
+                      existing_cube_dims: dict[str, list[str]] | None = None) -> list[str]:
+    """兼容接口：只返回消息文本。"""
+    return [i['message'] for i in preflight(design, rel, existing_cube_dims)]
 
 
 def _mapping_dict(rel: DesignRelation) -> dict[str, dict]:
@@ -327,23 +365,58 @@ def _mapping_dict(rel: DesignRelation) -> dict[str, dict]:
     return out
 
 
+def design_fingerprint(design: Design, rel_id: str) -> str:
+    """与生成结果绑定的设计指纹：仅覆盖影响代码的字段。"""
+    import hashlib, json
+
+    rel = design.relation(rel_id)
+    if rel is None:
+        return ''
+    payload = {
+        'relation': rel.model_dump(exclude={'note'}),
+        'target': design.cube(rel.target.ref).model_dump() if design.cube(rel.target.ref) else rel.target.ref,
+        'source_cube': design.cube(rel.source.ref).model_dump() if design.cube(rel.source.ref) else None,
+        'schema': design.schema(rel.source.ref).model_dump() if design.schema(rel.source.ref) else None,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]
+
+
+def code_fingerprint(code: dict) -> str:
+    import hashlib
+    body = '\n'.join(code.get(s, '') for s in ('prolog', 'metadata', 'data', 'epilog'))
+    return hashlib.sha256(body.encode('utf-8')).hexdigest()[:32]
+
+
+def is_stale(artifact: dict, design: Design) -> bool:
+    """生成结果是否因设计变化而失效。"""
+    stored = (artifact or {}).get('summary', {}).get('design_fingerprint')
+    if not stored:
+        return True
+    return stored != design_fingerprint(design, artifact.get('relation_id', ''))
+
+
 def generate(design: Design, rel_id: str, *, existing_cube_dims: dict[str, list[str]] | None = None,
              operation: str | None = None, generated_at: str = '') -> dict:
-    """调用既有 codegen 生成 TI 草案。阻断时不返回代码。"""
+    """调用既有 codegen 生成 TI 草案。预检不过时不返回任何代码。"""
+    from tm1_insight.codegen_safety import dependency_manifest
     from tm1_insight.store import codegen as cg
 
     rel = design.relation(rel_id)
     if rel is None:
-        return dict(status='blocked', blockers=['设计关系不存在'], code=None)
+        return dict(status='blocked', blockers=['设计关系不存在'], issues=[
+            {'code': 'RELATION_MISSING', 'message': '设计关系不存在'}], code=None)
 
-    blockers = validate_relation(design, rel, existing_cube_dims)
-    if blockers:
-        return dict(status='blocked', blockers=blockers, code=None,
-                    artifact=GeneratedArtifact(relation_id=rel.id, template=rel.template,
-                                               generated_at=generated_at, blockers=blockers).model_dump())
+    issues = preflight(design, rel, existing_cube_dims)
+    if issues:
+        blockers = [i['message'] for i in issues]
+        artifact = GeneratedArtifact(relation_id=rel.id, template=rel.template,
+                                     generated_at=generated_at, blockers=blockers)
+        return dict(status='blocked', blockers=blockers, issues=issues, code=None,
+                    artifact=artifact.model_dump())
 
     op = operation or ('CellPutN' if rel.write_policy == 'overwrite' else 'CellIncrementN')
     mapping = _mapping_dict(rel)
+    clear = rel.clear_policy
 
     if rel.source.kind == 'csv':
         schema = design.schema(rel.source.ref)
@@ -353,8 +426,16 @@ def generate(design: Design, rel_id: str, *, existing_cube_dims: dict[str, list[
             rel.target.ref if cube is None else cube.name,
             dims,
             [{'name': f.name, 'type': f.type if f.type != 'unknown' else 'string'} for f in schema.fields],
-            mapping, value_source=rel.value_source, operation=op,
+            mapping, value_source=rel.value_source, operation=op, clear_policy=clear,
+            file_path=schema.name,
         )
+        if result.get('unresolved'):
+            issues = [{'code': 'CODEGEN_UNRESOLVED', 'message': m} for m in result['unresolved']]
+            return dict(status='blocked', code=None, issues=issues,
+                        blockers=[i['message'] for i in issues],
+                        artifact=GeneratedArtifact(relation_id=rel.id, template=rel.template,
+                                                   generated_at=generated_at,
+                                                   blockers=[i['message'] for i in issues]).model_dump())
     else:
         src_cube = design.cube(rel.source.ref) if rel.source.kind == 'cube_draft' else None
         src_name = src_cube.name if src_cube else rel.source.ref
@@ -364,24 +445,33 @@ def generate(design: Design, rel_id: str, *, existing_cube_dims: dict[str, list[
         tgt_dims = tgt_cube.dim_names if tgt_cube else (existing_cube_dims or {}).get(rel.target.ref, [])
         result = cg.data_transfer(None, src_name, tgt_name,
                                   src_dims=src_dims, tgt_dims=tgt_dims,
-                                  dim_mapping=mapping, operation=op)
+                                  dim_mapping=mapping, operation=op, clear_policy=clear)
         if result.get('unmapped'):
-            return dict(status='blocked', code=None,
-                        blockers=['目标维度未映射：%s' % d for d in result['unmapped']],
+            issues = [{'code': 'DIM_UNMAPPED', 'message': '目标维度未映射：%s' % d} for d in result['unmapped']]
+            return dict(status='blocked', code=None, issues=issues,
+                        blockers=[i['message'] for i in issues],
                         artifact=GeneratedArtifact(relation_id=rel.id, template=rel.template,
                                                    generated_at=generated_at,
-                                                   blockers=result['unmapped']).model_dump())
+                                                   blockers=[i['message'] for i in issues]).model_dump())
 
+    fp = design_fingerprint(design, rel.id)
     summary = {
         'source': rel.source.ref,
         'target': result.get('tgt_cube', ''),
         'dimensions': ' → '.join(result.get('tgt_dims', [])),
         'operation': op,
         'write_policy': rel.write_policy,
+        'clear_policy': clear,
+        'design_fingerprint': fp,
+        'code_fingerprint': code_fingerprint(result),
     }
     artifact = GeneratedArtifact(relation_id=rel.id, template=rel.template, generated_at=generated_at,
                                  validated=True, blockers=[], summary=summary)
-    return dict(status='ok', blockers=[], code=result, artifact=artifact.model_dump(), summary=summary)
+    deps = dependency_manifest(rel.template, target_cube=summary['target'],
+                               target_dims=result.get('tgt_dims', []),
+                               clear_policy=clear)
+    return dict(status='ok', blockers=[], issues=[], code=result, artifact=artifact.model_dump(),
+                summary=summary, dependencies=deps)
 
 
 def cube_creation_spec(design: Design, cube_id: str) -> dict:

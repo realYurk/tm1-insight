@@ -15,6 +15,7 @@ TM1 Architect 的完整标准 TI 代码，而非「简配骨架」。
 from __future__ import annotations
 
 import duckdb
+from tm1_insight.codegen_safety import build_var_map, quote_member
 
 # ============================================================
 #  公共工具
@@ -786,6 +787,19 @@ def _zero_out(tgt_cube: str, filters: list[dict], prefix: str = "}APQ") -> str:
 #  ② 数据传输 A → B
 # ============================================================
 
+
+def _as_literal(value: str) -> str:
+    """把映射里的固定成员安全转为 TI 字符串字面量。
+
+    调用方可能已经传入 "'X'"，此时校验引号闭合后原样使用；否则统一转义。
+    """
+    text = (value or '').strip()
+    if len(text) >= 2 and text.startswith("'") and text.endswith("'"):
+        inner = text[1:-1].replace("''", "'")
+        return quote_member(inner)
+    return quote_member(text)
+
+
 def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
                   prefix: str = "}APQ", src_filters: list[dict] | None = None,
                   tgt_filters: list[dict] | None = None,
@@ -793,7 +807,8 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
                   operation: str = "CellIncrementN",
                   src_dims: list[str] | None = None,
                   tgt_dims: list[str] | None = None,
-                  dim_mapping: dict[str, dict] | None = None) -> dict:
+                  dim_mapping: dict[str, dict] | None = None,
+                  clear_policy: str = 'target_scope') -> dict:
     """生成「从源 cube 传输到目标 cube」的完整框架 TI 代码。
 
     参数：
@@ -807,8 +822,12 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
     返回 dict：prolog/metadata/data/epilog/mapping/src_dims/tgt_dims/params/unmapped
     """
     p = _norm_prefix(prefix)
+    if clear_policy not in ('target_scope', 'none'):
+        raise ValueError('不支持的清空策略：%s' % clear_policy)
     src_dims = list(src_dims) if src_dims is not None else _cube_dims(con, src_cube)
     tgt_dims = list(tgt_dims) if tgt_dims is not None else _cube_dims(con, tgt_cube)
+    src_vars, src_collisions = build_var_map(src_dims)
+    tgt_vars, tgt_collisions = build_var_map(tgt_dims)
 
     # 维度对齐
     mapping: list[dict] = []
@@ -819,7 +838,7 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
                  "auto": src_idx is not None}
         # 仅在显式映射时附加字段，保持旧响应结构不变
         if explicit.get("fixed"):
-            entry["fixed"] = explicit["fixed"]
+            entry["fixed"] = _as_literal(explicit["fixed"])
         if explicit.get("source"):
             entry["source"] = explicit["source"]
         mapping.append(entry)
@@ -861,7 +880,11 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
     pl.append("nLog = CubeGetLogChanges( cCubTgt );")
     pl.append("CubeSetLogChanges( cCubTgt, 0 );")
     pl.append("")
-    pl.append(_zero_out(tgt_cube, tgt_filters or [], p))
+    if clear_policy == 'target_scope':
+        pl.append(_zero_out(tgt_cube, tgt_filters or [], p))
+    else:
+        pl.append("### 清空策略：none —— 本次不生成任何 ZeroOut / 数据删除语句")
+        pl.append("### 重复执行前请自行确认是否需要清理目标范围")
     pl.append("")
     pl.append(_create_datasource(src_cube, src_filters or [], "VIEW", p))
     pl.append("")
@@ -895,19 +918,19 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
     dt.append("### Data script")
     dt.append("### 字段映射（按目标 cube 的维度顺序逐一赋值，直接修改右侧即可）")
     for m in mapping:
-        var = _var_name(m["tgt_dim"])
+        var = tgt_vars[m["tgt_dim"]]
         if m.get("fixed"):
             dt.append(f"{var} = {m['fixed']};   # {m['tgt_dim']}: 固定成员")
         elif m.get("source"):
             dt.append(f"{var} = {m['source']};   # {m['tgt_dim']}: 来源映射")
         elif m["auto"]:
-            src_var = _var_name(src_dims[m["src_idx"]])
+            src_var = src_vars[src_dims[m["src_idx"]]]
             dt.append(f"{var} = {src_var};")
         else:
             dt.append(f"{var} = '';   # {m['tgt_dim']}: 未映射，生成前必须补齐")
     dt.append("")
     dt.append("### Updating Cell（写入目标 cube 的完整维度交叉点）")
-    args = ", ".join([_var_name(m["tgt_dim"]) for m in mapping])
+    args = ", ".join([tgt_vars[m["tgt_dim"]] for m in mapping])
     dt.append(f"{operation}(vValue, cCubTgt, {args});")
     dt.append("")
     dt.append("### END Data")
@@ -923,7 +946,8 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
     el.append("")
     el.append("# Clean Up（销毁临时视图）")
     el.append("If(ViewExists(cCubSrc, cViewSrc) <> 0); ViewDestroy(cCubSrc, cViewSrc); EndIf;")
-    el.append("If(ViewExists(cCubTgt, cViewClr) <> 0); ViewDestroy(cCubTgt, cViewClr); EndIf;")
+    if clear_policy == 'target_scope':
+        el.append("If(ViewExists(cCubTgt, cViewClr) <> 0); ViewDestroy(cCubTgt, cViewClr); EndIf;")
     el.append("")
     el.append("### Logging - common script ---------------- START (" + p + " FRAMEWORK)")
     el.append("IF(pDoProcessLogging @= '1');")
@@ -950,6 +974,9 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
         "mapping": mapping,
         "params": param_list,
         "unmapped": unmapped,
+        "variables": dict(src=src_vars, target=tgt_vars),
+        "collisions": src_collisions + tgt_collisions,
+        "clear_policy": clear_policy,
         "prolog": prolog,
         "metadata": metadata,
         "data": data,
@@ -967,7 +994,8 @@ def csv_to_cube(tgt_cube: str, tgt_dims: list[str], columns: list[dict],
                 encoding: str = "UTF-8", has_header: bool = True,
                 operation: str = "CellIncrementN", prefix: str = "}APQ",
                 tgt_filters: list[dict] | None = None,
-                params: list[dict] | None = None) -> dict:
+                params: list[dict] | None = None,
+                clear_policy: str = 'target_scope') -> dict:
     """生成「CSV / 字符分隔文件 → Cube」的框架 TI 草案。
 
     与 :func:`data_transfer` 共用同一套 }APQ 框架块，不引入第二套生成器。
@@ -976,10 +1004,14 @@ def csv_to_cube(tgt_cube: str, tgt_dims: list[str], columns: list[dict],
     mapping: {目标维度: {'fixed': "'Forecast'" , 'source': 'vProductCode'}}
     value_source: 提供数值的列名；留空则无法生成写入语句（记为 blocker）
     """
+    if clear_policy not in ('target_scope', 'none'):
+        raise ValueError('不支持的清空策略：%s' % clear_policy)
     p = _norm_prefix(prefix)
     tgt_dims = list(tgt_dims)
     cols = [c.get("name", "") for c in columns]
     mapping = mapping or {}
+    tgt_vars, tgt_collisions = build_var_map(tgt_dims)
+    col_vars, col_collisions = build_var_map(cols)
 
     unresolved: list[str] = []
     for dim in tgt_dims:
@@ -990,6 +1022,14 @@ def csv_to_cube(tgt_cube: str, tgt_dims: list[str], columns: list[dict],
         unresolved.append("未指定数值来源列（vValue 无法确定）")
     elif value_source not in cols:
         unresolved.append(f"数值来源列不在表头中：{value_source}")
+
+    safe_mapping = {}
+    for dim, spec in mapping.items():
+        spec = dict(spec or {})
+        if spec.get('fixed'):
+            spec['fixed'] = _as_literal(spec['fixed'])
+        safe_mapping[dim] = spec
+    mapping = safe_mapping
 
     param_list = [{"name": "pDoProcessLogging", "dim": None},
                   {"name": "pDebug", "dim": None}]
@@ -1017,7 +1057,10 @@ def csv_to_cube(tgt_cube: str, tgt_dims: list[str], columns: list[dict],
     pl.append("nLog = CubeGetLogChanges( cCubTgt );")
     pl.append("CubeSetLogChanges( cCubTgt, 0 );")
     pl.append("")
-    pl.append(_zero_out(tgt_cube, tgt_filters or [], p))
+    if clear_policy == 'target_scope':
+        pl.append(_zero_out(tgt_cube, tgt_filters or [], p))
+    else:
+        pl.append("### 清空策略：none —— 本次不生成任何 ZeroOut / 数据删除语句")
     pl.append("")
     ds = [
         "#Region - Create DataSource",
@@ -1032,7 +1075,7 @@ def csv_to_cube(tgt_cube: str, tgt_dims: list[str], columns: list[dict],
         "### Variables 页签（按列顺序，名称与下列变量一致）",
     ]
     for c in cols:
-        ds.append(f"#   {_var_name(c)} = 列 {c}")
+        ds.append(f"#   {col_vars[c]} = 列 {c}")
     ds.append("#EndRegion - Create DataSource")
     pl.append("\n".join(ds))
     pl.append("")
@@ -1060,13 +1103,13 @@ def csv_to_cube(tgt_cube: str, tgt_dims: list[str], columns: list[dict],
         "### Data script",
         "### 数值转换（字符分隔源全部为字符串）",
     ]
-    dt.append(f"vValue = StringToNumberEx( {_var_name(value_source)}, '.,' );" if value_source
+    dt.append(f"vValue = StringToNumberEx( {col_vars.get(value_source, 'vValue')}, '.,' );" if value_source
               else "vValue = 0;   # 未指定数值来源列")
     dt.append("")
     dt.append("### 维度赋值（按目标 cube 维度顺序）")
     args: list[str] = []
     for dim in tgt_dims:
-        var = _var_name(dim)
+        var = tgt_vars[dim]
         m = mapping.get(dim) or {}
         if m.get("fixed"):
             dt.append(f"{var} = {m['fixed']};   # {dim}: 固定成员")
@@ -1108,6 +1151,9 @@ def csv_to_cube(tgt_cube: str, tgt_dims: list[str], columns: list[dict],
         "value_source": value_source,
         "mapping": [{"tgt_dim": d, **(mapping.get(d) or {})} for d in tgt_dims],
         "unresolved": unresolved,
+        "variables": dict(target=tgt_vars, columns=col_vars),
+        "collisions": tgt_collisions + col_collisions,
+        "clear_policy": clear_policy,
         "prolog": prolog,
         "metadata": metadata,
         "data": data,
