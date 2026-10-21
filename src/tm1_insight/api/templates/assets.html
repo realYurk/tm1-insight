@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}工程资产 · TM1 Insight{% endblock %}
+{% block content %}
+<header class="page-head"><div>
+  <h1 class="page-title">工程资产</h1>
+  <p class="page-sub">设计模式、可复用 Blueprint、验证契约与项目实例。资产独立保存，不含企业源码与快照数据。</p>
+</div></header>
+
+<div class="asset-toolbar">
+  <button class="btn primary" id="as-new-pattern">新建 Pattern</button>
+  <select id="as-scope" class="input" aria-label="导出范围">
+    <option value="private">导出：私有（仅自己使用）</option>
+    <option value="public">导出：对外（需通过内容审查）</option>
+  </select>
+  <button class="btn" id="as-export">导出资产包</button>
+  <label class="btn">导入资产包<input type="file" id="as-import" accept=".zip" hidden></label>
+  <span class="muted small" id="as-status" role="status" aria-live="polite"></span>
+</div>
+
+<div class="asset-layout">
+  <aside class="card asset-list">
+    <div class="asset-filters" role="tablist">
+      <button class="btn ghost active" data-kind="blueprint">Blueprint</button>
+      <button class="btn ghost" data-kind="pattern">Pattern</button>
+      <button class="btn ghost" data-kind="verification">验证契约</button>
+      <button class="btn ghost" data-kind="project">项目</button>
+    </div>
+    <label>搜索<input id="as-search" class="input" placeholder="名称 / 说明" maxlength="200"></label>
+    <div id="as-items" class="asset-items"></div>
+    <p class="muted small" id="as-count"></p>
+  </aside>
+
+  <section class="card asset-detail" id="as-detail" aria-live="polite">
+    <h2>选择一个资产</h2>
+    <p class="muted">Blueprint 需要用角色绑定到当前项目的实际对象；绑定不会修改模型。</p>
+  </section>
+</div>
+
+<div class="asset-form" id="as-pattern-form" hidden>
+  <div class="card">
+    <h2>新建 Pattern</h2>
+    <label>名称<input id="ap-name" class="input" maxlength="200" placeholder="Multidimensional Mapped Load"></label>
+    <label>解决什么问题<textarea id="ap-problem" class="input" rows="3"></textarea></label>
+    <label>简介<input id="ap-summary" class="input" maxlength="500"></label>
+    <label>输入（一行一个）<textarea id="ap-inputs" class="input" rows="3"></textarea></label>
+    <label>输出（一行一个）<textarea id="ap-outputs" class="input" rows="3"></textarea></label>
+    <label>不适用场景（一行一个）<textarea id="ap-na" class="input" rows="2"></textarea></label>
+    <div class="asset-actions"><button class="btn primary" id="ap-save">保存 Pattern</button><button class="btn ghost" id="ap-cancel">取消</button></div>
+  </div>
+</div>
+
+<link rel="stylesheet" href="/static/assets.css?v=1"><script src="/static/assets.js?v=1" defer></script>
+{% endblock %}
