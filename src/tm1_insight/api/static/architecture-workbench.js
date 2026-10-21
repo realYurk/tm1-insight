@@ -8,6 +8,8 @@
   let design={mode:'explore',cubes:[],dimensions:[],schemas:[],relations:[],blueprints:[]};
   let designMeta={dimensions:[],cubes:[],templates:[],template_version:'1'}, schemaDraftFields=[];
   const lastGenerated=new Map();
+  const staleIds=new Set();
+  let staleTimer=null;
   let workspaceId='',revision='',viewer=null,query={},layout={},edgeSelection=null,displayEdges=[],nodeMap={},templateRef='';
   let abort=null,generation=0,detailGeneration=0,dirty=false;
   const known=new Map(), name=id=>known.get(id)?.name||drafts.find(d=>d.id===id)?.name
@@ -17,7 +19,7 @@
   const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
   const button=(text,fn)=>{const b=element('button',text,'btn ghost');b.type='button';b.onclick=()=>run(async()=>{b.disabled=true;try{await fn();}finally{b.disabled=false;}});return b;};
   async function run(fn){try{await fn();}catch(e){if(e.name!=='AbortError')status(e.message,true);}}
-  function changed(){dirty=true;remember();}
+  function changed(){dirty=true;remember();scheduleStale();}
   function currentWorkspace(){
     return {schema_version:'architecture-workspace-2',snapshot_id:snapshot,design:design,name:$('ew-name').value.trim()||'我的架构研究',query:{...query,snapshot_id:snapshot},
       objects:[...known.values()].map(n=>({type:n.type,name:n.name})), selected:[...selected],visible:graph.nodes.map(n=>n.id),edge_ids:graph.edges.map(e=>e.id),hidden:[...hidden],groups,drafts,
@@ -239,7 +241,7 @@
     const missingEdges=(w.edge_ids||[]).filter(id=>!edgeMap.has(id)).length;
     groups=w.groups;drafts=w.drafts||[];selected=new Set(w.selected);hidden=new Set(w.hidden);layout=w.layout;
     design=w.design||{mode:'explore',cubes:[],dimensions:[],schemas:[],relations:[],blueprints:[]};
-    setMode(design.mode||'explore',false);
+    setMode(design.mode||'explore',false);refreshStale();
     $('ew-name').value=w.name;$('ew-mdx').value=w.mdx;$('ew-notes').value=w.notes;dirty=false;render(true);remember();status(missingEdges?`已恢复对象和备注；${missingEdges} 条关系未在当前预算内复核，原文件保留，不能宣称完整恢复。`:'工作区已恢复；MDX 仅为研究文本，没有执行。',missingEdges>0);
   }
   let timer;['ew-search','ew-kind'].forEach(id=>$(id).addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>run(search),180);}));
@@ -297,6 +299,16 @@
       const div=element('div','','ew-design-item');
       div.appendChild(element('strong',name(r.source.ref)+' → '+name(r.target.ref)));
       div.appendChild(element('p',(r.template==='csv-to-cube'?'CSV → Cube':'Cube → Cube')+' · 写入 '+(r.write_policy==='overwrite'?'覆盖':'累加')+' · '+r.mapping.length+' 条映射','small muted'));
+      const g=r.generated;
+      if(g){
+        const stale=staleIds.has(r.id);
+        div.appendChild(element('p',(stale?'⚠ 代码草案已过期':'已生成草案')+
+          ' · '+(stale?'设计已变更，请重新生成':'生成于 '+String(g.generated_at||'').slice(0,19))+
+          ' · 清空：'+(g.clear_scope==='NONE'?'不清空':(g.clear_scope_text||'未限定')),
+          'small'+(stale?' ew-stale':'')));
+      }else{
+        div.appendChild(element('p','尚未生成代码草案','small muted'));
+      }
       div.appendChild(button('配置映射',()=>{openMapping(r.id);}));
       div.appendChild(button('生成 TI 草案',()=>generateFor(r.id)));
       div.appendChild(button('提炼为 Blueprint',()=>extractBlueprint(r.id)));
@@ -317,6 +329,20 @@
     const bp=$('ew-bp-list');bp.replaceChildren();
     design.blueprints.forEach(b=>bp.appendChild(element('p','Blueprint：'+b.name+' v'+b.version+'（'+b.relation_ids.length+' 关系）','small')));
   }
+
+
+  async function refreshStale(){
+    if(!design.relations.some(r=>r.generated&&r.generated.design_fingerprint))return;
+    try{
+      const data=await req('/api/workbench/design/stale',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({design:design,relation_ids:[]})});
+      const next=new Set((data.stale||[]).map(x=>x.relation_id));
+      const changedSet=next.size!==staleIds.size||[...next].some(id=>!staleIds.has(id));
+      staleIds.clear();next.forEach(id=>staleIds.add(id));
+      if(changedSet)renderDesignLists();
+    }catch(e){/* 过期判定失败不阻断编辑，但不会显示「最新」*/}
+  }
+  function scheduleStale(){clearTimeout(staleTimer);staleTimer=setTimeout(refreshStale,400);}
 
   function renderCubeDraft(c){
     const p=panel(c.name);p.appendChild(element('p','Cube 草稿 · 未部署 / 未验证；不修改任何真实 Cube','muted'));
@@ -410,12 +436,36 @@
       status('生成被阻断：请补齐映射后再试。',true);return;
     }
     const rel=design.relations.find(r=>r.id===relId);
+    const gen={generated_at:data.artifact.generated_at,template:data.artifact.template,
+      design_fingerprint:data.summary.design_fingerprint,code_fingerprint:data.summary.code_fingerprint,
+      operation:data.summary.operation,dimensions:data.summary.dimensions,
+      clear_scope:data.summary.clear_scope,clear_scope_text:data.summary.clear_scope_text};
+    if(rel)rel.generated=gen;
     lastGenerated.set(relId,{at:data.artifact.generated_at,template:data.artifact.template,
       summary:data.summary,validated:true});
-    changed();
+    staleIds.delete(relId);
+    changed();renderDesignLists();
     p.appendChild(element('p','TI 草案 · DESIGN_DRAFT · 未在 TM1 Server 部署或执行','muted'));
     p.appendChild(element('p','模板：'+data.artifact.template+' · 维度：'+data.summary.dimensions));
     p.appendChild(element('p','写入：'+data.summary.operation+'（'+(data.summary.write_policy==='overwrite'?'覆盖':'累加')+'）','small'));
+    const scopeBox=element('div','ew-slice');
+    scopeBox.appendChild(element('p','清空策略：'+(data.summary.clear_policy==='none'?'不清空（不生成任何删除语句）':'清空目标范围')));
+    if(data.summary.clear_policy!=='none'){
+      scopeBox.appendChild(element('p','清空范围：'+(data.summary.clear_scope_text||'未限定')));
+      scopeBox.appendChild(element('p','该范围之外的数据不会被删除；范围由已确认的固定成员决定。','muted small'));
+    }
+    p.appendChild(scopeBox);
+    (data.warnings||[]).forEach(w=>p.appendChild(element('p','⚠ '+w,'small')));
+    const pc=data.process_config;
+    if(pc&&pc.data_source_variables&&pc.data_source_variables.length){
+      const d=element('details');d.open=true;
+      d.appendChild(element('summary','数据源变量（需在 Process 的 Variables 页签按顺序创建）'));
+      d.appendChild(element('p','四段代码不含 Variables 定义；名称与下表不一致时，生成代码会引用不存在的变量。','muted small'));
+      pc.data_source_variables.forEach(v=>d.appendChild(element('p',`${v.index}. ${v.name} ← 列 ${v.column}（${v.type}）`)));
+      p.appendChild(d);
+    }else if(pc){
+      p.appendChild(element('p','该模板没有字符分隔数据源变量；Data Source 由视图创建。','muted small'));
+    }
     ['prolog','metadata','data','epilog'].forEach(sec=>{
       const d=element('details');if(sec==='data')d.open=true;
       d.append(element('summary',sec+' 源码'),element('pre',data.code[sec]||'','code'));

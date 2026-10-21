@@ -112,8 +112,22 @@
     else{
       kv(box,'维度顺序',r.summary.dimensions);
       kv(box,'写入',r.summary.operation);
-      kv(box,'清空策略',r.summary.clear_policy);
+      kv(box,'清空策略',r.summary.clear_policy==='none'?'不清空':('清空目标范围：'+(r.summary.clear_scope_text||'未限定')));
       kv(box,'代码指纹',r.summary.code_fingerprint);
+      if(r.verification){
+        kv(box,'验证级别',r.verification.level+' — '+r.verification.label);
+        const v=el('details');v.appendChild(el('summary','这次到底验证了什么'));
+        v.appendChild(el('p','已检查：'+(r.verification.checked||[]).join('、')));
+        v.appendChild(el('p','未验证：'+(r.verification.not_verified||[]).join('、')));
+        box.appendChild(v);
+      }
+      (r.warnings||[]).forEach(w=>box.appendChild(el('p','⚠ '+w)));
+      if(r.process_config&&(r.process_config.data_source_variables||[]).length){
+        const d=el('details');d.open=true;
+        d.appendChild(el('summary','数据源变量（需在 Process 的 Variables 页签按顺序创建）'));
+        r.process_config.data_source_variables.forEach(v=>d.appendChild(el('p',`${v.index}. ${v.name} ← 列 ${v.column}`)));
+        box.appendChild(d);
+      }
       ['prolog','metadata','data','epilog'].forEach(sec=>{
         const d=el('details');if(sec==='data')d.open=true;
         d.append(el('summary',sec+' 源码'),el('pre',r.code[sec]||'','code'));
@@ -231,6 +245,12 @@
         const pre=await api('/api/assets/export/preflight',jsonOpt('POST',
           {blueprint_ids:ids('blueprint'),pattern_ids:ids('pattern'),verification_ids:ids('verification'),scope}));
         if(!pre.ok)return status(pre.message,true);
+        if((pre.findings||[]).length){
+          const lines=(pre.findings||[]).map(f=>`[${f.severity}] ${f.code}：${f.hint}`).slice(0,8).join('\n');
+          const go=window.confirm('导出前审查发现 '+pre.findings.length+' 项需要人工确认：\n\n'+lines+
+            '\n\n这些内容不会被自动脱敏。确认仍要导出吗？');
+          if(!go)return status('已取消导出：请先按审查结果调整资产内容。',true);
+        }
         const resp=await fetch('/api/assets/export',jsonOpt('POST',
           {blueprint_ids:ids('blueprint'),pattern_ids:ids('pattern'),verification_ids:ids('verification'),scope}));
         if(!resp.ok){const d=await resp.json().catch(()=>({}));throw new Error(d.detail||'导出失败');}
