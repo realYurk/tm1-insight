@@ -790,7 +790,10 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
                   prefix: str = "}APQ", src_filters: list[dict] | None = None,
                   tgt_filters: list[dict] | None = None,
                   params: list[dict] | None = None,
-                  operation: str = "CellIncrementN") -> dict:
+                  operation: str = "CellIncrementN",
+                  src_dims: list[str] | None = None,
+                  tgt_dims: list[str] | None = None,
+                  dim_mapping: dict[str, dict] | None = None) -> dict:
     """生成「从源 cube 传输到目标 cube」的完整框架 TI 代码。
 
     参数：
@@ -798,22 +801,30 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
       tgt_filters: 目标清空筛选 [{dim, elems, kind}]
       params: 入参定义 [{name, dim}]（dim 用于 Test parameters 校验）
       operation: data 段默认写操作（CellIncrementN/CellPutN/CellPutS）
+      src_dims/tgt_dims: 显式维度顺序（用于尚未部署的设计草稿；为空则从快照读取）
+      dim_mapping: 目标维度 → {'fixed': "'成员'" , 'source': 'vXxx'}，优先于同名自动对齐
 
-    返回 dict：prolog/metadata/data/epilog/mapping/src_dims/tgt_dims/params
+    返回 dict：prolog/metadata/data/epilog/mapping/src_dims/tgt_dims/params/unmapped
     """
     p = _norm_prefix(prefix)
-    src_dims = _cube_dims(con, src_cube)
-    tgt_dims = _cube_dims(con, tgt_cube)
+    src_dims = list(src_dims) if src_dims is not None else _cube_dims(con, src_cube)
+    tgt_dims = list(tgt_dims) if tgt_dims is not None else _cube_dims(con, tgt_cube)
 
     # 维度对齐
     mapping: list[dict] = []
     for i, td in enumerate(tgt_dims):
-        src_idx = src_dims.index(td) if td in src_dims else None
-        mapping.append({
-            "tgt_dim": td, "tgt_idx": i,
-            "src_idx": src_idx,
-            "auto": src_idx is not None,
-        })
+        explicit = (dim_mapping or {}).get(td) or {}
+        src_idx = src_dims.index(td) if (td in src_dims and not explicit) else None
+        entry = {"tgt_dim": td, "tgt_idx": i, "src_idx": src_idx,
+                 "auto": src_idx is not None}
+        # 仅在显式映射时附加字段，保持旧响应结构不变
+        if explicit.get("fixed"):
+            entry["fixed"] = explicit["fixed"]
+        if explicit.get("source"):
+            entry["source"] = explicit["source"]
+        mapping.append(entry)
+    unmapped = [m["tgt_dim"] for m in mapping
+                if not m["auto"] and not m.get("fixed") and not m.get("source")]
 
     # 入参（标准 2 个 + 业务入参）
     param_list = [{"name": "pDoProcessLogging", "dim": None},
@@ -884,11 +895,16 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
     dt.append("### Data script")
     dt.append("### 字段映射（按目标 cube 的维度顺序逐一赋值，直接修改右侧即可）")
     for m in mapping:
-        if m["auto"]:
+        var = _var_name(m["tgt_dim"])
+        if m.get("fixed"):
+            dt.append(f"{var} = {m['fixed']};   # {m['tgt_dim']}: 固定成员")
+        elif m.get("source"):
+            dt.append(f"{var} = {m['source']};   # {m['tgt_dim']}: 来源映射")
+        elif m["auto"]:
             src_var = _var_name(src_dims[m["src_idx"]])
-            dt.append(f"{_var_name(m['tgt_dim'])} = {src_var};")
+            dt.append(f"{var} = {src_var};")
         else:
-            dt.append(f"{_var_name(m['tgt_dim'])} = '';   # {m['tgt_dim']}: 填默认值或映射逻辑")
+            dt.append(f"{var} = '';   # {m['tgt_dim']}: 未映射，生成前必须补齐")
     dt.append("")
     dt.append("### Updating Cell（写入目标 cube 的完整维度交叉点）")
     args = ", ".join([_var_name(m["tgt_dim"]) for m in mapping])
@@ -933,6 +949,165 @@ def data_transfer(con: duckdb.DuckDBPyConnection, src_cube: str, tgt_cube: str,
         "tgt_dims": tgt_dims,
         "mapping": mapping,
         "params": param_list,
+        "unmapped": unmapped,
+        "prolog": prolog,
+        "metadata": metadata,
+        "data": data,
+        "epilog": epilog,
+    }
+
+
+# ============================================================
+#  ②-b 字符分隔文件（CSV）→ Cube
+# ============================================================
+
+def csv_to_cube(tgt_cube: str, tgt_dims: list[str], columns: list[dict],
+                mapping: dict[str, dict] | None = None, *, value_source: str = "",
+                file_path: str = "", delimiter: str = ",", quote: str = '"',
+                encoding: str = "UTF-8", has_header: bool = True,
+                operation: str = "CellIncrementN", prefix: str = "}APQ",
+                tgt_filters: list[dict] | None = None,
+                params: list[dict] | None = None) -> dict:
+    """生成「CSV / 字符分隔文件 → Cube」的框架 TI 草案。
+
+    与 :func:`data_transfer` 共用同一套 }APQ 框架块，不引入第二套生成器。
+
+    columns: [{'name': 'ProductCode', 'type': 'string'|'number'}]，按文件列顺序
+    mapping: {目标维度: {'fixed': "'Forecast'" , 'source': 'vProductCode'}}
+    value_source: 提供数值的列名；留空则无法生成写入语句（记为 blocker）
+    """
+    p = _norm_prefix(prefix)
+    tgt_dims = list(tgt_dims)
+    cols = [c.get("name", "") for c in columns]
+    mapping = mapping or {}
+
+    unresolved: list[str] = []
+    for dim in tgt_dims:
+        m = mapping.get(dim) or {}
+        if not m.get("fixed") and not m.get("source"):
+            unresolved.append(f"目标维度未映射：{dim}")
+    if not value_source:
+        unresolved.append("未指定数值来源列（vValue 无法确定）")
+    elif value_source not in cols:
+        unresolved.append(f"数值来源列不在表头中：{value_source}")
+
+    param_list = [{"name": "pDoProcessLogging", "dim": None},
+                  {"name": "pDebug", "dim": None}]
+    for prm in (params or []):
+        param_list.append({"name": prm["name"], "dim": prm.get("dim")})
+
+    pl: list[str] = []
+    pl.append(_header_block(f"Load delimited file into {tgt_cube}", f"File: {file_path or '<未指定>'}", p))
+    pl.append("")
+    pl.append(_process_declaration(param_list, "CHARACTERDELIMITED",
+                                   f"cSrcFile = {file_path or '<未指定文件>'}", cols))
+    pl.append("#****Begin: Generated Statements***")
+    pl.append("#****End: Generated Statements****")
+    pl.append("")
+    pl.append(_initialize_logging(p))
+    pl.append("")
+    pl.append("### Prolog script commences")
+    pl.append("")
+    pl.append(_declare_constants("", tgt_cube, p))
+    pl.append(f"cSrcFile        = '{file_path}';" if file_path else "cSrcFile        = '';  # 未指定；部署前必须填写")
+    pl.append("")
+    pl.append(_log_response_message(p))
+    pl.append("")
+    pl.append("### 关闭目标 cube 事务日志（提升批量写入性能）")
+    pl.append("nLog = CubeGetLogChanges( cCubTgt );")
+    pl.append("CubeSetLogChanges( cCubTgt, 0 );")
+    pl.append("")
+    pl.append(_zero_out(tgt_cube, tgt_filters or [], p))
+    pl.append("")
+    ds = [
+        "#Region - Create DataSource",
+        "DatasourceType                 = 'CHARACTERDELIMITED';",
+        "DatasourceNameForServer        = cSrcFile;",
+        "DatasourceNameForClient        = cSrcFile;",
+        f"DatasourceASCIIHeaderRecords   = {1 if has_header else 0};",
+        f"DatasourceASCIIDelimiter       = '{delimiter}';",
+        f"DatasourceASCIIQuoteCharacter  = '{quote}';",
+        f"# 文件编码：{encoding}（在 Data Source 高级页签确认）",
+        "",
+        "### Variables 页签（按列顺序，名称与下列变量一致）",
+    ]
+    for c in cols:
+        ds.append(f"#   {_var_name(c)} = 列 {c}")
+    ds.append("#EndRegion - Create DataSource")
+    pl.append("\n".join(ds))
+    pl.append("")
+    pl.append("### END Prolog")
+    prolog = "\n".join(pl)
+
+    md = [
+        "### Logging - common script ---------------- START (" + p + " FRAMEWORK)",
+        "IF( pDoProcessLogging @= '1' ); nMetadataRecordCount = nMetadataRecordCount + 1; EndIF;",
+        "sDebugFile = cDebugFile | '_Metadata.log';",
+        "### Logging - common script ---------------- END",
+        "",
+        "### Metadata script",
+        "### 如需在写数前做字段清洗 / 跳过无效行，在此处补充；默认不处理。",
+        "### END Metadata",
+    ]
+    metadata = "\n".join(md)
+
+    dt = [
+        "### Logging - common script ---------------- START (" + p + " FRAMEWORK)",
+        "IF( pDoProcessLogging @= '1' );nDataRecordCount = nDataRecordCount + 1;EndIF;",
+        "sDebugFile = cDebugFile | '_Data.log';",
+        "### Logging - common script ---------------- END",
+        "",
+        "### Data script",
+        "### 数值转换（字符分隔源全部为字符串）",
+    ]
+    dt.append(f"vValue = StringToNumberEx( {_var_name(value_source)}, '.,' );" if value_source
+              else "vValue = 0;   # 未指定数值来源列")
+    dt.append("")
+    dt.append("### 维度赋值（按目标 cube 维度顺序）")
+    args: list[str] = []
+    for dim in tgt_dims:
+        var = _var_name(dim)
+        m = mapping.get(dim) or {}
+        if m.get("fixed"):
+            dt.append(f"{var} = {m['fixed']};   # {dim}: 固定成员")
+        elif m.get("source"):
+            dt.append(f"{var} = {m['source']};   # {dim}: 来源映射")
+        else:
+            dt.append(f"{var} = '';   # {dim}: 未映射，生成前必须补齐")
+        args.append(var)
+    dt.append("")
+    dt.append("### Updating Cell")
+    dt.append(f"{operation}(vValue, cCubTgt, {', '.join(args)});")
+    dt.append("")
+    dt.append("### END Data")
+    data = "\n".join(dt)
+
+    el = [
+        "### Err Handling",
+        "If(nErr <> 0); LogOutput('ERROR', sErr); ProcessQuit(); EndIf;",
+        "",
+        "# 恢复事务日志",
+        "CubeSetLogChanges( cCubTgt, nLog );",
+        "",
+        "### Logging - common script ---------------- START (" + p + " FRAMEWORK)",
+        "IF(pDoProcessLogging @= '1');",
+        "  nProcessFinishTime = Now(); sProcessErrorLogFile = GetProcessErrorFileName;",
+        "  CellPutN(nProcessFinishTime, sProcLogCube, sLogYear, sLogDay, sLogMinute, sLogSecond, sThisProcName, 'nProcessFinishTime');",
+        "  CellPutN(1, sProcLogCube, sLogYear, sLogDay, sLogMinute, sLogSecond, sThisProcName, 'nProcessCompletedFlag');",
+        "  CellPutN(nDataRecordCount, sProcLogCube, sLogYear, sLogDay, sLogMinute, sLogSecond, sThisProcName, 'nDataRecordCount');",
+        "EndIF;",
+        "### Logging - common script ---------------- END",
+    ]
+    epilog = "\n".join(el)
+
+    return {
+        "src_kind": "csv",
+        "tgt_cube": tgt_cube,
+        "tgt_dims": tgt_dims,
+        "columns": columns,
+        "value_source": value_source,
+        "mapping": [{"tgt_dim": d, **(mapping.get(d) or {})} for d in tgt_dims],
+        "unresolved": unresolved,
         "prolog": prolog,
         "metadata": metadata,
         "data": data,

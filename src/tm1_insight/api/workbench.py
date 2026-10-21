@@ -2,6 +2,7 @@
 from contextlib import closing
 from functools import lru_cache
 import json
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -159,6 +160,101 @@ def root():
 class Save(BaseModel):
     workspace: wb.Workspace
     revision: str = Field(default='', max_length=64)
+
+
+# ---------------------------------------------------------------- design mode
+
+def _existing_dims(store, names):
+    """只读取维度顺序，不读取任何业务数据。"""
+    from tm1_insight.store import codegen as cg
+    out = {}
+    if not names:
+        return out
+    with closing(store.connect(read_only=True)) as con:
+        for name in set(names):
+            dims = cg._cube_dims(con, name)
+            if dims:
+                out[name] = dims
+    return out
+
+
+class DesignBody(BaseModel):
+    design: wb.Design
+    relation_id: str = Field(default='', max_length=80)
+    cube_id: str = Field(default='', max_length=80)
+    snapshot_id: str = Field(default='', max_length=128)
+
+
+def _design_context(body: DesignBody):
+    store, snapshot = guard(body.snapshot_id)
+    names = set()
+    for rel in body.design.relations:
+        for end in (rel.source, rel.target):
+            if end.kind == 'cube':
+                names.add(end.ref)
+    return store, snapshot, _existing_dims(store, names)
+
+
+@router.get('/api/workbench/design/meta')
+def design_meta(snapshot_id: str = ''):
+    store, snapshot = guard(snapshot_id)
+    with closing(store.connect(read_only=True)) as con:
+        dims = [r[0] for r in con.execute('SELECT name FROM dimensions ORDER BY name').fetchall()]
+        cubes = [r[0] for r in con.execute('SELECT name FROM cubes ORDER BY name').fetchall()]
+    return dict(snapshot_id=snapshot,
+                dimensions=[d for d in dims if not d.startswith('}')],
+                cubes=[c for c in cubes if not c.startswith('}')],
+                templates=[
+                    dict(id='csv-to-cube', label='CSV / 字符分隔文件 → Cube',
+                         source_kind='csv', supported=True),
+                    dict(id='cube-data-transfer', label='Cube → Cube 数据传输',
+                         source_kind='cube', supported=True),
+                ],
+                template_version='1',
+                limitations=['生成结果为 TI 草案，未在 TM1 Server 部署或执行。',
+                             '未提供字段结构的外部来源保持未确认，不猜测列名。'])
+
+
+@router.post('/api/workbench/design/validate')
+def design_validate(body: DesignBody):
+    from tm1_insight.design import validate_relation
+    store, snapshot, dims = _design_context(body)
+    report = []
+    for rel in body.design.relations:
+        blockers = validate_relation(body.design, rel, dims)
+        report.append(dict(relation_id=rel.id, ok=not blockers, blockers=blockers))
+    return dict(snapshot_id=snapshot, relations=report,
+                ok=all(r['ok'] for r in report))
+
+
+@router.post('/api/workbench/design/generate')
+def design_generate(body: DesignBody):
+    from tm1_insight.design import generate
+    store, snapshot, dims = _design_context(body)
+    if not body.relation_id:
+        raise HTTPException(400, '请指定要生成的设计关系')
+    result = generate(body.design, body.relation_id, existing_cube_dims=dims,
+                      generated_at=datetime.now(timezone.utc).isoformat(timespec='seconds'))
+    guard(snapshot)
+    payload = dict(snapshot_id=snapshot, status=result['status'], blockers=result['blockers'],
+                   code=result.get('code'), summary=result.get('summary'))
+    artifact = result.get('artifact')
+    if artifact is not None:
+        payload['artifact'] = artifact if isinstance(artifact, dict) else json.loads(artifact.model_dump_json())
+    return payload
+
+
+@router.post('/api/workbench/design/cube-spec')
+def design_cube_spec(body: DesignBody):
+    from tm1_insight.design import cube_creation_spec
+    store, snapshot, _ = _design_context(body)
+    if not body.cube_id:
+        raise HTTPException(400, '请指定 Cube 草稿')
+    result = cube_creation_spec(body.design, body.cube_id)
+    if result['status'] == 'missing':
+        raise HTTPException(404, 'Cube 草稿不存在')
+    guard(snapshot)
+    return dict(snapshot_id=snapshot, **result)
 
 
 @router.get('/api/workbench/workspaces')

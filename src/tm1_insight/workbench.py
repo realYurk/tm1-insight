@@ -17,8 +17,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from tm1_insight.domain.model import Dependency, DependencyKind
 from tm1_insight.lineage.engine import build_adjacency, get_downstream
+from tm1_insight.design import Design
 
-VERSION = 'architecture-workspace-1'
+VERSION = 'architecture-workspace-2'
 
 
 def stable_id(*parts):
@@ -211,7 +212,7 @@ class DraftCube(BaseModel):
 
 class Workspace(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    schema_version: Literal['architecture-workspace-1'] = VERSION
+    schema_version: Literal['architecture-workspace-1', 'architecture-workspace-2'] = VERSION
     snapshot_id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=200)
     query: GraphQuery = Field(default_factory=GraphQuery)
@@ -226,6 +227,7 @@ class Workspace(BaseModel):
     mdx: str = Field(default='', max_length=30000)
     layout: dict[str, float] = Field(default_factory=dict, max_length=5)
     template_ref: Literal['', 'cube-data-transfer'] = ''
+    design: Design = Field(default_factory=Design)
 
     @model_validator(mode='after')
     def references(self):
@@ -233,7 +235,10 @@ class Workspace(BaseModel):
             raise ValueError('Query snapshot differs from workspace')
         if len({g.id for g in self.groups}) != len(self.groups): raise ValueError('Duplicate group id')
         if len({d.id for d in self.drafts}) != len(self.drafts): raise ValueError('Duplicate draft id')
-        valid = {stable_id(self.snapshot_id, o.type, o.name) for o in self.objects} | {d.id for d in self.drafts}
+        valid = ({stable_id(self.snapshot_id, o.type, o.name) for o in self.objects}
+                 | {d.id for d in self.drafts}
+                 | {c.id for c in self.design.cubes}
+                 | {s.id for s in self.design.schemas})
         refs = set(self.selected + self.visible + self.hidden + [m for g in self.groups for m in g.members])
         if refs - valid: raise ValueError('Workspace contains dangling object references')
         if set(self.layout) - {'zoom','x','y','vertical'} or any(not (-1e6 < v < 1e6) for v in self.layout.values()):
