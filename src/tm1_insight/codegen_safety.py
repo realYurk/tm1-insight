@@ -18,8 +18,12 @@ SAFE_FUNCTIONS = {
 }
 # TI 保留/常用标识符，禁止用作生成变量名
 SAFE_SYMBOLS = {'Now'}
+# 控制关键字：表达式里出现即拒绝
 RESERVED = {
     'if', 'then', 'else', 'elseif', 'endif', 'while', 'end', 'and', 'or', 'not',
+}
+# 框架/生成侧变量：不能作为维度生成变量名（会覆盖），但在表达式里可以被读取
+RESERVED_VARS = {
     'vvalue', 'scr', 'serr', 'nerr', 'nlognumber', 'datasourcetype',
 }
 
@@ -79,7 +83,10 @@ def validate_expression(text: str) -> tuple[bool, str]:
             low = tok.casefold()
             if low in RESERVED:
                 return False, '不允许使用保留字：%s' % tok
-            if low.startswith('v') and len(tok) > 1:
+            if low in RESERVED_VARS:
+                # 只读引用是安全的（赋值/分号已被拦截），例如 NumberToStringEx(vValue, ...)
+                pass
+            elif low.startswith('v') and len(tok) > 1:
                 pass
             elif tok in SAFE_FUNCTIONS:
                 if not (nxt and nxt[1] == '('):
@@ -118,6 +125,28 @@ def quote_member(value: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
+def unsafe_name_reason(value: str) -> str:
+    """业务对象名（Cube / Dimension / Schema / 列名）用于生成代码前的安全检查。
+
+    允许单引号（会被转义为两个单引号），禁止换行与控制字符——
+    它们会截断注释或提前结束语句，从而拼接出额外 TI 代码。
+    """
+    text = value or ''
+    if not text.strip():
+        return '名称为空'
+    if any(ch in text for ch in '\r\n'):
+        return '名称包含换行'
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        return '名称包含控制字符'
+    return ''
+
+
+def comment_text(value: str) -> str:
+    """把任意文本安全地放进 TI 单行注释（`# ...`），不改变可见语义。"""
+    text = (value or '').replace('\r', ' ').replace('\n', ' ')
+    return ''.join(' ' if (ord(ch) < 32 or ord(ch) == 127) else ch for ch in text)
+
+
 def normalize_var(dimension: str) -> str:
     """维度名 → 合法 TI 变量名（v 前缀 + 首字母大写）。
 
@@ -133,7 +162,7 @@ def normalize_var(dimension: str) -> str:
     if name[0].isdigit():
         name = 'D' + name
     var = 'v' + name
-    if var.casefold() in RESERVED:
+    if var.casefold() in RESERVED or var.casefold() in RESERVED_VARS:
         var = var + 'Value'
     return var
 

@@ -117,8 +117,9 @@ class MappingEntry(BaseModel):
         if self.kind == 'FIXED':
             return {'fixed': "'" + self.fixed_member.replace("'", "''") + "'"}
         if self.kind == 'FROM_SOURCE':
-            var = re.sub(r'[^0-9A-Za-z_]', '', self.source_field)
-            return {'source': 'v' + (var[:1].upper() + var[1:] if var else 'Value')}
+            # 只声明来源字段名，变量名由 codegen 的变量映射表解析，
+            # 保证与 Data Source 变量定义完全一致（含重名去重后缀）。
+            return {'source_field': self.source_field}
         if self.kind == 'EXPRESSION':
             return {'source': self.expression}
         return {}
@@ -143,6 +144,8 @@ class DesignRelation(BaseModel):
     confirmed: bool = False
     note: str = Field(default='', max_length=2000)
     provenance: Literal['DESIGN_RELATION'] = 'DESIGN_RELATION'
+    # 最近一次生成结果摘要（含 design_fingerprint）；随工作区持久化，用于判定是否过期
+    generated: dict | None = None
 
     @model_validator(mode='after')
     def _no_duplicate_mapping(self):
@@ -264,6 +267,26 @@ def _source_variables(design: Design, rel: DesignRelation) -> list[str]:
     return cube.dim_names if cube else []
 
 
+def clear_scope_filters(rel: DesignRelation, dims: list[str]) -> list[dict]:
+    """从已确认的固定成员派生清空筛选条件。
+
+    只有用户明确确认过的固定成员才会进入清空范围——未确认的映射不参与，
+    避免把「还没想清楚的坐标」当成删除范围。
+    """
+    out: list[dict] = []
+    for dim in dims:
+        entry = next((m for m in rel.mapping if m.target_dimension == dim), None)
+        if entry and entry.kind == 'FIXED' and entry.confirmed and entry.fixed_member.strip():
+            out.append({'dim': dim, 'elems': [entry.fixed_member.strip()], 'kind': 'const'})
+    return out
+
+
+def describe_clear_scope(filters: list[dict]) -> str:
+    if not filters:
+        return '整个目标 Cube（无筛选）'
+    return '；'.join('%s = %s' % (f['dim'], ', '.join(f.get('elems') or [])) for f in filters)
+
+
 def preflight(design: Design, rel: DesignRelation,
               existing_cube_dims: dict[str, list[str]] | None = None) -> list[dict]:
     """生成前预检：返回结构化问题列表（空 = 可以生成）。
@@ -311,8 +334,11 @@ def preflight(design: Design, rel: DesignRelation,
     else:
         if rel.template != 'cube-data-transfer':
             add('TEMPLATE_MISMATCH', 'Cube 来源必须使用 cube-data-transfer 模板')
-        if not _source_variables(design, rel):
+        src_dims = _source_variables(design, rel)
+        if not src_dims:
             add('SOURCE_DIMS_MISSING', '源 Cube 缺少维度顺序')
+        else:
+            fields = {d for d in src_dims}
 
     declared = {m.target_dimension for m in rel.mapping}
     for dim in dims:
@@ -328,7 +354,7 @@ def preflight(design: Design, rel: DesignRelation,
         elif entry.kind == 'FROM_SOURCE':
             if not entry.source_field.strip():
                 add('SOURCE_FIELD_EMPTY', '来源字段为空：%s' % dim, dim)
-            elif rel.source.kind == 'csv' and entry.source_field not in fields:
+            elif entry.source_field not in fields:
                 add('SOURCE_FIELD_UNKNOWN', '映射的源字段不在 Schema 中：%s' % entry.source_field, dim)
         elif entry.kind == 'LOOKUP':
             add('LOOKUP_UNSUPPORTED', '查找映射（LOOKUP）当前模板不支持生成：%s' % dim, dim)
@@ -346,6 +372,37 @@ def preflight(design: Design, rel: DesignRelation,
 
     for extra in sorted(declared - set(dims)):
         add('EXTRA_DIM_MAPPING', '映射维度不属于目标 Cube：%s' % extra, extra)
+
+    # 名称进入代码字面量 / 注释前必须无换行与控制字符，否则会拼接出额外语句
+    from tm1_insight.codegen_safety import unsafe_name_reason
+
+    names: list[tuple[str, str]] = []
+    if rel.target.kind == 'cube_draft' and target is not None:
+        names.append(('目标 Cube 名称', target.name))
+    if rel.source.kind == 'cube_draft':
+        src_cube = design.cube(rel.source.ref)
+        if src_cube is not None:
+            names.append(('源 Cube 名称', src_cube.name))
+    else:
+        schema = design.schema(rel.source.ref)
+        if schema is not None:
+            names.append(('来源文件名称', schema.name))
+            for f in schema.fields:
+                names.append(('字段名', f.name))
+    for dim in dims:
+        names.append(('目标维度名称', dim))
+    for label, value in names:
+        reason = unsafe_name_reason(value)
+        if reason:
+            add('UNSAFE_NAME', '%s不可用于生成：%s（%s）' % (label, reason, value))
+
+    # 清空范围：无法确定范围时必须阻断，不能依赖「空筛选 = 清空整库」的默认行为
+    if rel.clear_policy == 'target_scope':
+        scope = clear_scope_filters(rel, dims)
+        if not scope:
+            add('CLEAR_SCOPE_UNDEFINED',
+                '清空策略为「清空目标范围」，但没有任何已确认的固定成员可用于限定范围；'
+                '空筛选会让 Bedrock 清空整个目标 Cube。请设置固定成员，或把清空策略改为「不清空」。')
 
     return issues
 
@@ -373,7 +430,7 @@ def design_fingerprint(design: Design, rel_id: str) -> str:
     if rel is None:
         return ''
     payload = {
-        'relation': rel.model_dump(exclude={'note'}),
+        'relation': rel.model_dump(exclude={'note', 'generated'}),
         'target': design.cube(rel.target.ref).model_dump() if design.cube(rel.target.ref) else rel.target.ref,
         'source_cube': design.cube(rel.source.ref).model_dump() if design.cube(rel.source.ref) else None,
         'schema': design.schema(rel.source.ref).model_dump() if design.schema(rel.source.ref) else None,
@@ -385,6 +442,23 @@ def code_fingerprint(code: dict) -> str:
     import hashlib
     body = '\n'.join(code.get(s, '') for s in ('prolog', 'metadata', 'data', 'epilog'))
     return hashlib.sha256(body.encode('utf-8')).hexdigest()[:32]
+
+
+def stale_relations(design: Design, rel_ids: list[str] | None = None) -> list[dict]:
+    """返回已生成但设计已变化的关系（代码草案不再代表当前设计）。"""
+    out: list[dict] = []
+    for rel in design.relations:
+        if rel_ids and rel.id not in rel_ids:
+            continue
+        gen = rel.generated or {}
+        stored = gen.get('design_fingerprint')
+        if not stored:
+            continue
+        current = design_fingerprint(design, rel.id)
+        if current != stored:
+            out.append(dict(relation_id=rel.id, generated_at=gen.get('generated_at', ''),
+                            stored_fingerprint=stored, current_fingerprint=current))
+    return out
 
 
 def is_stale(artifact: dict, design: Design) -> bool:
@@ -417,6 +491,12 @@ def generate(design: Design, rel_id: str, *, existing_cube_dims: dict[str, list[
     op = operation or ('CellPutN' if rel.write_policy == 'overwrite' else 'CellIncrementN')
     mapping = _mapping_dict(rel)
     clear = rel.clear_policy
+    if rel.target.kind == 'cube_draft':
+        _tgt = design.cube(rel.target.ref)
+        _tgt_dims = _tgt.dim_names if _tgt else []
+    else:
+        _tgt_dims = (existing_cube_dims or {}).get(rel.target.ref, [])
+    clear_filters = clear_scope_filters(rel, _tgt_dims) if clear == 'target_scope' else []
 
     if rel.source.kind == 'csv':
         schema = design.schema(rel.source.ref)
@@ -427,7 +507,7 @@ def generate(design: Design, rel_id: str, *, existing_cube_dims: dict[str, list[
             dims,
             [{'name': f.name, 'type': f.type if f.type != 'unknown' else 'string'} for f in schema.fields],
             mapping, value_source=rel.value_source, operation=op, clear_policy=clear,
-            file_path=schema.name,
+            file_path=schema.name, tgt_filters=clear_filters,
         )
         if result.get('unresolved'):
             issues = [{'code': 'CODEGEN_UNRESOLVED', 'message': m} for m in result['unresolved']]
@@ -445,7 +525,8 @@ def generate(design: Design, rel_id: str, *, existing_cube_dims: dict[str, list[
         tgt_dims = tgt_cube.dim_names if tgt_cube else (existing_cube_dims or {}).get(rel.target.ref, [])
         result = cg.data_transfer(None, src_name, tgt_name,
                                   src_dims=src_dims, tgt_dims=tgt_dims,
-                                  dim_mapping=mapping, operation=op, clear_policy=clear)
+                                  dim_mapping=mapping, operation=op, clear_policy=clear,
+                                  tgt_filters=clear_filters)
         if result.get('unmapped'):
             issues = [{'code': 'DIM_UNMAPPED', 'message': '目标维度未映射：%s' % d} for d in result['unmapped']]
             return dict(status='blocked', code=None, issues=issues,
@@ -455,6 +536,17 @@ def generate(design: Design, rel_id: str, *, existing_cube_dims: dict[str, list[
                                                    blockers=[i['message'] for i in issues]).model_dump())
 
     fp = design_fingerprint(design, rel.id)
+    clear_scope = result.get('clear_scope', 'NONE')
+    if clear_scope == 'UNSCOPED_WHOLE_CUBE':
+        # 理论上预检已挡住；这里是纵深防御，绝不返回可执行的危险草案
+        msg = ('清空范围无法限定：生成结果会清空整个目标 Cube，已阻止返回代码。'
+               '请设置固定成员改为可描述的切片，或把清空策略改为「不清空」。')
+        return dict(status='blocked', code=None,
+                    issues=[{'code': 'CLEAR_SCOPE_UNDEFINED', 'message': msg}],
+                    blockers=[msg],
+                    artifact=GeneratedArtifact(relation_id=rel.id, template=rel.template,
+                                               generated_at=generated_at,
+                                               blockers=[msg]).model_dump())
     summary = {
         'source': rel.source.ref,
         'target': result.get('tgt_cube', ''),
@@ -462,6 +554,8 @@ def generate(design: Design, rel_id: str, *, existing_cube_dims: dict[str, list[
         'operation': op,
         'write_policy': rel.write_policy,
         'clear_policy': clear,
+        'clear_scope': clear_scope,
+        'clear_scope_text': describe_clear_scope(result.get('clear_filters') or []),
         'design_fingerprint': fp,
         'code_fingerprint': code_fingerprint(result),
     }
@@ -470,8 +564,16 @@ def generate(design: Design, rel_id: str, *, existing_cube_dims: dict[str, list[
     deps = dependency_manifest(rel.template, target_cube=summary['target'],
                                target_dims=result.get('tgt_dims', []),
                                clear_policy=clear)
+    process_config = {
+        'datasource': result.get('datasource'),
+        'data_source_variables': result.get('data_source_variables') or [],
+        'note': ('四段代码不包含 Process 的 Parameters / Data Source / Variables 三处配置；'
+                 '数据源变量必须在 Process 的 Variables 页签按顺序创建，名称与上表一致，'
+                 '否则生成代码会引用不存在的变量。'),
+    }
     return dict(status='ok', blockers=[], issues=[], code=result, artifact=artifact.model_dump(),
-                summary=summary, dependencies=deps)
+                summary=summary, dependencies=deps, process_config=process_config,
+                warnings=result.get('warnings') or [])
 
 
 def cube_creation_spec(design: Design, cube_id: str) -> dict:
