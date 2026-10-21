@@ -1,5 +1,10 @@
 <section id="ew-root" data-name="{{ name }}" data-kind="{{ kind }}">
   <p class="muted">局部模型探索 · 关系来自本地索引 · 人工编组与草稿独立保存 · 不执行 TI / Rule / MDX</p>
+  <div class="ew-modes" role="tablist" aria-label="工作模式">
+    <button type="button" class="btn" id="ew-mode-explore" role="tab" aria-selected="true">探索模式 Explore</button>
+    <button type="button" class="btn ghost" id="ew-mode-design" role="tab" aria-selected="false">设计模式 Design</button>
+    <span class="muted small" id="ew-mode-hint">探索：只读研究已有模型。设计：创建草稿，不部署、不修改模型。</span>
+  </div>
   <div class="ew-savebar">
     <label>工作区名称 <input id="ew-name" class="input" value="我的架构研究" maxlength="200"></label>
     <button id="ew-save" class="btn primary">保存工作区</button><button id="ew-save-as" class="btn">另存</button>
@@ -22,14 +27,50 @@
       <button class="btn" id="ew-requery">按当前选择探索</button><button class="btn ghost" id="ew-cancel">取消查询</button>
       <details><summary>两组 Cube 间的索引路径</summary><label>来源前缀<input id="ew-from" class="input" placeholder="SC*" maxlength="200"></label><label>目标前缀<input id="ew-to" class="input" placeholder="BP*" maxlength="200"></label><button id="ew-path" class="btn">查找路径</button><button id="ew-path-next" class="btn ghost" hidden>下一组来源</button><p class="muted small">包含必需中间对象；前缀只用于选入口，不证明业务归属或数值流。每页最多 20 个来源；每对对象展示一条最短代表路径。</p></details>
       <h3>人工模块</h3><label>名称<input id="ew-group-name" class="input" maxlength="200" placeholder="如：费用处理研究"></label><button id="ew-group-create" class="btn">从选中对象建立模块</button><div id="ew-groups"></div>
-      <details><summary>新 Cube 草稿</summary><label>名称<input id="ew-draft-name" class="input" maxlength="200"></label><label>维度（按顺序，一行一个）<textarea id="ew-draft-dims" class="input"></textarea></label><button id="ew-draft-create" class="btn">添加设计草稿</button><p class="muted small">仅保存在工作区，未部署、未验证，不修改模型。</p></details>
+      <div id="ew-design" hidden>
+        <h3>设计草稿（未部署 · 不修改模型）</h3>
+        <details open><summary>① 新建维度草稿</summary>
+          <label>维度名称<input id="ew-dd-name" class="input" maxlength="200"></label>
+          <label>元素（一行一个）<textarea id="ew-dd-elems" class="input" rows="4"></textarea></label>
+          <label>元素类型<select id="ew-dd-type" class="input"><option value="S">S 文本</option><option value="N">N 数值</option></select></label>
+          <button id="ew-dd-create" class="btn">创建维度草稿</button>
+        </details>
+        <details open><summary>② 新建 Cube 草稿</summary>
+          <label>Cube 名称<input id="ew-dc-name" class="input" maxlength="200" placeholder="如 SalesCost"></label>
+          <label>维度（按顺序，一行一个）<textarea id="ew-dc-dims" class="input" rows="5" placeholder="Scenario&#10;Version&#10;Year&#10;Product&#10;Measure"></textarea></label>
+          <p class="muted small">顺序即 TM1 维度顺序。已有维度直接写名称；引用维度草稿写 <code>名称@维度草稿ID</code>（可在下方「设计对象清单」一键引用）。</p>
+          <label>说明<input id="ew-dc-note" class="input" maxlength="300"></label>
+          <button id="ew-dc-create" class="btn">创建 Cube 草稿</button>
+        </details>
+        <details open><summary>③ 新建 CSV Schema（只填表头）</summary>
+          <label>来源名称<input id="ew-cs-name" class="input" maxlength="200" placeholder="ProductSource.csv"></label>
+          <label>表头（粘贴一行）<textarea id="ew-cs-header" class="input" rows="2" placeholder="ProductCode,Brand,Quantity,UnitCost"></textarea></label>
+          <button id="ew-cs-parse" class="btn ghost">解析表头</button>
+          <div id="ew-cs-fields" class="ew-fields"></div>
+          <button id="ew-cs-create" class="btn">保存 Schema 草稿</button>
+          <p class="muted small">只解析表头文本，不打开文件、不读取数据行；字段类型为建议值，需你确认。</p>
+        </details>
+        <details open><summary>④ 新建设计关系</summary>
+          <label>来源<select id="ew-rel-source" class="input"></select></label>
+          <label>目标<select id="ew-rel-target" class="input"></select></label>
+          <button id="ew-rel-create" class="btn">建立设计关系</button>
+        </details>
+        <details open><summary>⑤ 设计关系与生成</summary><div id="ew-rel-list" class="ew-list"></div></details>
+        <details><summary>⑥ Blueprint</summary>
+          <label>名称<input id="ew-bp-name" class="input" maxlength="200"></label>
+          <label>说明<input id="ew-bp-note" class="input" maxlength="300"></label>
+          <button id="ew-bp-save" class="btn">保存为 Blueprint</button>
+          <div id="ew-bp-list" class="ew-list"></div>
+        </details>
+        <details open><summary>设计对象清单（维度 / Cube / Schema）</summary><div id="ew-design-list" class="ew-list"></div></details>
+      </div>
     </aside>
     <div class="ew-center">
       <div class="study-actions"><button id="ew-clear" class="btn ghost">清空选择</button><button id="ew-hide" class="btn ghost">局部隐藏选中对象</button><button id="ew-show" class="btn ghost">恢复隐藏对象</button></div>
       <p class="muted small">点击查看 · Ctrl / ⌘ 点击多选 · Shift 拖动或“框选模式” · 拖动画布平移。隐藏与模块折叠只改变展示。</p>
       <div id="ew-graph" aria-label="连续探索画布"></div>
       <p id="ew-summary" class="muted small"></p>
-      <details open><summary>关系与证据索引（点击行定位图）</summary><label>类型<select id="ew-table-kind" class="input"><option value="">全部</option><option value="TI_CANDIDATE">候选加工</option><option value="RULE_REFERENCE">Rule 引用</option><option value="TI_READ">TI 读取</option><option value="TI_WRITE">TI 写入</option><option value="CALL">调用</option><option value="SCHEDULE">调度</option><option value="STRUCTURE">结构</option></select></label><div id="ew-relations" class="ew-table"></div></details>
+      <details open><summary>关系与证据索引（点击行定位图）</summary><label>类型<select id="ew-table-kind" class="input"><option value="">全部</option><option value="TI_CANDIDATE">候选加工</option><option value="RULE_REFERENCE">Rule 引用</option><option value="TI_READ">TI 读取</option><option value="TI_WRITE">TI 写入</option><option value="CALL">调用</option><option value="SCHEDULE">调度</option><option value="STRUCTURE">结构</option><option value="DESIGN_RELATION">设计关系</option></select></label><div id="ew-relations" class="ew-table"></div></details>
     </div>
     <aside id="ew-detail" class="ew-detail"><h2>对象与关系详情</h2><p class="muted">从图或关系表选择对象。详情在这里切换，保留画布。</p></aside>
   </div>

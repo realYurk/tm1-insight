@@ -4,16 +4,22 @@
   const $=id=>document.getElementById(id), root=$('ew-root'); if(!root)return;
   const files=window.TM1WorkspaceFiles, req=files.request;
   let snapshot='',graph={nodes:[],edges:[]}, selected=new Set(), groups=[], drafts=[], hidden=new Set();
+  // 设计模式状态：所有对象都是本地草稿，不参与服务端血缘计算。
+  let design={mode:'explore',cubes:[],dimensions:[],schemas:[],relations:[],blueprints:[]};
+  let designMeta={dimensions:[],cubes:[],templates:[],template_version:'1'}, schemaDraftFields=[];
+  const lastGenerated=new Map();
   let workspaceId='',revision='',viewer=null,query={},layout={},edgeSelection=null,displayEdges=[],nodeMap={},templateRef='';
   let abort=null,generation=0,detailGeneration=0,dirty=false;
-  const known=new Map(), name=id=>known.get(id)?.name||drafts.find(d=>d.id===id)?.name||id;
+  const known=new Map(), name=id=>known.get(id)?.name||drafts.find(d=>d.id===id)?.name
+    ||design.cubes.find(c=>c.id===id)?.name||design.schemas.find(s=>s.id===id)?.name
+    ||design.relations.find(r=>r.id===id)?.id||id;
   const status=(message,error=false)=>{$('ew-status').textContent=message;$('ew-status').className=error?'err':'muted';};
   const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
   const button=(text,fn)=>{const b=element('button',text,'btn ghost');b.type='button';b.onclick=()=>run(async()=>{b.disabled=true;try{await fn();}finally{b.disabled=false;}});return b;};
   async function run(fn){try{await fn();}catch(e){if(e.name!=='AbortError')status(e.message,true);}}
   function changed(){dirty=true;remember();}
   function currentWorkspace(){
-    return {schema_version:'architecture-workspace-1',snapshot_id:snapshot,name:$('ew-name').value.trim()||'我的架构研究',query:{...query,snapshot_id:snapshot},
+    return {schema_version:'architecture-workspace-2',snapshot_id:snapshot,design:design,name:$('ew-name').value.trim()||'我的架构研究',query:{...query,snapshot_id:snapshot},
       objects:[...known.values()].map(n=>({type:n.type,name:n.name})), selected:[...selected],visible:graph.nodes.map(n=>n.id),edge_ids:graph.edges.map(e=>e.id),hidden:[...hidden],groups,drafts,
       mdx:$('ew-mdx').value,notes:$('ew-notes').value,layout:viewer?.getView()||layout,template_ref:templateRef};
   }
@@ -57,15 +63,19 @@
   function nodeLabel(value){const words=String(value).split(' '),lines=[''];words.forEach(word=>{if((lines[lines.length-1]+' '+word).length>24&&lines[lines.length-1])lines.push(word);else lines[lines.length-1]+=(lines[lines.length-1]?' ':'')+word;});return lines.map(mermaidLabel).join('<br/>');}
   function render(preserve=true){
     if(viewer){if(preserve)layout=viewer.getView();viewer.destroy();viewer=null;}
-    const folded=groups.filter(g=>g.folded), representative=new Map(), visible=[...graph.nodes,...drafts.map(d=>({...d,type:'draft'}))].filter(n=>!hidden.has(n.id));
+    const designNodes=[...design.cubes.map(c=>({id:c.id,name:c.name,type:'draft',provenance:'DESIGN_DRAFT'})),
+                       ...design.schemas.map(s=>({id:s.id,name:s.name,type:'source',provenance:'DESIGN_DRAFT'}))];
+    const folded=groups.filter(g=>g.folded), representative=new Map(),
+      visible=[...graph.nodes,...drafts.map(d=>({...d,type:'draft'})),...designNodes].filter(n=>!hidden.has(n.id));
     visible.forEach(n=>representative.set(n.id,folded.find(g=>g.members.includes(n.id))?.id||n.id));
     const shown=new Map();visible.forEach(n=>{const id=representative.get(n.id);shown.set(id,id===n.id?n:{id,name:groups.find(g=>g.id===id).name,type:'group'});});
     nodeMap={};let code='flowchart LR\n'; const mapping=new Map();
     [...shown.values()].sort((a,b)=>a.id.localeCompare(b.id)).forEach((n,i)=>{
       const mid='n'+i;mapping.set(n.id,mid);nodeMap[mid]=n.id;
-      code+=`  ${mid}["${nodeLabel(n.name)}<br/>${{cube:'Cube',process:'TI',chore:'调度',dimension:'维度',draft:'设计草稿 · 未部署',group:'人工模块'}[n.type]}"]\n`;
+      code+=`  ${mid}["${nodeLabel(n.name)}<br/>${{cube:'Cube',process:'TI',chore:'调度',dimension:'维度',draft:'Cube 草稿 · 未部署',source:'CSV Schema · 未接入',group:'人工模块'}[n.type]||n.type}"]\n`;
       if(n.type==='cube')code+=`  style ${mid} fill:#eef6ff,stroke:#7aa4d7\n`;
       if(n.type==='draft')code+=`  style ${mid} fill:#fff8e6,stroke:#ba8c36,stroke-dasharray:5 5\n`;
+      if(n.type==='source')code+=`  style ${mid} fill:#f3f0ff,stroke:#8b7bd8,stroke-dasharray:3 3\n`;
     });
     displayEdges=[];
     graph.edges.forEach(e=>{
@@ -76,10 +86,21 @@
       code+=`  ${mapping.get(s)} ${e.kind==='TI_CANDIDATE'?'-.':'--'} "${mermaidLabel(label)}" ${e.kind==='TI_CANDIDATE'?'.->':'-->'} ${mapping.get(t)}\n`;
       displayEdges.push(e);
     });
+    // 设计关系是本地规划边，与服务端静态关系分开绘制，永远标注未部署。
+    const kindFilter=$('ew-table-kind').value;
+    (design.relations||[]).forEach(r=>{
+      if(kindFilter&&kindFilter!=='DESIGN_RELATION')return;
+      const s=representative.get(r.source.ref),t2=representative.get(r.target.ref);
+      if(!mapping.has(s)||!mapping.has(t2))return;
+      const e={id:r.id,kind:'DESIGN_RELATION',label:'设计关系 · 未部署',source:r.source.ref,target:r.target.ref,
+               provenance:'DESIGN_RELATION',mapping:r.mapping,write_policy:r.write_policy,template:r.template};
+      code+=`  ${mapping.get(s)} -. "设计关系 · 未部署" .-> ${mapping.get(t2)}\n`;
+      displayEdges.push(e);
+    });
     $('ew-graph').replaceChildren();
     if(shown.size)viewer=window.TM1Mermaid.mount($('ew-graph'),{code,idMap:nodeMap,title:'架构工作区',view:preserve&&Object.keys(layout).length?layout:null,
       onNodeClick:(id,_mid,_label,event)=>{if(groups.some(g=>g.id===id)){showGroup(id);return;}select(id,!!(event?.ctrlKey||event?.metaKey));},
-      onEdgeClick:i=>showEdge(displayEdges[i]),onBoxSelect:ids=>{selected=new Set(ids.filter(id=>known.has(id)||drafts.some(d=>d.id===id)));updateSelection();changed();},onRendered:updateSelection});
+      onEdgeClick:i=>showEdge(displayEdges[i]),onBoxSelect:ids=>{selected=new Set(ids.filter(id=>known.has(id)||drafts.some(d=>d.id===id)||design.cubes.some(c=>c.id===id)||design.schemas.some(s=>s.id===id)));updateSelection();changed();},onRendered:updateSelection});
     $('ew-summary').textContent=`${shown.size} 个可见对象 · ${displayEdges.length} 条可见关系 · ${hidden.size} 个局部隐藏对象。虚线是候选共同读写，不是已证明的值流。`;
     renderTable();renderGroups();updateSelection();
   }
@@ -110,6 +131,9 @@
   const KIND_LABEL={FIXED_MEMBER:'固定',PARAMETER:'运行时变量',DATA_ROW_VARIABLE:'数据行变量',LOOKUP_COORDINATE:'查表坐标',UNRESOLVED:'待确认'};
   function source(parent,title,code,mode){if(!code)return;const d=element('details'),box=element('div');d.append(element('summary',title),box);parent.appendChild(d);d.addEventListener('toggle',()=>{if(d.open&&!box.dataset.ready){box.dataset.ready='1';window.tm1Source.mount(box,{code,mode});}});}
   async function showNode(id){
+    const dc=design.cubes.find(c=>c.id===id),ds=design.schemas.find(s=>s.id===id);
+    if(dc){renderCubeDraft(dc);return;}
+    if(ds){renderSchema(ds);return;}
     const token=++detailGeneration,n=known.get(id)||drafts.find(d=>d.id===id);if(!n)return;
     const p=panel(n.name);p.appendChild(element('p',n.provenance==='DESIGN_DRAFT'?'设计草稿 · 未部署 / 未验证':n.in_snapshot===false?'索引提及，当前快照未取得该对象定义':'本地模型对象 · 静态分析不代表运行验证','muted'));
     if(n.provenance==='DESIGN_DRAFT'){p.appendChild(element('p','维度顺序：'+n.dimensions.join(' → ')));return;}
@@ -213,7 +237,9 @@
     const edgeMap=new Map([...r.edges,...cubeResult.edges].map(e=>[e.id,e]));
     graph={...r,nodes:r.nodes.filter(n=>!w.visible?.length||w.visible.includes(n.id)),edges:w.edge_ids?.length?w.edge_ids.map(id=>edgeMap.get(id)).filter(Boolean):r.edges};
     const missingEdges=(w.edge_ids||[]).filter(id=>!edgeMap.has(id)).length;
-    groups=w.groups;drafts=w.drafts;selected=new Set(w.selected);hidden=new Set(w.hidden);layout=w.layout;
+    groups=w.groups;drafts=w.drafts||[];selected=new Set(w.selected);hidden=new Set(w.hidden);layout=w.layout;
+    design=w.design||{mode:'explore',cubes:[],dimensions:[],schemas:[],relations:[],blueprints:[]};
+    setMode(design.mode||'explore',false);
     $('ew-name').value=w.name;$('ew-mdx').value=w.mdx;$('ew-notes').value=w.notes;dirty=false;render(true);remember();status(missingEdges?`已恢复对象和备注；${missingEdges} 条关系未在当前预算内复核，原文件保留，不能宣称完整恢复。`:'工作区已恢复；MDX 仅为研究文本，没有执行。',missingEdges>0);
   }
   let timer;['ew-search','ew-kind'].forEach(id=>$(id).addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>run(search),180);}));
@@ -223,7 +249,269 @@
   $('ew-clear').onclick=()=>{selected.clear();edgeSelection=null;updateSelection();changed();};$('ew-hide').onclick=()=>{selected.forEach(id=>hidden.add(id));selected.clear();render();changed();};$('ew-show').onclick=()=>{hidden.clear();render();changed();};
   $('ew-table-kind').onchange=()=>{query.relation_types=$('ew-table-kind').value?[$('ew-table-kind').value]:[];render();changed();};
   $('ew-group-create').onclick=()=>{const groupName=$('ew-group-name').value.trim();if(!groupName||!selected.size)return status('先选择对象并填写模块名称。',true);groups.push({id:'g-'+crypto.randomUUID(),name:groupName,members:[...selected],note:'',folded:false,provenance:'USER_INTERPRETATION'});renderGroups();changed();status('人工模块已建立；同一对象可以加入多个模块。');};
-  $('ew-draft-create').onclick=()=>{const n=$('ew-draft-name').value.trim(),dims=$('ew-draft-dims').value.split('\n').map(s=>s.trim()).filter(Boolean);if(!n||!dims.length)return status('草稿需要名称和按顺序声明的维度。',true);drafts.push({id:'draft-'+crypto.randomUUID(),name:n,dimensions:dims,provenance:'DESIGN_DRAFT'});render();changed();status('草稿已加入；未创建任何真实 Cube。');};
+  // ---------------------------------------------------------------- 设计模式
+  const uid=p=>p+crypto.randomUUID().replace(/-/g,'').slice(0,12);
+  const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  function setMode(mode,mark=true){
+    design.mode=mode;
+    $('ew-mode-explore').className='btn'+(mode==='explore'?' primary':' ghost');
+    $('ew-mode-design').className='btn'+(mode==='design'?' primary':' ghost');
+    $('ew-mode-explore').setAttribute('aria-selected',String(mode==='explore'));
+    $('ew-mode-design').setAttribute('aria-selected',String(mode==='design'));
+    $('ew-design').hidden=mode!=='design';
+    $('ew-mode-hint').textContent=mode==='design'
+      ?'设计：创建草稿并生成代码草案；不部署、不修改模型，草稿不代表快照事实。'
+      :'探索：只读研究已有模型。设计：创建草稿，不部署、不修改模型。';
+    renderDesignLists();
+    if(mark){changed();render();}
+  }
+
+  async function loadDesignMeta(){
+    const data=await req('/api/workbench/design/meta?snapshot_id='+encodeURIComponent(snapshot||''));
+    if(snapshot&&data.snapshot_id!==snapshot)throw new Error('模型已变化，设计元数据未载入。');
+    designMeta=data;
+    const opts=designMeta.dimensions.map(d=>'<option value="'+esc(d)+'">').join('');
+    let list=document.getElementById('ew-dim-options');
+    if(!list){list=element('datalist');list.id='ew-dim-options';document.body.appendChild(list);}
+    list.innerHTML=opts;
+    $('ew-dc-dims').setAttribute('list','ew-dim-options');
+    fillRelationSelects();
+  }
+
+  function fillRelationSelects(){
+    const src=$('ew-rel-source'),tgt=$('ew-rel-target');
+    const sOpts=[...design.schemas.map(s=>[s.id,'CSV: '+s.name]),...design.cubes.map(c=>[c.id,'Cube 草稿: '+c.name])];
+    src.replaceChildren(...sOpts.map(([v,l])=>new Option(l,v)));
+    tgt.replaceChildren(...design.cubes.map(c=>new Option('Cube 草稿: '+c.name,c.id)));
+  }
+
+  function designCubeNode(c){
+    return {id:c.id,name:c.name,type:'draft',provenance:'DESIGN_DRAFT'};
+  }
+
+  function renderDesignLists(){
+    const relBox=$('ew-rel-list');relBox.replaceChildren();
+    if(!design.relations.length)relBox.appendChild(element('p','还没有设计关系。先建 Cube 草稿与来源，再选择来源→目标。','muted small'));
+    design.relations.forEach(r=>{
+      const div=element('div','','ew-design-item');
+      div.appendChild(element('strong',name(r.source.ref)+' → '+name(r.target.ref)));
+      div.appendChild(element('p',(r.template==='csv-to-cube'?'CSV → Cube':'Cube → Cube')+' · 写入 '+(r.write_policy==='overwrite'?'覆盖':'累加')+' · '+r.mapping.length+' 条映射','small muted'));
+      div.appendChild(button('配置映射',()=>{openMapping(r.id);}));
+      div.appendChild(button('生成 TI 草案',()=>generateFor(r.id)));
+      relBox.appendChild(div);
+    });
+    const dl=$('ew-design-list');dl.replaceChildren();
+    design.cubes.forEach(c=>{const d=element('div','','ew-design-item');d.appendChild(element('strong',c.name+' · Cube 草稿'));d.appendChild(element('p',c.dimensions.map(x=>x.name).join(' → '),'small muted'));d.appendChild(button('查看 / 创建说明',()=>renderCubeDraft(c)));dl.appendChild(d);});
+    design.dimensions.forEach(d=>{
+      const row=element('div','','ew-design-item');
+      row.appendChild(element('p','维度草稿：'+d.name+'（'+d.elements.length+' 元素 · '+d.element_type+'）· '+d.id,'small'));
+      row.appendChild(button('引用到 Cube 维度框',()=>{
+        const box=$('ew-dc-dims');box.value=(box.value.trim()?box.value.trim()+'\n':'')+d.name+'@'+d.id;
+        status('已加入：'+d.name+'@'+d.id+'（顺序即 Cube 维度顺序）');
+      }));
+      dl.appendChild(row);
+    });
+    design.schemas.forEach(s=>dl.appendChild(element('p','CSV Schema：'+s.name+'（'+s.fields.length+' 字段）','small')));
+    const bp=$('ew-bp-list');bp.replaceChildren();
+    design.blueprints.forEach(b=>bp.appendChild(element('p','Blueprint：'+b.name+' v'+b.version+'（'+b.relation_ids.length+' 关系）','small')));
+  }
+
+  function renderCubeDraft(c){
+    const p=panel(c.name);p.appendChild(element('p','Cube 草稿 · 未部署 / 未验证；不修改任何真实 Cube','muted'));
+    p.appendChild(element('h3','维度顺序'));
+    c.dimensions.forEach((ref,i)=>p.appendChild(element('p',`${i+1}. ${ref.name}（${ref.kind==='existing'?'快照已有维度':'维度草稿 '+ref.draft_id}）`)));
+    const rel=design.relations.filter(r=>r.target.ref===c.id);
+    rel.forEach(r=>p.appendChild(button('查看映射：'+name(r.source.ref)+' → '+c.name,()=>openMapping(r.id))));
+    p.appendChild(button('查看 Cube 创建说明',()=>showCubeSpec(c.id)));
+    p.appendChild(button('删除此草稿',()=>{design.cubes=design.cubes.filter(x=>x.id!==c.id);design.relations=design.relations.filter(r=>r.target.ref!==c.id&&r.source.ref!==c.id);selected.delete(c.id);render();renderDesignLists();fillRelationSelects();changed();panel('草稿已删除，真实模型未受影响');}));
+  }
+
+  function renderSchema(s){
+    const p=panel(s.name);p.appendChild(element('p','CSV Schema 草稿 · 仅表头结构，未读取任何数据行','muted'));
+    p.appendChild(element('h3','字段（'+s.fields.length+'）'));
+    s.fields.forEach(f=>p.appendChild(element('p',`${f.name} · ${f.type}${f.required?' · 必填':''}`)));
+    p.appendChild(element('p','来源：'+s.origin+'（类型为建议值，需在映射中确认）','muted small'));
+    p.appendChild(button('删除此 Schema',()=>{design.schemas=design.schemas.filter(x=>x.id!==s.id);design.relations=design.relations.filter(r=>r.source.ref!==s.id);selected.delete(s.id);render();renderDesignLists();fillRelationSelects();changed();panel('Schema 草稿已删除');}));
+  }
+
+  async function showCubeSpec(cubeId){
+    const data=await req('/api/workbench/design/cube-spec',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({design:design,snapshot_id:snapshot,cube_id:cubeId})});
+    const p=panel(data.spec.name+' · 创建说明');
+    p.appendChild(element('p','这是规格与步骤，不是已部署对象。','muted'));
+    data.spec.dimensions.forEach(d=>p.appendChild(element('p',`${d.position}. ${d.name} — ${d.source==='DESIGN_DRAFT'?'需先创建维度草稿（'+d.elements+' 元素）':'当前快照已存在'}`)));
+    const d=element('details'),pre=element('pre',data.spec.steps.join('\n'),'code');d.append(element('summary','创建步骤'),pre);p.appendChild(d);
+  }
+
+  function openMapping(relId){
+    const rel=design.relations.find(r=>r.id===relId);if(!rel)return;
+    const cube=design.cubes.find(c=>c.id===rel.target.ref);
+    const schema=design.schemas.find(s=>s.id===rel.source.ref);
+    const dims=cube?cube.dimensions.map(d=>d.name):[];
+    const p=panel('映射：'+name(rel.source.ref)+' → '+name(rel.target.ref));
+    p.appendChild(element('p','每个目标维度都必须显式映射并勾选确认，否则不会生成代码。','muted small'));
+    const table=element('div','','ew-map');
+    dims.forEach((dim,idx)=>{
+      const entry=rel.mapping.find(m=>m.target_dimension===dim)||{target_dimension:dim,kind:'UNMAPPED',fixed_member:'',source_field:'',expression:'',confirmed:false};
+      const row=element('div','','ew-map-row');
+      row.appendChild(element('strong',(idx+1)+'. '+dim));
+      const kind=element('select','','input');
+      [['UNMAPPED','未映射'],['FIXED','固定成员'],['FROM_SOURCE','来源字段'],['EXPRESSION','表达式']].forEach(([v,l])=>kind.appendChild(new Option(l,v)));
+      kind.value=entry.kind;
+      const val=element('input','','input');val.placeholder=entry.kind==='EXPRESSION'?"如 '2026'":'成员 / 字段名';
+      val.value=entry.kind==='FIXED'?entry.fixed_member:(entry.kind==='FROM_SOURCE'?entry.source_field:entry.expression);
+      const conf=element('input');conf.type='checkbox';conf.checked=!!entry.confirmed;
+      const label=element('label','确认');label.prepend(conf);
+      const sync=()=>{
+        const k=kind.value;const e={target_dimension:dim,kind:k,fixed_member:'',source_field:'',expression:'',confirmed:conf.checked};
+        if(k==='FIXED')e.fixed_member=val.value.trim();
+        else if(k==='FROM_SOURCE')e.source_field=val.value.trim();
+        else if(k==='EXPRESSION')e.expression=val.value.trim();
+        const others=rel.mapping.filter(m=>m.target_dimension!==dim);
+        rel.mapping=[...others,e];
+        changed();
+      };
+      kind.onchange=()=>{val.placeholder=kind.value==='EXPRESSION'?"如 '2026'":'成员 / 字段名';sync();};
+      val.oninput=sync;conf.onchange=sync;
+      row.append(kind,val,label);table.appendChild(row);
+    });
+    p.appendChild(table);
+    if(rel.source.kind==='csv'&&schema){
+      const vs=element('select','','input');vs.id='ew-vsource';
+      vs.appendChild(new Option('（选择数值列）',''));
+      schema.fields.forEach(f=>vs.appendChild(new Option(f.name,f.name)));
+      vs.value=rel.value_source||'';vs.onchange=()=>{rel.value_source=vs.value;changed();};
+      p.appendChild(element('label','数值来源列（vValue）'));p.appendChild(vs);
+    }
+    const pol=element('select','','input');pol.id='ew-wpolicy';pol.append(new Option('覆盖（CellPutN）','overwrite'),new Option('累加（CellIncrementN）','accumulate'));
+    pol.value=rel.write_policy;pol.onchange=()=>{rel.write_policy=pol.value;changed();};
+    p.appendChild(element('label','写入策略'));p.appendChild(pol);
+    const confAll=button('全部标记为已确认',()=>{rel.mapping=rel.mapping.map(m=>({...m,confirmed:true}));openMapping(relId);changed();});
+    p.appendChild(confAll);
+    p.appendChild(button('校验并生成 TI 草案',()=>generateFor(relId)));
+  }
+
+  async function generateFor(relId){
+    const data=await req('/api/workbench/design/generate',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({design:design,snapshot_id:snapshot,relation_id:relId})});
+    const p=panel('生成结果 · '+relId);
+    if(data.status!=='ok'){
+      p.appendChild(element('h3','未生成：需要先补齐配置'));
+      (data.blockers||[]).forEach(b=>p.appendChild(element('p','· '+b)));
+      p.appendChild(button('返回映射配置',()=>openMapping(relId)));
+      status('生成被阻断：请补齐映射后再试。',true);return;
+    }
+    const rel=design.relations.find(r=>r.id===relId);
+    lastGenerated.set(relId,{at:data.artifact.generated_at,template:data.artifact.template,
+      summary:data.summary,validated:true});
+    changed();
+    p.appendChild(element('p','TI 草案 · DESIGN_DRAFT · 未在 TM1 Server 部署或执行','muted'));
+    p.appendChild(element('p','模板：'+data.artifact.template+' · 维度：'+data.summary.dimensions));
+    p.appendChild(element('p','写入：'+data.summary.operation+'（'+(data.summary.write_policy==='overwrite'?'覆盖':'累加')+'）','small'));
+    ['prolog','metadata','data','epilog'].forEach(sec=>{
+      const d=element('details');if(sec==='data')d.open=true;
+      d.append(element('summary',sec+' 源码'),element('pre',data.code[sec]||'','code'));
+      p.appendChild(d);
+    });
+    const all=['prolog','metadata','data','epilog'].map(s=>'### '+s.toUpperCase()+'\n'+data.code[s]).join('\n\n');
+    p.appendChild(button('导出 .ti 文本',()=>files.download((design.cubes.find(c=>c.id===rel.target.ref)?.name||'draft')+'.ti',all)));
+    p.appendChild(element('p','已知限制：未做运行验证；字符分隔源全部按字符串读取，数值经 StringToNumberEx 转换；目标坐标必须与维度顺序一致。','muted small'));
+    status('已生成 TI 草案（仅本地草稿，未部署）。');
+  }
+
+  function createCubeDraft(){
+    const nameV=$('ew-dc-name').value.trim(),raw=$('ew-dc-dims').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    if(!nameV||!raw.length)return status('Cube 草稿需要名称和按顺序声明的维度。',true);
+    const dims=raw.map(line=>{
+      const at=line.indexOf('@');
+      const nm=(at>0?line.slice(0,at):line).trim();
+      const id=at>0?line.slice(at+1).trim():'';
+      return id?{kind:'draft',name:nm,draft_id:id}:{kind:'existing',name:nm};
+    });
+    const seen=new Set();
+    for(const d of dims){if(seen.has(d.name.toLowerCase()))return status('维度不能重复：'+d.name,true);seen.add(d.name.toLowerCase());}
+    const bad=dims.find(d=>d.kind==='draft'&&!design.dimensions.some(x=>x.id===d.draft_id));
+    if(bad)return status('草稿维度不存在：'+bad.draft_id+'（请先创建维度草稿）',true);
+    const cube={id:uid('draft-'),name:nameV,note:$('ew-dc-note').value.trim(),
+      dimensions:dims,measures:[],provenance:'DESIGN_DRAFT'};
+    design.cubes.push(cube);
+    $('ew-dc-name').value='';$('ew-dc-dims').value='';$('ew-dc-note').value='';
+    fillRelationSelects();render();renderDesignLists();changed();
+    status('Cube 草稿已创建（未部署，未修改真实模型）。');
+  }
+
+  function createDimensionDraft(){
+    const nm=$('ew-dd-name').value.trim(),elems=$('ew-dd-elems').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    if(!nm)return status('维度草稿需要名称。',true);
+    if(new Set(elems.map(e=>e.toLowerCase())).size!==elems.length)return status('维度元素不能重复。',true);
+    design.dimensions.push({id:uid('dimdraft-'),name:nm,elements:elems,element_type:$('ew-dd-type').value,note:'',provenance:'DESIGN_DRAFT'});
+    $('ew-dd-name').value='';$('ew-dd-elems').value='';
+    renderDesignLists();changed();status('维度草稿已创建：'+nm);
+  }
+
+  function parseSchema(){
+    const text=$('ew-cs-header').value;
+    const line=(text.split('\n').find(s=>s.trim())||'').trim();
+    if(!line)return status('请粘贴一行表头。',true);
+    const names=line.split(/[,;\t|]/).map(s=>s.trim().replace(/^["']|["']$/g,'')).filter(Boolean);
+    const seen=new Set();
+    for(const n of names){if(seen.has(n.toLowerCase()))return status('表头字段重复：'+n,true);seen.add(n.toLowerCase());}
+    const guess=n=>/[Qty|Quantity|Amount|Cost|Price|Value|Amt]/i.test(n)?'number':/date/i.test(n)?'date':(/^is|flag$/i.test(n)?'boolean':'unknown');
+    schemaDraftFields=names.map(n=>({name:n,type:guess(n),required:false,note:''}));
+    const box=$('ew-cs-fields');box.replaceChildren();
+    schemaDraftFields.forEach((f,i)=>{
+      const row=element('div','','ew-map-row');
+      row.appendChild(element('strong',f.name));
+      const sel=element('select','','input');
+      ['unknown','string','number','date','boolean'].forEach(t=>sel.appendChild(new Option(t,t)));
+      sel.value=f.type;sel.onchange=()=>{schemaDraftFields[i].type=sel.value;};
+      row.appendChild(sel);box.appendChild(row);
+    });
+    status('已解析 '+names.length+' 个字段（仅表头，未读取数据行）。');
+  }
+
+  function createSchema(){
+    const nm=$('ew-cs-name').value.trim();
+    if(!nm)return status('Schema 需要来源名称。',true);
+    if(!schemaDraftFields.length)return status('请先解析表头。',true);
+    design.schemas.push({id:uid('csv-'),name:nm,fields:schemaDraftFields.slice(),origin:'USER_INPUT',note:'',provenance:'DESIGN_DRAFT'});
+    $('ew-cs-name').value='';$('ew-cs-header').value='';$('ew-cs-fields').replaceChildren();schemaDraftFields=[];
+    fillRelationSelects();render();renderDesignLists();changed();status('CSV Schema 草稿已保存。');
+  }
+
+  function createRelation(){
+    const src=$('ew-rel-source').value,tgt=$('ew-rel-target').value;
+    if(!src||!tgt)return status('请选择来源与目标。',true);
+    const isCsv=design.schemas.some(s=>s.id===src);
+    design.relations.push({id:uid('rel-'),source:{kind:isCsv?'csv':'cube_draft',ref:src},
+      target:{kind:'cube_draft',ref:tgt},mapping:[],value_source:'',
+      write_policy:'overwrite',template:isCsv?'csv-to-cube':'cube-data-transfer',confirmed:false,note:'',provenance:'DESIGN_RELATION'});
+    render();renderDesignLists();changed();status('设计关系已建立，请配置映射。');
+  }
+
+  function saveBlueprint(){
+    const nm=$('ew-bp-name').value.trim();
+    if(!nm)return status('Blueprint 需要名称。',true);
+    const now=new Date().toISOString();
+    design.blueprints.push({id:uid('bp-'),name:nm,note:$('ew-bp-note').value.trim(),version:1,
+      cube_ids:design.cubes.map(c=>c.id),dimension_ids:design.dimensions.map(d=>d.id),
+      schema_ids:design.schemas.map(s=>s.id),relation_ids:design.relations.map(r=>r.id),
+      artifacts:[...lastGenerated.entries()].map(([rid,g])=>({relation_id:rid,template:g.template,
+        template_version:'1',generated_at:g.at,status:'DESIGN_DRAFT',validated:true,blockers:[],summary:g.summary||{}})),
+      created_at:now,updated_at:now,provenance:'DESIGN_DRAFT'});
+    $('ew-bp-name').value='';$('ew-bp-note').value='';
+    renderDesignLists();changed();status('Blueprint 已保存到工作区（仍为草稿，不含企业源码正文）。');
+  }
+
+  $('ew-mode-explore').onclick=()=>setMode('explore');
+  $('ew-mode-design').onclick=()=>{setMode('design');run(loadDesignMeta);};
+  $('ew-cs-parse').onclick=parseSchema;
+  $('ew-cs-create').onclick=createSchema;
+  $('ew-dc-create').onclick=createCubeDraft;
+  $('ew-dd-create').onclick=createDimensionDraft;
+  $('ew-rel-create').onclick=createRelation;
+  $('ew-bp-save').onclick=saveBlueprint;
   $('ew-save').onclick=()=>run(()=>save(false));$('ew-save-as').onclick=()=>run(()=>save(true));$('ew-open').onclick=()=>run(async()=>{if(!$('ew-saved').value)return;await restore(await files.load($('ew-saved').value));});
   $('ew-export').onclick=()=>files.download('architecture-workspace.json',currentWorkspace());
   $('ew-import').onchange=()=>run(async()=>{const file=$('ew-import').files[0];if(!file)return;if(file.size>1024*1024)throw new Error('工作区文件超过 1MB 上限。');const workspace=JSON.parse(await file.text());const result=await files.save(workspace,'','');await restore(await files.load(result.id));await savedList();});
