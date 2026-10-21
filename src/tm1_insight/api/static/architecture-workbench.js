@@ -1,0 +1,235 @@
+/* Continuous exploration presenter. No parsing, semantic promotion or server calls. */
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id), root=$('ew-root'); if(!root)return;
+  const files=window.TM1WorkspaceFiles, req=files.request;
+  let snapshot='',graph={nodes:[],edges:[]}, selected=new Set(), groups=[], drafts=[], hidden=new Set();
+  let workspaceId='',revision='',viewer=null,query={},layout={},edgeSelection=null,displayEdges=[],nodeMap={},templateRef='';
+  let abort=null,generation=0,detailGeneration=0,dirty=false;
+  const known=new Map(), name=id=>known.get(id)?.name||drafts.find(d=>d.id===id)?.name||id;
+  const status=(message,error=false)=>{$('ew-status').textContent=message;$('ew-status').className=error?'err':'muted';};
+  const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
+  const button=(text,fn)=>{const b=element('button',text,'btn ghost');b.type='button';b.onclick=()=>run(async()=>{b.disabled=true;try{await fn();}finally{b.disabled=false;}});return b;};
+  async function run(fn){try{await fn();}catch(e){if(e.name!=='AbortError')status(e.message,true);}}
+  function changed(){dirty=true;remember();}
+  function currentWorkspace(){
+    return {schema_version:'architecture-workspace-1',snapshot_id:snapshot,name:$('ew-name').value.trim()||'我的架构研究',query:{...query,snapshot_id:snapshot},
+      objects:[...known.values()].map(n=>({type:n.type,name:n.name})), selected:[...selected],visible:graph.nodes.map(n=>n.id),edge_ids:graph.edges.map(e=>e.id),hidden:[...hidden],groups,drafts,
+      mdx:$('ew-mdx').value,notes:$('ew-notes').value,layout:viewer?.getView()||layout,template_ref:templateRef};
+  }
+  function remember(){if(snapshot)window.WorkbenchContext?.set('engineering-workspace',{id:workspaceId,revision,workspace:currentWorkspace()});}
+  function options(){return {snapshot_id:snapshot,objects:[],source_prefix:'',target_prefix:'',direction:$('ew-direction').value,depth:Number($('ew-depth').value),node_budget:Number($('ew-budget').value),edge_budget:160,view:$('ew-view').value,include_technical:$('ew-technical').checked,relation_types:[]};}
+  function restoreOptions(q){for(const [id,key] of [['ew-direction','direction'],['ew-depth','depth'],['ew-budget','node_budget'],['ew-view','view'],['ew-from','source_prefix'],['ew-to','target_prefix']])if(q[key]!==undefined)$(id).value=q[key];$('ew-technical').checked=!!q.include_technical;$('ew-table-kind').value=q.relation_types?.length===1?q.relation_types[0]:'';}
+  async function search(){
+    const token=$('ew-search').value,kind=$('ew-kind').value;
+    const data=await req('/api/workbench/objects?'+new URLSearchParams({q:token,type:kind}));
+    if(token!==$('ew-search').value||kind!==$('ew-kind').value)return;
+    if(snapshot&&snapshot!==data.snapshot_id)throw new Error('模型已变化，当前画布保留。请刷新并新建工作区。');
+    snapshot=data.snapshot_id;$('ew-resources').replaceChildren();
+    data.objects.forEach(n=>{
+      const b=button(n.name,async()=>{await explore([{type:n.type,name:n.name}],false);select(n.id,false);});
+      $('ew-resources').appendChild(b);
+    });
+    $('ew-resources').appendChild(element('p',`显示前 ${data.objects.length} / ${data.total} 个对象`,'muted small'));
+  }
+  async function explore(objects,merge=true,pathQuery=false,seedOffset=0){
+    const token=++generation;abort?.abort();abort=new AbortController();status('正在查询本地关系索引…');
+    let q={...options(),objects};if(pathQuery){q.source_prefix=$('ew-from').value.trim();q.target_prefix=$('ew-to').value.trim();q.seed_offset=seedOffset;q.objects=[];}
+    if(objects.some(o=>o.type!=='cube'))q.view='objects';
+    const response=await req('/api/workbench/graph',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(q),signal:abort.signal});
+    if(token!==generation)return;
+    snapshot=response.snapshot_id;query=response.query;restoreOptions(query);
+    const future=new Map(known);response.nodes.forEach(n=>future.set(n.id,n));
+    if(future.size>120)throw new Error('保存的研究对象将超过 120 个，请另建工作区。原图保留。');
+    if(merge){
+      const nodes=new Map(graph.nodes.map(n=>[n.id,n])),edges=new Map(graph.edges.map(e=>[e.id,e]));
+      response.nodes.forEach(n=>nodes.set(n.id,n));response.edges.forEach(e=>edges.set(e.id,e));
+      if(nodes.size>120||edges.size>300)throw new Error('局部展开会超过 120 节点 / 300 关系预算，请先隐藏、清空或缩小查询范围。原图保留。');
+      graph={...response,nodes:[...nodes.values()],edges:[...edges.values()]};
+    }else{graph=response;selected.clear();hidden.clear();}
+    response.nodes.forEach(n=>known.set(n.id,n));
+    $('ew-path-next').hidden=!pathQuery||response.limits.next_seed_offset===null||response.limits.next_seed_offset===undefined;
+    render(true);changed();status(response.nodes.length?`已完成局部查询：${response.nodes.length} 个对象、${response.edges.length} 条关系。${response.limits.truncated?'结果因预算被截断，不能解释为完整模型。':response.limits.boundary?'这是局部视图，边界外仍有对象；可继续展开。':''}${response.rule_scope&&!response.rule_scope.complete?` 部分 Rule 未在本次预算内核对（${response.rule_scope.owners_analyzed}/${response.rule_scope.owners_considered}）。`:''}`:'没有找到入口或路径；没有生成替代关系。');
+  }
+  function mermaidLabel(value){return String(value).replace(/[&<>"\[\]{}|`\\]/g,c=>'&#'+c.charCodeAt(0)+';').replace(/[\r\n]/g,' ');}
+  function nodeLabel(value){const words=String(value).split(' '),lines=[''];words.forEach(word=>{if((lines[lines.length-1]+' '+word).length>24&&lines[lines.length-1])lines.push(word);else lines[lines.length-1]+=(lines[lines.length-1]?' ':'')+word;});return lines.map(mermaidLabel).join('<br/>');}
+  function render(preserve=true){
+    if(viewer){if(preserve)layout=viewer.getView();viewer.destroy();viewer=null;}
+    const folded=groups.filter(g=>g.folded), representative=new Map(), visible=[...graph.nodes,...drafts.map(d=>({...d,type:'draft'}))].filter(n=>!hidden.has(n.id));
+    visible.forEach(n=>representative.set(n.id,folded.find(g=>g.members.includes(n.id))?.id||n.id));
+    const shown=new Map();visible.forEach(n=>{const id=representative.get(n.id);shown.set(id,id===n.id?n:{id,name:groups.find(g=>g.id===id).name,type:'group'});});
+    nodeMap={};let code='flowchart LR\n'; const mapping=new Map();
+    [...shown.values()].sort((a,b)=>a.id.localeCompare(b.id)).forEach((n,i)=>{
+      const mid='n'+i;mapping.set(n.id,mid);nodeMap[mid]=n.id;
+      code+=`  ${mid}["${nodeLabel(n.name)}<br/>${{cube:'Cube',process:'TI',chore:'调度',dimension:'维度',draft:'设计草稿 · 未部署',group:'人工模块'}[n.type]}"]\n`;
+      if(n.type==='cube')code+=`  style ${mid} fill:#eef6ff,stroke:#7aa4d7\n`;
+      if(n.type==='draft')code+=`  style ${mid} fill:#fff8e6,stroke:#ba8c36,stroke-dasharray:5 5\n`;
+    });
+    displayEdges=[];
+    graph.edges.forEach(e=>{
+      if($('ew-table-kind').value && e.kind!==$('ew-table-kind').value)return;
+      const s=representative.get(e.source),t=representative.get(e.target);if(!mapping.has(s)||!mapping.has(t))return;
+      if(s===t && e.source!==e.target)return;
+      const label=e.kind==='TI_CANDIDATE'?`共同读写 · ${e.process_ids.length} TI`:e.label;
+      code+=`  ${mapping.get(s)} ${e.kind==='TI_CANDIDATE'?'-.':'--'} "${mermaidLabel(label)}" ${e.kind==='TI_CANDIDATE'?'.->':'-->'} ${mapping.get(t)}\n`;
+      displayEdges.push(e);
+    });
+    $('ew-graph').replaceChildren();
+    if(shown.size)viewer=window.TM1Mermaid.mount($('ew-graph'),{code,idMap:nodeMap,title:'架构工作区',view:preserve&&Object.keys(layout).length?layout:null,
+      onNodeClick:(id,_mid,_label,event)=>{if(groups.some(g=>g.id===id)){showGroup(id);return;}select(id,!!(event?.ctrlKey||event?.metaKey));},
+      onEdgeClick:i=>showEdge(displayEdges[i]),onBoxSelect:ids=>{selected=new Set(ids.filter(id=>known.has(id)||drafts.some(d=>d.id===id)));updateSelection();changed();},onRendered:updateSelection});
+    $('ew-summary').textContent=`${shown.size} 个可见对象 · ${displayEdges.length} 条可见关系 · ${hidden.size} 个局部隐藏对象。虚线是候选共同读写，不是已证明的值流。`;
+    renderTable();renderGroups();updateSelection();
+  }
+  function updateSelection(){
+    viewer?.select([...selected],edgeSelection?displayEdges.findIndex(e=>e.id===edgeSelection):undefined);
+    document.querySelectorAll('#ew-relations tr[data-edge]').forEach(tr=>tr.setAttribute('aria-selected',String(tr.dataset.edge===edgeSelection)));
+    // 图 → 表联动：选中边时把对应记录滚入视野，而非只改颜色。
+    if(edgeSelection){const row=document.querySelector('#ew-relations tr[data-edge="'+CSS.escape(edgeSelection)+'"]');if(row)row.scrollIntoView({block:'nearest'});}
+  }
+  function select(id,multiple){if(!id)return;if(!multiple)selected.clear();if(multiple&&selected.has(id))selected.delete(id);else selected.add(id);edgeSelection=null;updateSelection();changed();run(()=>showNode(id));}
+  function renderTable(){
+    const table=element('table'),head=element('tr');['来源','动作','目标'].forEach(t=>head.appendChild(element('th',t)));table.appendChild(head);
+    const kind=$('ew-table-kind').value;
+    displayEdges.filter(e=>!kind||e.kind===kind).forEach(e=>{const tr=element('tr');tr.dataset.edge=e.id;tr.tabIndex=0;
+      [name(e.source),e.label,name(e.target)].forEach(t=>tr.appendChild(element('td',t)));tr.onclick=()=>showEdge(e);tr.onkeydown=event=>{if(event.key==='Enter')showEdge(e);};table.appendChild(tr);});
+    $('ew-relations').replaceChildren(table);updateSelection();
+  }
+  function panel(title){const p=$('ew-detail');p.replaceChildren(element('h2',title));p.appendChild(button('关闭详情',()=>{++detailGeneration;p.replaceChildren(element('p','画布与选中对象已保留。','muted'));}));return p;}
+  function evidence(parent,title,value){
+    // 证据体积可能达数 KB × 数十条；按需渲染，避免详情面板被 JSON 拖慢。
+    const d=element('details');d.appendChild(element('summary',title));parent.appendChild(d);
+    let raw='';
+    d.addEventListener('toggle',()=>{if(!d.open||d.dataset.ready)return;d.dataset.ready='1';
+      if(!raw){raw=typeof value==='string'?value:JSON.stringify(value,null,2);if(raw.length>6000)raw=raw.slice(0,6000)+'\n…（已截断，完整结构请用导出或源码核对）';}
+      d.appendChild(element('pre',raw,'code'));});
+    return d;
+  }
+  const KIND_LABEL={FIXED_MEMBER:'固定',PARAMETER:'运行时变量',DATA_ROW_VARIABLE:'数据行变量',LOOKUP_COORDINATE:'查表坐标',UNRESOLVED:'待确认'};
+  function source(parent,title,code,mode){if(!code)return;const d=element('details'),box=element('div');d.append(element('summary',title),box);parent.appendChild(d);d.addEventListener('toggle',()=>{if(d.open&&!box.dataset.ready){box.dataset.ready='1';window.tm1Source.mount(box,{code,mode});}});}
+  async function showNode(id){
+    const token=++detailGeneration,n=known.get(id)||drafts.find(d=>d.id===id);if(!n)return;
+    const p=panel(n.name);p.appendChild(element('p',n.provenance==='DESIGN_DRAFT'?'设计草稿 · 未部署 / 未验证':n.in_snapshot===false?'索引提及，当前快照未取得该对象定义':'本地模型对象 · 静态分析不代表运行验证','muted'));
+    if(n.provenance==='DESIGN_DRAFT'){p.appendChild(element('p','维度顺序：'+n.dimensions.join(' → ')));return;}
+    p.appendChild(button('在当前图展开此对象',()=>explore([{type:n.type,name:n.name}],true)));
+    p.appendChild(button('展开直接 TI / 调用关系',async()=>{$('ew-view').value='objects';await explore([{type:n.type,name:n.name}],true);}));
+    const adjacent=graph.edges.filter(e=>e.source===id||e.target===id);
+    adjacent.slice(0,30).forEach(e=>p.appendChild(button(e.label+'：'+name(e.source===id?e.target:e.source),()=>showEdge(e))));
+    const data=await req('/api/workbench/detail?'+new URLSearchParams({snapshot_id:snapshot,type:n.type,name:n.name}));if(token!==detailGeneration)return;
+    const o=data.object;
+    if(n.type==='cube'){
+      p.appendChild(element('h3','实际维度顺序'));(o.dimensions||[]).forEach((d,i)=>p.appendChild(element('p',`${i+1}. ${d}`)));
+      source(p,'Rule / Feeder 源码',o.rules,'rule');
+      p.appendChild(button('查看 Rule 计算与 Feeder 边界',async()=>{
+        const data=await req('/api/workbench/rules?'+new URLSearchParams({snapshot_id:snapshot,cube:n.name}));if(token!==detailGeneration)return;
+        const box=element('div');box.appendChild(element('h3','声明式 Rule 计算'));
+        p.querySelector('[data-rule-summary]')?.remove();box.dataset.ruleSummary='1';
+        (data.rules||[]).slice(0,40).forEach(rule=>{box.appendChild(element('p',`行 ${rule.line_start} · ${rule.lhs?.raw||'目标区域待核对'} ← ${(rule.db_references||[]).map(r=>r.cube||'动态 Cube').join('、')||'本 Cube / 表达式'}`));source(box,'计算源码',rule.raw,'rule');evidence(box,'表达式与未确认项',rule);});
+        box.appendChild(element('p',`${(data.feeders||[]).length} 条 Feeder；稀疏性支持，不作为普通数值流。`,'muted small'));evidence(box,'Feeder 技术关系',data.feeders||[]);p.appendChild(box);
+      }));
+    }
+    if(n.type==='process'){
+      p.appendChild(element('p','读取：'+(o.reads_cubes||[]).join('、')));p.appendChild(element('p','写入：'+(o.writes_cubes||[]).join('、')));
+      ['prolog','metadata','data','epilog'].forEach(s=>source(p,s+' 源码',o[s],'ti'));
+      p.appendChild(button('核对写入切面与值表达式',async()=>{
+        const data=await req('/api/workbench/writes?'+new URLSearchParams({snapshot_id:snapshot,process:n.name}));if(token!==detailGeneration)return;
+        p.querySelector('[data-write-summary]')?.remove();const box=element('div');box.dataset.writeSummary='1';
+        const primary=data.writes.filter(w=>w.cube&&!w.cube.startsWith('}'));
+        box.appendChild(element('h3',`已解析目标写入 · ${primary.length} 个位置`));
+        // 切面聚合：把同一 TI 内重复出现的固定成员/运行时变量归并，默认即可读懂。
+        const slice=(list)=>{const fixed=new Map(),runtime=new Map(),pending=new Map();
+          list.forEach(w=>(w.coordinate_mapping?.items||[]).forEach(c=>{const b=c.binding||{},dim=c.dimension||'维度待确认';
+            if(b.kind==='FIXED_MEMBER'){if(!fixed.has(dim))fixed.set(dim,new Set());fixed.get(dim).add(String(b.value));}
+            else if(b.kind==='PARAMETER'||b.kind==='DATA_ROW_VARIABLE'||b.kind==='LOOKUP_COORDINATE'){if(!runtime.has(dim))runtime.set(dim,new Set());runtime.get(dim).add(`${b.expression||'取值待确认'}（${KIND_LABEL[b.kind]}）`);}
+            else {if(!pending.has(dim))pending.set(dim,new Set());pending.get(dim).add(String(b.expression||'待确认'));}}));
+          const show=m=>[...m].map(([k,v])=>{const a=[...v];return `${k} = ${a.slice(0,3).join(' / ')}${a.length>3?` …共 ${a.length} 种`:''}`;});
+          return {fixed:show(fixed),runtime:show(runtime),pending:show(pending)};};
+        if(primary.length){
+          const s=slice(primary),block=element('div','','ew-slice');
+          if(s.fixed.length)block.appendChild(element('p','固定目标切面：'+s.fixed.join('；'),'small'));
+          if(s.runtime.length)block.appendChild(element('p','运行时 / 动态坐标：'+s.runtime.join('；'),'small'));
+          if(s.pending.length)block.appendChild(element('p','待确认坐标：'+s.pending.slice(0,6).join('；')+(s.pending.length>6?' …':''),'small muted'));
+          box.appendChild(block);
+        }
+        const auxiliary=element('details');auxiliary.appendChild(element('summary',`系统对象 / 目标未确认的写入（${data.writes.length-primary.length}）`));
+        data.writes.forEach(w=>{
+          const items=w.coordinate_mapping?.items||[];
+          const buckets={fixed:[],runtime:[],pending:[]};
+          items.forEach(c=>{const b=c.binding||{};
+            if(b.kind==='FIXED_MEMBER')buckets.fixed.push(`${c.dimension||'维度待确认'} = ${b.value}`);
+            else if(b.kind==='PARAMETER'||b.kind==='DATA_ROW_VARIABLE'||b.kind==='LOOKUP_COORDINATE')buckets.runtime.push(`${c.dimension||'维度待确认'} = ${b.expression||'取值待确认'}（${KIND_LABEL[b.kind]}）`);
+            else buckets.pending.push(`${c.dimension||'维度待确认'} = ${b.expression||'待确认'}`);});
+          const counts=`固定 ${buckets.fixed.length} · 运行时 ${buckets.runtime.length} · 待确认 ${buckets.pending.length}`;
+          const d=element('details');d.appendChild(element('summary',`${w.cube||'目标待确认'} · ${w.operation} · ${w.evidence?.section}:${w.evidence?.line} · ${counts}`));
+          if(buckets.fixed.length)d.appendChild(element('p','固定：'+buckets.fixed.join('；'),'small'));
+          if(buckets.runtime.length)d.appendChild(element('p','运行时：'+buckets.runtime.join('；'),'small'));
+          if(buckets.pending.length)d.appendChild(element('p','待确认（'+buckets.pending.length+'）：'+buckets.pending.slice(0,6).join('；')+(buckets.pending.length>6?' …':''),'small muted'));
+          d.appendChild(element('p','源码值表达式：'+(w.value_expression||'未取得')));
+          d.appendChild(element('p',w.data_row_binding_status==='NO_CONFIRMED_ROW_DEPENDENCY'?'Data 行值的来源尚未证明。':'切面和表达式来自静态分析；完整源值绑定、条件与运行结果仍需证据核对。','muted small'));evidence(d,'写入证据与定义链状态',w);(primary.includes(w)?box:auxiliary).appendChild(d);
+        });if(auxiliary.children.length>1)box.appendChild(auxiliary);if(data.writes.length<data.total)box.appendChild(element('p',`本次仅展示前 ${data.writes.length} / ${data.total} 个写入点。`,'muted small'));p.appendChild(box);
+      }));
+      const ds=o.datasource||{};
+      const external=element('details');external.append(element('summary','外部数据源声明 / 元数据边界'));
+      external.append(element('p','数据源类型：'+(ds.type||ds.Type||'未采集 / 未确认')));
+      external.append(element('p','字段结构：未在此查询中取得。没有打开外部文件、执行 SQL 或读取业务行。','muted small'));p.appendChild(external);
+      evidence(p,'已采集的数据源定义（可能含本地路径，请谨慎分享）',ds);
+    }
+    codegenLink(p);
+  }
+  function showEdge(e){
+    if(!e)return;++detailGeneration;edgeSelection=e.id;selected=new Set([e.source,e.target]);updateSelection();changed();
+    const p=panel(e.label);p.appendChild(element('p',name(e.source)+' → '+name(e.target)));
+    p.appendChild(element('p',e.kind==='TI_CANDIDATE'?'同一个 TI 的对象级共同读写。源值绑定和逐单元格映射尚未证明。':e.kind==='RULE_REFERENCE'?'声明式 Rule 引用，不是 TI 物理写入，也不是 Feeder 值传递。':'索引观察；执行次数、条件和运行顺序未验证。','muted'));
+    (e.process_ids||[]).forEach((id,i)=>p.appendChild(button('查看处理 TI：'+e.process_names[i],()=>{
+      if(!known.has(id)){if(known.size>=120)throw new Error('研究对象已达到 120 个上限。');known.set(id,{id,name:e.process_names[i],type:'process',provenance:'MODEL_FACT'});}
+      return showNode(id);
+    })));
+    [e.source,e.target].forEach(id=>p.appendChild(button('查看 '+name(id),()=>showNode(id))));
+    evidence(p,'索引证据与未确认原因',e);codegenLink(p);
+  }
+  function codegenLink(p){const cubes=[...selected].map(id=>known.get(id)).filter(n=>n?.type==='cube');if(cubes.length!==2)return;
+    p.appendChild(button('将两个 Cube 带入现有代码模板',async()=>{templateRef='cube-data-transfer';await save(false);const params=new URLSearchParams({workspace_id:workspaceId,source:cubes[0].name,target:cubes[1].name,snapshot_id:snapshot});location.href='/codegen?'+params;}));
+    p.appendChild(element('p','顺序：'+cubes[0].name+' → '+cubes[1].name+'；进入模板后仍需加载维度和人工核对。','muted small'));
+  }
+  function renderGroups(){const box=$('ew-groups');box.replaceChildren();groups.forEach(g=>{const div=element('div',undefined,'ew-group');div.append(element('strong',g.name),element('p',`${g.members.length} 个对象 · 人工解释`,'small muted'),button(g.folded?'展开':'折叠',()=>{g.folded=!g.folded;render();changed();}),button('编辑',()=>showGroup(g.id)));box.appendChild(div);});}
+  function showGroup(id){const g=groups.find(g=>g.id===id),p=panel(g.name);p.appendChild(element('p','人工解释，不能被提升为模型事实。','muted'));g.members.forEach(id=>p.appendChild(element('p',name(id))));
+    const note=element('textarea');note.className='input';note.value=g.note;note.setAttribute('aria-label','模块备注');note.oninput=()=>{g.note=note.value;changed();};p.appendChild(note);
+    p.appendChild(button('加入当前选中对象（可跨模块）',()=>{g.members=[...new Set([...g.members,...selected])];renderGroups();showGroup(id);changed();}));
+    p.appendChild(button('移除这个人工模块',()=>{groups=groups.filter(x=>x.id!==id);render();panel('模块已移除，模型对象保留');changed();}));
+  }
+  async function savedList(){const data=await files.list();if(snapshot&&snapshot!==data.snapshot_id)throw new Error('模型已变化，不能混用工作区。');snapshot=data.snapshot_id;$('ew-saved').replaceChildren(new Option('选择已保存工作区',''));data.workspaces.forEach(w=>{const o=new Option(w.name+(w.compatible?'':'（其他模型 / 不兼容）'),w.id);o.disabled=!w.compatible;$('ew-saved').appendChild(o);});}
+  async function save(asNew){const w=currentWorkspace();const result=await files.save(w,asNew?'':workspaceId,asNew?'':revision);workspaceId=result.id;revision=result.revision;dirty=false;remember();history.replaceState(null,'','/architecture?view=workbench&workspace_id='+workspaceId);await savedList();status('工作区已保存到独立用户目录；采集模型保持只读。');}
+  async function restore(data){
+    const w=data.workspace;if(w.snapshot_id!==snapshot)throw new Error('工作区绑定其他模型；没有按名称自动重绑。');
+    const restoreQuery={...w.query,snapshot_id:snapshot,objects:w.objects,depth:0,node_budget:120,edge_budget:300,source_prefix:'',target_prefix:'',view:'objects'};
+    const r=await req('/api/workbench/graph',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(restoreQuery)});
+    if(r.limits.missing.length)throw new Error('保存的对象引用失效，原工作区未覆盖。');
+    const cubeResult=await req('/api/workbench/graph',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...restoreQuery,objects:w.objects.filter(o=>o.type==='cube'),view:'cubes'})});
+    workspaceId=data.id||'';revision=data.revision||'';templateRef=w.template_ref;known.clear();query=w.query;restoreOptions(query);
+    $('ew-search').value=query.objects?.[0]?.name||query.source_prefix||'';if(query.objects?.[0])$('ew-kind').value=query.objects[0].type;
+    r.nodes.forEach(n=>known.set(n.id,n));
+    const edgeMap=new Map([...r.edges,...cubeResult.edges].map(e=>[e.id,e]));
+    graph={...r,nodes:r.nodes.filter(n=>!w.visible?.length||w.visible.includes(n.id)),edges:w.edge_ids?.length?w.edge_ids.map(id=>edgeMap.get(id)).filter(Boolean):r.edges};
+    const missingEdges=(w.edge_ids||[]).filter(id=>!edgeMap.has(id)).length;
+    groups=w.groups;drafts=w.drafts;selected=new Set(w.selected);hidden=new Set(w.hidden);layout=w.layout;
+    $('ew-name').value=w.name;$('ew-mdx').value=w.mdx;$('ew-notes').value=w.notes;dirty=false;render(true);remember();status(missingEdges?`已恢复对象和备注；${missingEdges} 条关系未在当前预算内复核，原文件保留，不能宣称完整恢复。`:'工作区已恢复；MDX 仅为研究文本，没有执行。',missingEdges>0);
+  }
+  let timer;['ew-search','ew-kind'].forEach(id=>$(id).addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>run(search),180);}));
+  $('ew-requery').onclick=()=>run(()=>explore([...selected].map(id=>known.get(id)).filter(Boolean).slice(0,20).map(n=>({type:n.type,name:n.name})),false));
+  $('ew-path').onclick=()=>run(()=>explore([],false,true));$('ew-cancel').onclick=()=>{++generation;abort?.abort();status('查询已取消显示；未修改当前画布。');};
+  $('ew-path-next').onclick=()=>run(()=>explore([],false,true,(query.seed_offset||0)+20));
+  $('ew-clear').onclick=()=>{selected.clear();edgeSelection=null;updateSelection();changed();};$('ew-hide').onclick=()=>{selected.forEach(id=>hidden.add(id));selected.clear();render();changed();};$('ew-show').onclick=()=>{hidden.clear();render();changed();};
+  $('ew-table-kind').onchange=()=>{query.relation_types=$('ew-table-kind').value?[$('ew-table-kind').value]:[];render();changed();};
+  $('ew-group-create').onclick=()=>{const groupName=$('ew-group-name').value.trim();if(!groupName||!selected.size)return status('先选择对象并填写模块名称。',true);groups.push({id:'g-'+crypto.randomUUID(),name:groupName,members:[...selected],note:'',folded:false,provenance:'USER_INTERPRETATION'});renderGroups();changed();status('人工模块已建立；同一对象可以加入多个模块。');};
+  $('ew-draft-create').onclick=()=>{const n=$('ew-draft-name').value.trim(),dims=$('ew-draft-dims').value.split('\n').map(s=>s.trim()).filter(Boolean);if(!n||!dims.length)return status('草稿需要名称和按顺序声明的维度。',true);drafts.push({id:'draft-'+crypto.randomUUID(),name:n,dimensions:dims,provenance:'DESIGN_DRAFT'});render();changed();status('草稿已加入；未创建任何真实 Cube。');};
+  $('ew-save').onclick=()=>run(()=>save(false));$('ew-save-as').onclick=()=>run(()=>save(true));$('ew-open').onclick=()=>run(async()=>{if(!$('ew-saved').value)return;await restore(await files.load($('ew-saved').value));});
+  $('ew-export').onclick=()=>files.download('architecture-workspace.json',currentWorkspace());
+  $('ew-import').onchange=()=>run(async()=>{const file=$('ew-import').files[0];if(!file)return;if(file.size>1024*1024)throw new Error('工作区文件超过 1MB 上限。');const workspace=JSON.parse(await file.text());const result=await files.save(workspace,'','');await restore(await files.load(result.id));await savedList();});
+  ['ew-notes','ew-mdx','ew-name'].forEach(id=>$(id).oninput=changed);
+  window.addEventListener('pagehide',remember);
+  window.addEventListener('beforeunload',e=>{remember();if(dirty){e.preventDefault();e.returnValue='';}});
+  run(async()=>{await savedList();const params=new URLSearchParams(location.search),id=params.get('workspace_id'),session=window.WorkbenchContext?.get('engineering-workspace');
+    if(id)await restore(await files.load(id));else if(root.dataset.name){$('ew-kind').value=root.dataset.kind==='process'?'process':'cube';$('ew-search').value=root.dataset.name;await explore([{type:$('ew-kind').value,name:root.dataset.name}],false);}else if(session?.workspace.snapshot_id===snapshot)await restore(session);
+    await search();
+  });
+})();

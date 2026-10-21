@@ -1,0 +1,37 @@
+<section id="ew-root" data-name="{{ name }}" data-kind="{{ kind }}">
+  <p class="muted">局部模型探索 · 关系来自本地索引 · 人工编组与草稿独立保存 · 不执行 TI / Rule / MDX</p>
+  <div class="ew-savebar">
+    <label>工作区名称 <input id="ew-name" class="input" value="我的架构研究" maxlength="200"></label>
+    <button id="ew-save" class="btn primary">保存工作区</button><button id="ew-save-as" class="btn">另存</button>
+    <select id="ew-saved" class="input" aria-label="已保存工作区"><option value="">选择已保存工作区</option></select><button id="ew-open" class="btn">打开</button>
+    <button id="ew-export" class="btn">导出工作区</button><label class="btn">导入工作区<input id="ew-import" type="file" accept=".json" hidden></label>
+  </div>
+  <p id="ew-status" role="status" aria-live="polite"></p>
+  <div class="ew-grid">
+    <aside class="ew-resources">
+      <h2>模型对象</h2>
+      <label>对象类型<select id="ew-kind" class="input"><option value="cube">Cube</option><option value="process">TI</option><option value="chore">Chore</option><option value="dimension">Dimension</option></select></label>
+      <label>搜索<input id="ew-search" class="input" placeholder="General Ledger / BP / Allocation" maxlength="200"></label>
+      <div id="ew-resources" class="ew-list" aria-label="模型搜索结果"></div>
+      <h3>探索范围</h3>
+      <label>方向<select id="ew-direction" class="input"><option value="both">上游与下游</option><option value="upstream">上游</option><option value="downstream">下游</option></select></label>
+      <label>深度<input id="ew-depth" class="input" type="number" min="0" max="6" value="1"></label>
+      <label>节点上限<input id="ew-budget" class="input" type="number" min="2" max="120" value="18"></label>
+      <label>图层<select id="ew-view" class="input"><option value="cubes">Cube 主干（候选加工关系）</option><option value="objects">对象与直接读写 / 调用</option></select></label>
+      <label><input type="checkbox" id="ew-technical"> 显示 } 系统对象（名称过滤）</label>
+      <button class="btn" id="ew-requery">按当前选择探索</button><button class="btn ghost" id="ew-cancel">取消查询</button>
+      <details><summary>两组 Cube 间的索引路径</summary><label>来源前缀<input id="ew-from" class="input" placeholder="SC*" maxlength="200"></label><label>目标前缀<input id="ew-to" class="input" placeholder="BP*" maxlength="200"></label><button id="ew-path" class="btn">查找路径</button><button id="ew-path-next" class="btn ghost" hidden>下一组来源</button><p class="muted small">包含必需中间对象；前缀只用于选入口，不证明业务归属或数值流。每页最多 20 个来源；每对对象展示一条最短代表路径。</p></details>
+      <h3>人工模块</h3><label>名称<input id="ew-group-name" class="input" maxlength="200" placeholder="如：费用处理研究"></label><button id="ew-group-create" class="btn">从选中对象建立模块</button><div id="ew-groups"></div>
+      <details><summary>新 Cube 草稿</summary><label>名称<input id="ew-draft-name" class="input" maxlength="200"></label><label>维度（按顺序，一行一个）<textarea id="ew-draft-dims" class="input"></textarea></label><button id="ew-draft-create" class="btn">添加设计草稿</button><p class="muted small">仅保存在工作区，未部署、未验证，不修改模型。</p></details>
+    </aside>
+    <div class="ew-center">
+      <div class="study-actions"><button id="ew-clear" class="btn ghost">清空选择</button><button id="ew-hide" class="btn ghost">局部隐藏选中对象</button><button id="ew-show" class="btn ghost">恢复隐藏对象</button></div>
+      <p class="muted small">点击查看 · Ctrl / ⌘ 点击多选 · Shift 拖动或“框选模式” · 拖动画布平移。隐藏与模块折叠只改变展示。</p>
+      <div id="ew-graph" aria-label="连续探索画布"></div>
+      <p id="ew-summary" class="muted small"></p>
+      <details open><summary>关系与证据索引（点击行定位图）</summary><label>类型<select id="ew-table-kind" class="input"><option value="">全部</option><option value="TI_CANDIDATE">候选加工</option><option value="RULE_REFERENCE">Rule 引用</option><option value="TI_READ">TI 读取</option><option value="TI_WRITE">TI 写入</option><option value="CALL">调用</option><option value="SCHEDULE">调度</option><option value="STRUCTURE">结构</option></select></label><div id="ew-relations" class="ew-table"></div></details>
+    </div>
+    <aside id="ew-detail" class="ew-detail"><h2>对象与关系详情</h2><p class="muted">从图或关系表选择对象。详情在这里切换，保留画布。</p></aside>
+  </div>
+  <details class="ew-notebook" open><summary>研究上下文（人工输入，不代表模型事实）</summary><div class="ew-notes"><label>MDX / 切面描述 · 只保存，不执行<textarea id="ew-mdx" class="input" rows="4" maxlength="30000"></textarea></label><label>设计笔记<textarea id="ew-notes" class="input" rows="4" maxlength="30000"></textarea></label></div></details>
+</section>

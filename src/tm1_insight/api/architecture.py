@@ -46,7 +46,7 @@ def manager():
 
 
 @router.get('/architecture')
-def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube','discover']='process',view:Literal['overview','functional_flow']='functional_flow'):
+def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube','discover']='process',view:Literal['overview','functional_flow','workbench']='functional_flow'):
     from tm1_insight.api.app import templates
     return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,initial_view=view,architecture_revision=architecture.REVISION))
 

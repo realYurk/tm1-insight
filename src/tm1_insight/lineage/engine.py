@@ -74,7 +74,8 @@ def _build_adjacency(
     return adj
 
 
-def _shortest_paths(adj: dict[str, list[tuple[str, Dependency]]], start: str) -> list[Lineage]:
+def _shortest_paths(adj: dict[str, list[tuple[str, Dependency]]], start: str,
+                    max_depth: int | None = None, max_nodes: int | None = None) -> list[Lineage]:
     """从 ``start`` 出发做 BFS，返回所有可达 target 的 Lineage（含 direct 自身）。
 
     每个 (source, target) 只保留一条 Lineage：BFS 天然给出最短跳数；同一深度
@@ -95,6 +96,8 @@ def _shortest_paths(adj: dict[str, list[tuple[str, Dependency]]], start: str) ->
 
     while queue:
         node, path, deps = queue.popleft()
+        if max_depth is not None and len(deps) >= max_depth:
+            continue
         for nxt, dep in adj.get(node, []):
             if nxt == node and nxt == start:
                 # 自环（start→start）：作为 depth=1 的 direct self 边产出一次，
@@ -117,6 +120,8 @@ def _shortest_paths(adj: dict[str, list[tuple[str, Dependency]]], start: str) ->
                 # BFS visits shortest paths first. Sorted adjacency also makes
                 # the first equal-length path deterministic. Expanding this node
                 # again enumerates exponentially many paths in converging DAGs.
+                continue
+            if max_nodes is not None and len(seen) >= max_nodes:
                 continue
             new_path = path + (nxt,)
             new_deps = deps + (dep,)
@@ -156,7 +161,8 @@ def build_lineage(dependencies: Iterable[Dependency]) -> list[Lineage]:
     return result
 
 
-def get_downstream(dependencies: Iterable[Dependency], source: str, _adj: dict | None = None) -> list[Lineage]:
+def get_downstream(dependencies: Iterable[Dependency], source: str, _adj: dict | None = None,
+                   *, max_depth: int | None = None, max_nodes: int | None = None) -> list[Lineage]:
     """返回 ``source`` 的所有下游可达关系（按 depth 升序、target 字典序稳定）。
 
     ``_adj`` 为可选预构建邻接表（性能优化：批量调用时复用，避免重复建图）。
@@ -164,7 +170,7 @@ def get_downstream(dependencies: Iterable[Dependency], source: str, _adj: dict |
     adj = _adj if _adj is not None else _build_adjacency(dependencies)
     if source not in adj:
         return []
-    lins = _shortest_paths(adj, source)
+    lins = _shortest_paths(adj, source, max_depth=max_depth, max_nodes=max_nodes)
     lins.sort(key=lambda l: (l.depth or 0, l.target))
     return lins
 

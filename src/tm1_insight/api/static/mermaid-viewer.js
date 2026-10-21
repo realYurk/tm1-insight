@@ -127,6 +127,14 @@
     var expPng = btn('导出 PNG', function () { exportPng(state, opts); });
 
     [zoomOut, zoomIn, fit, one, dir, full, copy, expMmd, expSvg, expPng].forEach(function (b) { bar.appendChild(b); });
+    if (opts.onBoxSelect) {
+      var boxSelect = btn('框选模式', function () {
+        state.boxSelection = !state.boxSelection;
+        boxSelect.textContent = state.boxSelection ? '退出框选' : '框选模式';
+        boxSelect.setAttribute('aria-pressed', String(state.boxSelection));
+      });
+      boxSelect.setAttribute('aria-pressed','false'); bar.appendChild(boxSelect);
+    }
     return bar;
   }
 
@@ -150,10 +158,13 @@
     var vp = state.viewport, inner = state.inner;
     if (!vp || !inner) return;
     var vr = vp.getBoundingClientRect();
-    var ir = inner.getBoundingClientRect();
-    var scale = Math.min((vr.width - 24) / Math.max(ir.width, 1), (vr.height - 24) / Math.max(ir.height, 1), 1.5);
+    var svg = inner.querySelector('svg');
+    var box = svg && svg.viewBox.baseVal;
+    var width = box && box.width + 40 || inner.scrollWidth || 800;
+    var height = box && box.height + 40 || inner.scrollHeight || 600;
+    var scale = Math.min((vr.width - 24) / Math.max(width, 1), (vr.height - 24) / Math.max(height, 1), 1.5);
     state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale));
-    state.pan = { x: (vr.width - ir.width * state.zoom) / 2, y: (vr.height - ir.height * state.zoom) / 2 };
+    state.pan = { x: (vr.width - width * state.zoom) / 2, y: (vr.height - height * state.zoom) / 2 };
     applyTransform(state);
   }
 
@@ -175,6 +186,8 @@
 
   function renderDiagram(state, opts, code) {
     var gen = ++state.generation;
+    (state.nodeHandlers || []).forEach(function (p) { p[0].removeEventListener('click', p[1]); });
+    state.nodeHandlers = [];
     state.code = code;
     state.inner.replaceChildren();
     var p = document.createElement('pre');
@@ -190,11 +203,24 @@
       el.className = 'mm-render';
       el.innerHTML = res.svg;
       state.inner.replaceChildren(el);
+      // Mermaid emits width="100%". Give pan/zoom an intrinsic canvas size;
+      // otherwise CSS responsive sizing and our transform scale the SVG twice.
+      var renderedSvg = el.querySelector('svg');
+      if (renderedSvg && renderedSvg.viewBox.baseVal.width) {
+        renderedSvg.style.width = renderedSvg.viewBox.baseVal.width + 'px';
+        renderedSvg.style.height = renderedSvg.viewBox.baseVal.height + 'px';
+        renderedSvg.style.maxWidth = 'none';
+      }
       state.svg = res.svg;
       bindNodes(state, opts);
       requestAnimationFrame(function () {
         if (state.disposed || gen !== state.generation) return;
-        fitView(state);
+        if (state.restoreView) {
+          state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, state.restoreView.zoom || 1));
+          state.pan = {x: state.restoreView.x || 0, y: state.restoreView.y || 0};
+          state.restoreView = null; applyTransform(state);
+        } else fitView(state);
+        if (opts.onRendered) opts.onRendered();
       });
     }).catch(function (err) {
       if (state.disposed || gen !== state.generation) return;
@@ -216,22 +242,27 @@
   }
 
   function bindNodes(state, opts) {
-    if (!opts.onNodeClick) return;
     var svg = state.inner.querySelector('svg');
     if (!svg) return;
+    if (opts.onEdgeClick) svg.querySelectorAll('.flowchart-link').forEach(function (edge, i) {
+      var handler = function (event) { event.stopPropagation(); opts.onEdgeClick(i, event); };
+      edge.style.cursor = 'pointer'; edge.addEventListener('click', handler);
+      state.nodeHandlers.push([edge, handler]);
+    });
+    if (!opts.onNodeClick) return;
     // 记录已绑定的事件监听器，unmount 时移除（防泄漏）。
     state.nodeHandlers = state.nodeHandlers || [];
     svg.querySelectorAll('.node').forEach(function (node) {
       var svgNodeId = node.id;
       var nodeId = extractNodeId(svgNodeId);
       node.style.cursor = 'pointer';
-      var handler = function () {
+      var handler = function (event) {
         var labels = node.querySelectorAll('.nodeLabel, text');
         var label = '';
         labels.forEach(function (t) { label += t.textContent; });
         // 优先通过 idMap 反查业务 id；否则传 mermaid 稳定节点 id。
         var businessId = (opts.idMap && nodeId != null) ? opts.idMap[nodeId] : null;
-        opts.onNodeClick(businessId !== undefined ? businessId : null, nodeId, label);
+        opts.onNodeClick(businessId !== undefined ? businessId : null, nodeId, label, event);
       };
       node.addEventListener('click', handler);
       state.nodeHandlers.push([node, handler]);
@@ -280,7 +311,7 @@
     if (!container) throw new Error('缺少容器');
     opts = opts || {};
     var state = {
-      container: container, code: opts.code || '', vertical: !!opts.vertical,
+      container: container, code: opts.code || '', vertical: !!(opts.view ? opts.view.vertical : opts.vertical), restoreView: opts.view || null,
       zoom: 1, pan: { x: 0, y: 0 }, disposed: false, svg: null,
       generation: 0, nodeHandlers: [],
       listeners: [],  // window/document 级监听器 + 对应事件类型，用于清理
@@ -299,19 +330,41 @@
     state.wrapper = wrapper;
 
     // 拖动平移
-    var dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
+    var dragging = false, startX = 0, startY = 0, origX = 0, origY = 0, selectionBox = null;
     var onMouseDown = function (e) {
       if (e.button !== 0) return;
+      if ((e.shiftKey || state.boxSelection) && opts.onBoxSelect) {
+        startX = e.clientX; startY = e.clientY;
+        selectionBox = document.createElement('div'); selectionBox.className = 'ew-box';
+        selectionBox.style.position = 'fixed'; wrapper.appendChild(selectionBox);
+        e.preventDefault(); return;
+      }
+      if (e.target.closest('.node,.flowchart-link')) return;
       dragging = true; startX = e.clientX; startY = e.clientY; origX = state.pan.x; origY = state.pan.y;
       viewport.style.cursor = 'grabbing';
       e.preventDefault();
     };
     var onMouseMove = function (e) {
+      if (selectionBox) {
+        selectionBox.style.left = Math.min(startX,e.clientX)+'px'; selectionBox.style.top = Math.min(startY,e.clientY)+'px';
+        selectionBox.style.width = Math.abs(e.clientX-startX)+'px'; selectionBox.style.height = Math.abs(e.clientY-startY)+'px'; return;
+      }
       if (!dragging || state.disposed) return;
       state.pan = { x: origX + (e.clientX - startX), y: origY + (e.clientY - startY) };
       applyTransform(state);
     };
-    var onMouseUp = function () { dragging = false; viewport.style.cursor = 'grab'; };
+    var onMouseUp = function (e) {
+      if (selectionBox) {
+        selectionBox.remove(); selectionBox = null;
+        var ids = []; var left=Math.min(startX,e.clientX), right=Math.max(startX,e.clientX), top=Math.min(startY,e.clientY), bottom=Math.max(startY,e.clientY);
+        state.inner.querySelectorAll('.node').forEach(function (node) {
+          var b=node.getBoundingClientRect(), id=extractNodeId(node.id);
+          if (b.right>=left && b.left<=right && b.bottom>=top && b.top<=bottom && opts.idMap[id]) ids.push(opts.idMap[id]);
+        });
+        opts.onBoxSelect(ids);
+      }
+      dragging = false; viewport.style.cursor = 'grab';
+    };
     var onWheel = function (e) {
       e.preventDefault();
       setZoom(state, state.zoom * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
@@ -343,10 +396,16 @@
       container.replaceChildren();
       instances.delete(instance);
     };
-    var instance = { container: container, destroy: destroy };
+    var instance = { container: container, destroy: destroy,
+      getView: function () { return {zoom:state.zoom,x:state.pan.x,y:state.pan.y,vertical:state.vertical?1:0}; },
+      select: function (ids, edgeIndex) {
+        state.inner.querySelectorAll('.node').forEach(function(n){n.classList.toggle('ew-selected',ids.indexOf(opts.idMap && opts.idMap[extractNodeId(n.id)])>=0);});
+        state.inner.querySelectorAll('.flowchart-link').forEach(function(e,i){e.classList.toggle('ew-edge-selected',i===edgeIndex);});
+      }
+    };
     instances.add(instance);
 
-    ensureMermaid().then(function () { renderDiagram(state, opts, state.code); }).catch(function (err) {
+    ensureMermaid().then(function () { if (!state.disposed) reflow(state, opts); }).catch(function (err) {
       if (state.disposed) return;
       showFallback(state, state.code, err);
     });
