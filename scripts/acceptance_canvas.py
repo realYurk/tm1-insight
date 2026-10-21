@@ -58,9 +58,11 @@ def edge_point(page, index=0):
     return page.evaluate(
         """(i) => {
             const cy = window.__ewCanvas.cy();
-            const e = cy.edges()[i];
+            const regular = cy.edges().filter(e => e.data('source') !== e.data('target'));
+            const e = regular[i];
             if (!e) return null;
             const p = e.midpoint();
+            if (!isFinite(p.x) || !isFinite(p.y)) return null;
             const pan = cy.pan(), z = cy.zoom();
             const r = document.querySelector('#ew-graph').getBoundingClientRect();
             return { x: r.left + p.x * z + pan.x, y: r.top + p.y * z + pan.y };

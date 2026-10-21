@@ -241,6 +241,7 @@
       const scope=$('as-scope').value;
       const ids=k=>items[k].map(x=>x.id);
       if(!ids('blueprint').length&&!ids('pattern').length)return status('还没有可导出的资产',true);
+      if(ids('blueprint').length>60||ids('pattern').length>60)return status('资产超过 60 个，超出单次导出上限；请先清理不再使用的测试资产。',true);
       try{
         const pre=await api('/api/assets/export/preflight',jsonOpt('POST',
           {blueprint_ids:ids('blueprint'),pattern_ids:ids('pattern'),verification_ids:ids('verification'),scope}));

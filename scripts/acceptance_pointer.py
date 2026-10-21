@@ -13,7 +13,7 @@ import urllib.parse
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("TM1_BASE", "http://127.0.0.1:8011")
-CUBE = os.environ.get("TM1_ACCEPT_CUBE", "Sales Cost Driver")
+CUBE = os.environ.get("TM1_ACCEPT_CUBE", "General Ledger")
 OUT = "logs/browser_acceptance"
 os.makedirs(OUT, exist_ok=True)
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"

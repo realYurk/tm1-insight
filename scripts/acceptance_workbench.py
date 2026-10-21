@@ -18,7 +18,7 @@ os.makedirs(OUT, exist_ok=True)
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
 # 默认使用合成示例名；真实模型验收请用环境变量覆盖，避免企业对象名进入公开仓库。
-CUBE = os.environ.get("TM1_ACCEPT_CUBE", "Sales Cost Driver")
+CUBE = os.environ.get("TM1_ACCEPT_CUBE", "General Ledger")
 ACT = os.environ.get("TM1_ACCEPT_TI", "Cub.Sales Cost Driver.Data.Load.From.Planning PnL.ACT")
 
 failures = []
@@ -121,7 +121,7 @@ def main():
         # 4. 点击 TI 节点，检查源码与写入切面
         close_detail()
         refit()
-        if not (click_node("ACT") or click_node("Data.Load")):
+        if not (click_node("General Ledger.Data.Load.From.CSV") or click_node("Data.Load")):
             check(False, "画布上应能找到目标 TI 节点")
         page.wait_for_timeout(1500)
         detail = page.inner_text("#ew-detail")
@@ -133,9 +133,10 @@ def main():
         check("已解析目标写入" in detail, "写入切面面板展开")
         check(CUBE in detail, "写入目标 Cube 正确")
         check("固定目标切面" in detail, "固定目标切面默认可见（无需展开）")
-        check("Planning Assumption" in detail or "Allocation Type" in detail, "固定目标成员具体值可见")
-        check("运行时" in detail and "vScenario" in detail, "运行时变量坐标可见")
-        check("vValue" in detail, "源码值表达式 vValue 原样显示（未臆测来源）")
+        check("Planning Assumption" in detail or "No Cost Center" in detail, "固定目标成员具体值可见")
+        check("运行时" in detail and ("vScenario" in detail or "vYear" in detail), "运行时变量坐标可见")
+        check("源码值表达式" in detail and ("vValue" in detail or "vAmount" in detail or "vBalance" in detail),
+              "源码值表达式原样显示（未臆测来源）")
         check("待确认" in detail or "未" in detail, "未确认项有明确标注")
         page.screenshot(path=OUT + "/31_workbench_act_writes.png", full_page=False)
 
@@ -202,6 +203,9 @@ def main():
               "Shift + 框选在画布上高亮多个 Cube")
 
         # 7. 备注与 MDX
+        # 研究笔记收在底部 Dock 的「研究笔记」页签里，先展开再填写
+        page.click("#ew-dock .cx-dock-tab[data-docktab='notes']")
+        page.wait_for_timeout(400)
         page.fill("#ew-mdx", "SELECT {[Scenario].[SP75]} ON 0")
         page.fill("#ew-notes", "验收备注：只保存不执行")
         page.fill("#ew-name", "验收工作区")

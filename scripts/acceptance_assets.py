@@ -110,7 +110,7 @@ def main():
         page.goto(BASE + "/assets", wait_until="networkidle")
         page.wait_for_timeout(1500)
         check("Production Volume Load" in page.inner_text("#as-items"), "工程资产页列出新建 Blueprint")
-        page.locator(".asset-item").first.click()
+        page.locator(".asset-item", has_text="Production Volume Load").first.click()
         page.wait_for_timeout(1200)
         detail = page.inner_text("#as-detail")
         check("角色绑定" in detail, "Blueprint 详情显示角色绑定")
