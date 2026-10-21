@@ -142,6 +142,32 @@ def main():
         check("StringToNumberEx( vQuantity" in data_src, "数值列转换为 vValue")
         page.screenshot(path=OUT + "/41_design_generated.png", full_page=False)
 
+        # 7b. RC 关键项：清空范围可描述、数据源变量契约、过期判定
+        panel_text = page.evaluate("() => document.querySelector('#ew-detail').textContent")
+        check("清空范围" in panel_text and "Scenario = Forecast" in panel_text,
+              "生成面板显示可描述的清空范围")
+        check("数据源变量" in panel_text and "vProductCode" in panel_text,
+              "生成面板列出数据源变量（Variables 页签契约）")
+        check("未在 TM1" in panel_text or "未验证" in panel_text, "明确标注未在 TM1 验证")
+
+        rel_row = page.inner_text("#ew-rel-list")
+        check("已生成草案" in rel_row, "关系行显示已生成状态")
+
+        # 改动固定成员 → 应显示「已过期」
+        page.click("#ew-rel-list button:has-text('配置映射')")
+        page.wait_for_timeout(800)
+        first_value = page.locator("#ew-detail .ew-map-row input.input").first
+        first_value.fill("Actual")
+        first_value.dispatch_event("input")
+        page.wait_for_timeout(1500)
+        check("已过期" in page.inner_text("#ew-rel-list"), "设计变更后标记代码草案已过期")
+        page.screenshot(path=OUT + "/42_design_stale.png", full_page=False)
+
+        # 清空策略改为 none → 不再要求固定成员范围
+        page.wait_for_timeout(300)
+        page.select_option("#ew-cclear", "none")
+        page.wait_for_timeout(600)
+
         # 8. 保存 → 刷新 → 恢复
         page.fill("#ew-name", "设计验收")
         page.click("#ew-save")
