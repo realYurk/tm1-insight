@@ -49,7 +49,9 @@
     }else{graph=response;selected.clear();hidden.clear();}
     response.nodes.forEach(n=>known.set(n.id,n));
     $('ew-path-next').hidden=!pathQuery||response.limits.next_seed_offset===null||response.limits.next_seed_offset===undefined;
-    render(true);changed();status(response.nodes.length?`已完成局部查询：${response.nodes.length} 个对象、${response.edges.length} 条关系。${response.limits.truncated?'结果因预算被截断，不能解释为完整模型。':response.limits.boundary?'这是局部视图，边界外仍有对象；可继续展开。':''}${response.rule_scope&&!response.rule_scope.complete?` 部分 Rule 未在本次预算内核对（${response.rule_scope.owners_analyzed}/${response.rule_scope.owners_considered}）。`:''}`:'没有找到入口或路径；没有生成替代关系。');
+    // 新查询或局部展开都改变了对象集合：沿用旧视口会把新节点留在可视区外，
+    // 因此这里重新适应画布；只有「恢复工作区」才使用保存的视口。
+    render(false);changed();status(response.nodes.length?`已完成局部查询：${response.nodes.length} 个对象、${response.edges.length} 条关系。${response.limits.truncated?'结果因预算被截断，不能解释为完整模型。':response.limits.boundary?'这是局部视图，边界外仍有对象；可继续展开。':''}${response.rule_scope&&!response.rule_scope.complete?` 部分 Rule 未在本次预算内核对（${response.rule_scope.owners_analyzed}/${response.rule_scope.owners_considered}）。`:''}`:'没有找到入口或路径；没有生成替代关系。');
   }
   function mermaidLabel(value){return String(value).replace(/[&<>"\[\]{}|`\\]/g,c=>'&#'+c.charCodeAt(0)+';').replace(/[\r\n]/g,' ');}
   function nodeLabel(value){const words=String(value).split(' '),lines=[''];words.forEach(word=>{if((lines[lines.length-1]+' '+word).length>24&&lines[lines.length-1])lines.push(word);else lines[lines.length-1]+=(lines[lines.length-1]?' ':'')+word;});return lines.map(mermaidLabel).join('<br/>');}
