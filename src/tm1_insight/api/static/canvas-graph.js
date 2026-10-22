@@ -40,6 +40,7 @@
   }
 
   const ICON = {
+    process: dataUri("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect x='5' y='9' width='38' height='30' rx='7' fill='#eaf1f7' stroke='#64748b' stroke-width='1.5'/><path d='m20 17 12 7-12 7z' fill='#64748b'/></svg>"),
     cube: dataUri(cubeSvg(CUBE_BLUE)),
     draft: dataUri(cubeSvg(CUBE_AMBER)),
     group: dataUri(stackSvg()),
@@ -66,6 +67,7 @@
 
   function styleSheet() {
     const base = [
+      {selector:'core',style:{'active-bg-opacity':0,'active-bg-size':0}},
       {
         selector: 'node',
         style: {
@@ -93,17 +95,18 @@
           'text-background-shape': 'roundrectangle',
           'overlay-opacity': 0,
           'transition-property': 'border-width, border-color',
-          'transition-duration': '90ms',
+          'transition-duration': window.matchMedia('(prefers-reduced-motion: reduce)').matches?'0ms':'90ms',
         },
       },
       { selector: 'node[type="cube"]', style: { 'background-image': ICON.cube } },
       { selector: 'node[type="draft"]', style: { 'background-image': ICON.draft, color: '#92400e' } },
       { selector: 'node[type="source"]', style: { 'background-image': ICON.source, color: '#5b21b6' } },
       { selector: 'node[type="group"]', style: { 'background-image': ICON.group, color: '#475569', 'font-weight': 'bold' } },
-      { selector: 'node[type="process"]', style: { 'background-image': ICON.muted, color: '#475569' } },
+      { selector: 'node[type="process"]', style: { 'background-image': ICON.process, color: '#475569' } },
       { selector: 'node[type="chore"], node[type="dimension"]', style: { 'background-image': ICON.muted } },
       { selector: 'node.cn-hover', style: { 'border-width': 2, 'border-color': '#bfdbfe' } },
       { selector: 'node.cn-selected', style: { 'border-width': 2, 'border-color': '#2563eb' } },
+      { selector: 'node.cn-kb-focus', style: { 'border-width': 2.5, 'border-style': 'dashed', 'border-color': '#3556d4' } },
       {
         selector: 'edge',
         style: {
@@ -133,7 +136,7 @@
           'overlay-padding': 13,
           'overlay-opacity': 0,
           'transition-property': 'line-color, width',
-          'transition-duration': '90ms',
+          'transition-duration': window.matchMedia('(prefers-reduced-motion: reduce)').matches?'0ms':'90ms',
         },
       },
       { selector: 'edge.cn-hover', style: { width: 2.8 } },
@@ -177,6 +180,7 @@
     let hoverNode = null;
     let lastTapAt = 0;
     let lastTapId = '';
+    let direction='LR';
 
     container.classList.add('cn-canvas');
     container.replaceChildren();
@@ -477,6 +481,49 @@
     }, true);
 
     initCy();
+    // 键盘节点导航：画布容器可获得焦点（tabindex=0），方向键在可见节点间移动，
+    // Enter 触发选择。仅在容器自身获得焦点时响应，避免与输入框/面板滚动冲突。
+    let kbFocus = null;
+    container.addEventListener('keydown', function (evt) {
+      const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'];
+      if (!keys.includes(evt.key)) return;
+      // 只在画布容器自身获得焦点（Tab 聚焦）时响应；不抢输入框 / 菜单 / 面板的键盘。
+      if (document.activeElement !== container) return;
+      const visible = cy.nodes(':visible').filter(function (n) { return n.data('type') !== 'group'; });
+      if (!visible.length) return;
+      evt.preventDefault();
+      if (evt.key === 'Enter') {
+        if (kbFocus && opt.onNodeClick) { opt.onNodeClick(kbFocus, {}); return; }
+        return;
+      }
+      // 从当前焦点（或首个节点）出发，按模型坐标在该方向找最近邻
+      const cur = kbFocus ? cy.getElementById(kbFocus) : null;
+      const origin = (cur && cur.length) ? cur.position() : (visible.first() && visible.first().position());
+      if (!origin) return;
+      let best = null, bestDist = Infinity;
+      const wantX = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: 0, ArrowDown: 0 }[evt.key];
+      const wantY = { ArrowLeft: 0, ArrowRight: 0, ArrowUp: -1, ArrowDown: 1 }[evt.key];
+      visible.forEach(function (n) {
+        if (cur && n.id() === kbFocus) return;
+        const p = n.position();
+        const dx = p.x - origin.x, dy = p.y - origin.y;
+        // 方向投影必须为正，否则不在目标方向
+        const proj = dx * wantX + dy * wantY;
+        if (proj <= 0) return;
+        const d = Math.abs(dx) + Math.abs(dy) - proj; // 偏向该方向上的最近邻
+        if (d < bestDist) { bestDist = d; best = n; }
+      });
+      if (!best) return;
+      kbFocus = best.id();
+      cy.elements().removeClass('cn-kb-focus');
+      best.addClass('cn-kb-focus');
+      runProgrammatic(function () { best.emit('position'); }); // 触发重绘
+      if (opt.onKbFocus) opt.onKbFocus(best.id());
+    });
+    container.addEventListener('blur', function () {
+      kbFocus = null;
+      cy && cy.elements().removeClass('cn-kb-focus');
+    });
     // 容器尺寸会随侧栏 / 详情开合变化；Cytoscape 必须收到 resize，
     // 否则视野与元素坐标会停留在初始化那一刻的尺寸上（节点跑到可视区外）。
     let observer = null;
@@ -589,6 +636,7 @@
         if (!cy || !cy.nodes().length) return;
         const visibleNodes = cy.nodes(':visible').filter(function (n) { return n.data('type') !== 'group'; });
         if (!visibleNodes.length) return;
+        if(name==='tb')direction='TB';else if(name==='layered')direction='LR';
         if (name === 'grid') {
           cy.layout({ name: 'grid', padding: 40, avoidOverlap: true, condense: true }).run();
         } else {
@@ -600,7 +648,7 @@
               && nodeIds.has(e.source().id()) && nodeIds.has(e.target().id());
           }).map(function (e) { return { source: e.source().id(), target: e.target().id() }; });
           const result = window.TM1CanvasLayout
-            ? window.TM1CanvasLayout.compute(nodes, edges)
+            ? window.TM1CanvasLayout.compute(nodes, edges,{strategy:'layered',direction:direction})
             : null;
           if (result) {
             lastStrategy = result.strategy;
@@ -621,6 +669,7 @@
 
       applyView: function (view) {
         if (!cy || !view) return;
+        direction=view.vertical?'TB':'LR';
         runProgrammatic(function () {
           if (view.zoom) cy.zoom(view.zoom);
           if (typeof view.x === 'number' && typeof view.y === 'number') {
@@ -635,7 +684,7 @@
         if (!cy) return {};
         const p = cy.pan(), z = cy.zoom();
         // Workspace.layout 只接受 {zoom,x,y,vertical} 四个数值键
-        return { zoom: Number(z.toFixed(3)), x: Math.round(p.x), y: Math.round(p.y) };
+        return { zoom: Number(z.toFixed(3)), x: Math.round(p.x), y: Math.round(p.y),vertical:direction==='TB'?1:0 };
       },
 
       getPositions: function () {
@@ -679,7 +728,8 @@
         if (!cy) return;
         const n = cy.getElementById(id);
         if (n && n.length) runProgrammatic(function () {
-          cy.animate({ center: { eles: n }, zoom: Math.max(cy.zoom(), 0.9) }, { duration: 220 });
+          if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){cy.center(n);cy.zoom({level:Math.max(cy.zoom(),0.9),position:n.position()});}
+          else cy.animate({ center: { eles: n }, zoom: Math.max(cy.zoom(), 0.9) }, { duration: 160 });
         });
       },
 

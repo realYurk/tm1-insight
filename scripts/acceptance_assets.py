@@ -25,6 +25,23 @@ def check(cond, msg):
         failures.append(msg)
 
 
+def enter_design(page):
+    """经可见「＋ 创建」进入设计模式，展开侧栏并恢复全部设计 section。
+
+    旧顶层切换已收进创建菜单。用「维度草稿」入口可 setMode('design') + 展开侧栏，
+    再恢复全部 section 可见（openCreateSection 会隐藏非当前 section），
+    以便后续操作 #ew-rel-list（section ⑤）。
+    """
+    page.click("#ew-create")
+    page.wait_for_timeout(300)
+    page.click("#ew-create-dimension")
+    page.wait_for_timeout(900)
+    page.evaluate("""() => {
+        document.querySelectorAll('#ew-design > details').forEach(d => { d.hidden = false; });
+    }""")
+    page.wait_for_timeout(300)
+
+
 def api(path, body=None):
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Content-Type": "application/json"} if body is not None else {}
@@ -98,7 +115,7 @@ def main():
         page.goto(BASE + "/architecture?view=workbench&workspace_id=" + workspace_id,
                   wait_until="networkidle")
         page.wait_for_timeout(2500)
-        page.click("#ew-mode-design")
+        enter_design(page)
         page.wait_for_timeout(1200)
         rel_text = page.inner_text("#ew-rel-list")
         check("→" in rel_text, "项目 A 的设计关系已加载")

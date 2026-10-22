@@ -84,12 +84,35 @@ def rule_edges(db_path,snapshot,cube):
     return project(parsed,snapshot),True
 
 
+def visible_objects(nodes, *, type: str, q: str, include_technical: bool):
+    """对象目录过滤（纯函数，便于单测）。
+
+    规则只针对 `}` 前缀（采集层的系统命名标记）；`Sys Parameter`、`#######`
+    等名称不参与任何「系统 / 业务」判定，不会被硬编码排除或改写。
+    """
+    found = sorted((n for n in nodes.values() if n['type'] == type and q.casefold() in n['name'].casefold()), key=lambda n:n['name'])
+    if not include_technical:
+        found = [n for n in found if not n['name'].startswith('}')]
+    return found
+
+
 @router.get('/api/workbench/objects')
-def objects(q: str = Query('', max_length=200), type: str = Query('cube', pattern='^(cube|process|chore|dimension)$')):
+def objects(q: str = Query('', max_length=200), type: str = Query('cube', pattern='^(cube|process|chore|dimension)$'),
+            include_technical: bool = Query(False), limit: int = Query(40, ge=1, le=200), offset: int = Query(0, ge=0, le=100000)):
+    """对象目录。系统对象（`}` 前缀）默认过滤后再分页，避免用户先看到技术辅助对象。
+
+    - `}` 前缀是采集层使用的系统命名标记（维度属性 / 视图缓存 / 归档等），
+      不是业务用途推断；仅据此做显示过滤，不据此改对象身份或语义。
+    - `Sys Parameter`、`#######` 等名称不参与任何「系统 / 业务」判定，
+      不会被硬编码排除或改写。
+    - include_technical=True 保留旧参数与全部对象（含 `}` 前缀），分页一致。
+    """
     store, snapshot = guard('')
     nodes, _ = index(str(store.settings.db_path), snapshot)
-    found = sorted((n for n in nodes.values() if n['type'] == type and q.casefold() in n['name'].casefold()), key=lambda n:n['name'])
-    return dict(snapshot_id=snapshot, objects=found[:40], total=len(found))
+    found = visible_objects(nodes, type=type, q=q, include_technical=include_technical)
+    total = len(found)
+    return dict(snapshot_id=snapshot, objects=found[offset:offset + limit], total=total,
+                filtered_technical=not include_technical, offset=offset, limit=limit)
 
 
 @router.get('/api/workbench/detail')

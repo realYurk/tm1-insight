@@ -31,6 +31,10 @@ def open_workbench(page, suffix=""):
     page.goto(BASE + "/architecture?view=workbench&kind=cube&name=" + urllib.parse.quote(CUBE) + suffix,
               wait_until="networkidle")
     page.wait_for_timeout(2000)
+    # 资源栏默认收起；先展开再搜索
+    if page.locator("#ew-rail").evaluate("el => getComputedStyle(el).display") == "none":
+        page.click("#ew-toggle-rail")
+        page.wait_for_timeout(300)
     page.fill("#ew-search", CUBE)
     page.wait_for_timeout(600)
     if page.locator("#ew-resources button").count():
@@ -166,14 +170,13 @@ def main() -> int:
         check(fits["noScroll"], "页面无纵向长滚动（内容高 %d / 视口 %d）" % (fits["h"], fits["winH"]))
         m2 = page2.evaluate(LAYOUT_METRICS)
         check(m2["overlap"] == 0, "紧凑窗口下仍无节点碰撞（%d）" % m2["overlap"])
-        rail_hidden = page2.evaluate("""() => {
-            document.getElementById('ew-toggle-rail').click();
-            return new Promise(res => setTimeout(() => {
-                const rail = document.querySelector('.cx-rail');
-                res(rail && getComputedStyle(rail).display === 'none');
-            }, 400));
+        # 点搜索结果后资源栏自动收起让位画布（showNode→TM1Shell.hideRail）；toggle 可再展开
+        rail_auto_hidden = page2.evaluate("""() => {
+            const root = document.getElementById('ew-root');
+            const rail = document.querySelector('.cx-rail');
+            return root.classList.contains('rail-collapsed') && rail && getComputedStyle(rail).display === 'none';
         }""")
-        check(rail_hidden, "紧凑窗口可收起资源栏让位画布")
+        check(rail_auto_hidden, "紧凑窗口点搜索结果后资源栏自动收起让位画布")
         page2.screenshot(path=os.path.join(OUT, "62_compact_1366.png"))
         real_errors = [e for e in errors if "favicon" not in e and "404" not in e]
         check(not real_errors, "无页面脚本错误" + ("" if not real_errors else "：" + str(real_errors[:2])))

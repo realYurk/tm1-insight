@@ -71,6 +71,14 @@ def edge_point(page, index=0):
     )
 
 
+def create_cube_draft(page):
+    """通过「＋ 创建 → Cube 草稿」新建一个未部署的 Cube 草稿。"""
+    page.click("#ew-create")
+    page.wait_for_timeout(300)
+    page.click("#ew-create-cube")
+    page.wait_for_timeout(900)
+
+
 def main() -> int:
     os.makedirs(OUT, exist_ok=True)
     from playwright.sync_api import sync_playwright
@@ -95,6 +103,10 @@ def main() -> int:
             target = listed[0]["name"] if listed else ""
         open_workbench("&kind=cube&name=" + urllib.parse.quote(target) if target else "")
         if target:
+            # 资源栏默认收起；先展开再搜索（保留真实搜索入口的验收）。
+            if page.locator("#ew-rail").evaluate("el => getComputedStyle(el).display") == "none":
+                page.click("#ew-toggle-rail")
+                page.wait_for_timeout(300)
             page.fill("#ew-search", target)
             page.wait_for_timeout(700)
             if page.locator("#ew-resources button").count():
@@ -140,7 +152,7 @@ def main() -> int:
         else:
             check(False, "画布上应有可点击的连线")
 
-        page.click("#ew-detail button:has-text('关闭详情')")
+        page.click("#ew-detail button[aria-label='关闭详情']")
         page.wait_for_timeout(900)
         zoom_after = page.evaluate("() => window.__ewCanvas.cy().zoom()")
         check(abs(zoom_before - zoom_after) < 0.001,
@@ -149,13 +161,15 @@ def main() -> int:
 
         # ---------------------------------------------------------- 演示二：鼠标建模
         print("\n[2] 设计模式：鼠标拖线建立关系 → 配置 → 生成", flush=True)
-        page.click("#ew-mode-design")
-        page.wait_for_timeout(900)
-        check(page.is_visible("#ew-add-cube"), "设计模式出现 + Cube 入口")
+        # 新交互：单一「＋ 创建」入口直接创建草稿（没有独立的顶层模式切换）。
+        page.click("#ew-create")
+        page.wait_for_timeout(300)
+        check(page.is_visible("#ew-create-menu"), "「＋ 创建」菜单展开，含 Cube 草稿入口")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
 
         for name in ("SalesCost", "SalesVolume"):
-            page.click("#ew-add-cube")
-            page.wait_for_timeout(900)
+            create_cube_draft(page)
             page.fill("#ew-detail input.input >> nth=0", name)
             page.fill("#ew-detail textarea", "Scenario\nVersion\nYear\nMeasure")
             page.click("#ew-detail button:has-text('保存草稿')")
@@ -302,7 +316,8 @@ def main() -> int:
         if inst.get("workspace_id"):
             open_workbench("&workspace_id=" + inst["workspace_id"])
             page.wait_for_timeout(2400)
-            page.click("#ew-mode-design")
+            # Blueprint 实例化的设计对象（Cube 草稿 / CSV 来源 / 设计连线）随工作区恢复即渲染，
+            # 不需要再切顶层设计模式（该切换已并入「＋ 创建」）。
             page.wait_for_timeout(1400)
             reuse = page.evaluate("""() => {
                 const cy = window.__ewCanvas.cy();

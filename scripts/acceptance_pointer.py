@@ -39,6 +39,10 @@ def main():
         page.wait_for_selector("#ew-graph canvas", timeout=30000)
         page.wait_for_timeout(2500)
 
+        # 资源栏默认收起；先展开再搜索
+        if page.locator("#ew-rail").evaluate("el => getComputedStyle(el).display") == "none":
+            page.click("#ew-toggle-rail")
+            page.wait_for_timeout(300)
         page.fill("#ew-search", CUBE)
         page.wait_for_timeout(600)
         if page.locator("#ew-resources button").count():
@@ -64,8 +68,8 @@ def main():
         check(len(centers) >= 2, "视口内有可点击节点（%d）" % len(centers))
 
         def close_detail():
-            if page.locator("#ew-detail button:has-text('关闭详情')").count():
-                page.click("#ew-detail button:has-text('关闭详情')")
+            if page.locator("#ew-detail button[aria-label='关闭详情']").count():
+                page.click("#ew-detail button[aria-label='关闭详情']")
                 page.wait_for_timeout(500)
 
         def refit():

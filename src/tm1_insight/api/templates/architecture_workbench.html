@@ -1,20 +1,30 @@
-<section id="ew-root" class="cx-root detail-hidden" data-name="{{ name }}" data-kind="{{ kind }}">
+<section id="ew-root" class="cx-root detail-hidden rail-collapsed" data-name="{{ name }}" data-kind="{{ kind }}">
   <!-- ═══════════════ 应用栏 ═══════════════ -->
   <header class="cx-appbar">
     <div class="cx-appbar-brand">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8fa5e8" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7L12 2.5z"/><path d="M3.5 7 12 11.5 20.5 7"/><path d="M12 11.5V21.5"/></svg>
       <span class="cx-appbar-title">业务架构沙盘</span>
     </div>
-    <div class="cx-modes" role="tablist" aria-label="工作模式">
+    <div class="cx-modes" role="tablist" aria-label="工作模式" hidden>
       <button type="button" class="cx-mode" id="ew-mode-explore" role="tab" aria-selected="true">探索</button>
       <button type="button" class="cx-mode" id="ew-mode-design" role="tab" aria-selected="false">设计</button>
     </div>
     <span class="cx-appbar-chip" id="ew-project-chip">{{ name or '选择探索入口' }} · 本地离线模型</span>
-    <span class="muted small" id="ew-mode-hint" style="color:#8b94ab;font-size:11px">探索：只读研究已有模型。设计：创建草稿，不部署、不修改模型。</span>
+    <span id="ew-mode-hint" hidden>本地研究与设计草稿，不部署。</span>
     <div class="cx-appbar-grow"></div>
     <label class="cx-ws-name" aria-label="工作区名称"><input id="ew-name" value="我的架构研究" maxlength="200" placeholder="工作区名称"></label>
     <span id="ew-save-state" class="cx-savestate" data-state="idle" role="status"></span>
     <button id="ew-save" class="cx-btn cx-btn-primary">保存</button>
+    <div class="cx-menuwrap">
+      <button id="ew-create" class="cx-btn cx-btn-primary" type="button" aria-expanded="false" aria-haspopup="true">＋ 创建</button>
+      <div id="ew-create-menu" class="cx-menu" hidden>
+        <button id="ew-create-cube" class="cx-menuitem" type="button">Cube 草稿</button>
+        <button id="ew-create-source" class="cx-menuitem" type="button">CSV Schema 草稿</button>
+        <button id="ew-create-relation" class="cx-menuitem" type="button">设计关系</button>
+        <button id="ew-create-module" class="cx-menuitem" type="button">人工模块</button>
+        <button id="ew-create-dimension" class="cx-menuitem" type="button">维度草稿</button>
+      </div>
+    </div>
     <div class="cx-menuwrap">
       <button id="ew-more" class="cx-btn cx-btn-icon" aria-haspopup="true" aria-expanded="false" aria-label="更多工作区操作" style="background:#0e1526;border-color:#33405f;color:#c9d3ea">⋯</button>
       <div id="ew-more-menu" class="cx-menu" hidden>
@@ -25,6 +35,9 @@
         <hr>
         <button id="ew-save-as" class="cx-menuitem" type="button">另存为新工作区…</button>
         <button id="ew-export" class="cx-menuitem" type="button">导出工作区 JSON</button>
+        <button id="ew-hide" class="cx-menuitem" type="button">隐藏选中对象</button>
+        <button id="ew-show" class="cx-menuitem" type="button">恢复隐藏对象</button>
+        <button id="ew-clear" class="cx-menuitem" type="button">清空选择</button>
         <label class="cx-menuitem" style="cursor:pointer">导入工作区 JSON<input id="ew-import" type="file" accept=".json" hidden></label>
       </div>
     </div>
@@ -42,7 +55,7 @@
       <div class="cx-rail-sec">
         <div class="cx-rail-title">模型对象</div>
         <label>类型
-          <select id="ew-kind" class="cx-input"><option value="cube">Cube</option><option value="process">TI</option><option value="chore">Chore</option><option value="dimension">Dimension</option></select>
+          <select id="ew-kind" class="cx-input"><option value="cube">Cube</option><option value="process">TI</option><option value="rule">Rule 所属 Cube</option><option value="chore">Chore</option><option value="dimension">Dimension</option></select>
         </label>
         <label>搜索
           <input id="ew-search" class="cx-input" placeholder="General Ledger / BP / Allocation" maxlength="200">
@@ -51,7 +64,7 @@
       </div>
 
       <div class="cx-rail-sec">
-        <div class="cx-rail-title">探索范围</div>
+        <details class="cx-scope"><summary>探索范围与筛选</summary>
         <label>方向
           <select id="ew-direction" class="cx-input"><option value="both">上游与下游</option><option value="upstream">上游</option><option value="downstream">下游</option></select>
         </label>
@@ -67,6 +80,7 @@
           <button class="cx-btn" id="ew-requery" style="flex:1">按当前选择探索</button>
           <button class="cx-btn" id="ew-cancel" title="取消进行中的查询">取消</button>
         </div>
+        </details>
       </div>
 
       <div class="cx-rail-sec">
@@ -83,10 +97,11 @@
       </div>
 
       <div class="cx-rail-sec">
-        <div class="cx-rail-title">人工模块</div>
+        <details id="ew-module-tools"><summary>人工模块</summary>
         <label>名称<input id="ew-group-name" class="cx-input" maxlength="200" placeholder="如：费用处理研究"></label>
         <button id="ew-group-create" class="cx-btn">从选中对象建立模块</button>
         <div id="ew-groups"></div>
+        </details>
       </div>
 
       <div id="ew-design" class="cx-rail-sec" hidden>
@@ -137,18 +152,18 @@
       <div class="cx-toolbar">
         <button id="ew-toggle-rail" class="cx-tbtn" title="收起 / 展开左侧对象清单（记住状态）" aria-label="切换资源栏">☰ 对象</button>
         <span class="cx-toolbar-sep"></span>
-        <button id="ew-add-cube" class="cx-tbtn" hidden title="在设计模式下向画布添加 Cube 草稿" style="color:var(--cx-accent);font-weight:600">＋ Cube</button>
+        <button id="ew-add-cube" class="cx-tbtn" hidden title="添加未部署的 Cube 草稿">＋ Cube</button>
+        <input id="ew-quick-search" class="cx-quick-search" placeholder="搜索 Cube / TI / Rule…" aria-label="搜索架构对象" maxlength="200">
         <span class="spacer"></span>
         <button id="ew-fit" class="cx-tbtn" title="适应画布（完整收入当前图）">⤢ 适应</button>
         <button id="ew-layout" class="cx-tbtn" title="自动排列当前图">自动布局</button>
+        <button id="ew-flow-direction" class="cx-tbtn" title="切换分层布局方向">左 → 右</button>
         <span class="cx-toolbar-sep"></span>
-        <button id="ew-hide" class="cx-tbtn" title="隐藏选中对象">隐藏</button>
-        <button id="ew-show" class="cx-tbtn" title="恢复全部隐藏对象">恢复</button>
-        <button id="ew-clear" class="cx-tbtn" title="清空选择（Esc 同效）">清空选择</button>
       </div>
 
       <div class="cx-canvaswrap" id="ew-canvaswrap">
         <div id="ew-graph" aria-label="架构画布" tabindex="0"></div>
+        <div id="ew-empty-canvas" class="cx-start-card"><span class="cx-start-kicker">ARCHITECTURE WORKBENCH</span><h2>从一个对象，读懂一条链路</h2><p>搜索 Cube、TI 或 Rule 所属 Cube。按需展开来源与结果，证据始终可查。</p><button id="ew-start-search" class="cx-btn cx-btn-primary" type="button">查找模型对象</button><span>也可以通过右上角「＋ 创建」开始本地草稿。</span></div>
 
         <div class="cx-legend" id="ew-legend">
           <div class="cx-legend-head" id="ew-legend-head" role="button" tabindex="0" aria-expanded="false">

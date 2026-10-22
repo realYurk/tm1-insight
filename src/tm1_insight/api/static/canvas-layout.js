@@ -76,11 +76,11 @@
   /* ---------------- 主入口 ---------------- */
   function compute(nodes, edges, opts) {
     var opt = opts || {};
-    var list = nodes.filter(function (n) { return n.type !== 'group'; });
+    var list = nodes.filter(function (n) { return n.type !== 'group'; }).slice().sort(function(a,b){return String(a.id).localeCompare(String(b.id));});
     var idset = new Set(list.map(function (n) { return n.id; }));
     var links = edges.filter(function (e) {
       return idset.has(e.source) && idset.has(e.target) && e.source !== e.target;
-    });
+    }).slice().sort(function(a,b){return String(a.source).localeCompare(String(b.source))||String(a.target).localeCompare(String(b.target));});
 
     if (list.length === 0) return { positions: {}, strategy: 'empty', sccCount: 0 };
     if (list.length === 1) return { positions: (function () { var p = {}; p[list[0].id] = { x: 0, y: 0 }; return p; })(), strategy: 'single', sccCount: 1 };
@@ -103,10 +103,12 @@
     var hub = null, hubDeg = 0;
     list.forEach(function (n) { if (degree[n.id] > hubDeg) { hubDeg = degree[n.id]; hub = n.id; } });
     var starLike = hubDeg >= 5 && hubDeg >= 0.34 * list.length;
-    if (starLike && opt.strategy !== 'layered') {
+    if (starLike && opt.strategy === 'radial') {
       return radial(hub, list, links, adj, radj, sccs.length);
     }
-    return layered(list, links, adj, sccs, compOf);
+    var result=layered(list, links, adj, sccs, compOf);
+    if(opt.direction==='TB')Object.keys(result.positions).forEach(function(id){var p=result.positions[id];result.positions[id]={x:p.y,y:p.x};});
+    return result;
   }
 
   /* ---------------- 分层布局 ---------------- */
@@ -190,29 +192,30 @@
         sccs[c].forEach(function (id) { maxW = Math.max(maxW, nodeWidth(nameOf(id))); });
       });
       var colW = maxW + BASE_COL;
-      var cols = Math.max(1, Math.ceil(comp.length / MAX_ROWS));
+      var packed=[],heights=[0],column=0;
+      comp.forEach(function(c){var size=sccs[c].length;if(heights[column]&&heights[column]+size>MAX_ROWS){column++;heights[column]=0;}packed.push({column:column,row:heights[column],size:size});heights[column]+=size;});
+      var cols = heights.length;
       // 展开分量成员：单成员直接放；多成员（环）先占格再成环
       comp.forEach(function (c, ci) {
         var members = sccs[c];
-        var colIdx = Math.floor(ci / MAX_ROWS) + (cols > 1 ? 0 : 0);
-        var rowInCol = ci % MAX_ROWS;
-        var colCount = Math.ceil(comp.length / MAX_ROWS);
+        var colIdx = packed[ci].column;
+        var rowInCol = packed[ci].row+(packed[ci].size-1)/2;
         var cellX = x + colIdx * colW;
-        var columnCount = Math.min(MAX_ROWS, comp.length - colIdx * MAX_ROWS);
+        var columnCount = heights[colIdx];
         var cellY = (rowInCol - (columnCount - 1) / 2) * ROW_H;
         if (members.length === 1) {
           positions[members[0]] = { x: cellX, y: cellY };
         } else {
-          // 环成员围绕格中心
-          var r = 66 + members.length * 9;
+          // Cyclic members share one layer; local staggering is presentation,
+          // never an invented execution order within the strongly connected set.
+          members.sort();
           members.forEach(function (id, mi) {
-            var ang = (mi / members.length) * Math.PI * 2 - Math.PI / 2;
-            positions[id] = { x: cellX + Math.cos(ang) * r, y: cellY + Math.sin(ang) * r * 0.8 };
+            positions[id] = { x: cellX + (mi%2)*24, y: cellY + (mi-(members.length-1)/2)*ROW_H };
           });
         }
       });
-      colWidths.push(colW * Math.max(1, Math.ceil(comp.length / MAX_ROWS)));
-      x += colW * Math.max(1, Math.ceil(comp.length / MAX_ROWS));
+      colWidths.push(colW * cols);
+      x += colW * cols;
       tallest = Math.max(tallest, Math.min(comp.length, MAX_ROWS));
     });
     return { positions: positions, strategy: 'layered', sccCount: nc, layerCount: layers.length };

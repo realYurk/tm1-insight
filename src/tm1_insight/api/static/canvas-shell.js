@@ -16,7 +16,7 @@
 
   /* ------------------------------------------------ 资源栏折叠（记忆宽度开关） */
   try {
-    if (localStorage.getItem(RAIL_KEY) === '0') root.classList.add('rail-collapsed');
+    if (localStorage.getItem(RAIL_KEY) === '1') root.classList.remove('rail-collapsed');
   } catch (e) { /* 隐私模式：不记忆 */ }
 
   var railBtn = $('ew-toggle-rail');
@@ -45,8 +45,30 @@
     // 点菜单里的任何条目后自动收起（导入 label 内的文件选择除外）
     moreMenu.addEventListener('click', function (e) {
       if (e.target.closest('label')) return;
+      if (e.target.closest('select,option')) return;
       closeMenu();
     });
+  }
+
+  var createBtn=$('ew-create'),createMenu=$('ew-create-menu');
+  function closeCreate(){if(createMenu)createMenu.hidden=true;if(createBtn)createBtn.setAttribute('aria-expanded','false');}
+  if(createBtn&&createMenu){
+    createBtn.onclick=function(e){e.stopPropagation();var open=createMenu.hidden;closeMenu();createMenu.hidden=!open;createBtn.setAttribute('aria-expanded',String(open));
+      if(createMenu.hidden){createBtn.focus();}else{var items=createMenu.querySelectorAll('.cx-menuitem');if(items.length)items[0].focus();}};
+    createMenu.addEventListener('click',closeCreate);
+    // 菜单内键盘导航：方向键 / Home / End 在条目间移动焦点，保持可访问性
+    createMenu.addEventListener('keydown',function(e){
+      var items=[].slice.call(createMenu.querySelectorAll('.cx-menuitem'));
+      if(!items.length)return;
+      var i=items.indexOf(document.activeElement);
+      var next=null;
+      if(e.key==='ArrowDown'){e.preventDefault();next=items[(i+1)%items.length];}
+      else if(e.key==='ArrowUp'){e.preventDefault();next=items[(i-1+items.length)%items.length];}
+      else if(e.key==='Home'){e.preventDefault();next=items[0];}
+      else if(e.key==='End'){e.preventDefault();next=items[items.length-1];}
+      if(next)next.focus();
+    });
+    document.addEventListener('click',function(e){if(!createMenu.contains(e.target)&&e.target!==createBtn)closeCreate();});
   }
 
   /* ------------------------------------------------ 底部 Dock：页签 + 折叠 */
@@ -94,6 +116,7 @@
     }
     if (inField) return;
     if (e.key === 'Escape') {
+      if (createMenu && !createMenu.hidden) { closeCreate(); createBtn.focus(); return; }
       if (moreMenu && !moreMenu.hidden) { closeMenu(); return; }
       var ctx = document.querySelector('.ew-ctx');
       if (ctx) { ctx.remove(); return; }
@@ -112,7 +135,8 @@
   var zoomOut = $('hud-zoom-out'), zoomIn = $('hud-zoom-in');
   if (zoomOut) zoomOut.addEventListener('click', function () { window.dispatchEvent(new CustomEvent('tm1-canvas-zoom', { detail: 1 / 1.25 })); });
   if (zoomIn) zoomIn.addEventListener('click', function () { window.dispatchEvent(new CustomEvent('tm1-canvas-zoom', { detail: 1.25 })); });
-  setInterval(refreshHud, 400);
+  var hudTimer=setInterval(refreshHud, 400);
+  window.addEventListener('pagehide',function(){clearInterval(hudTimer);});
 
   /* ------------------------------------------------ 画布 resize 事件桥 */
   window.addEventListener('tm1-canvas-resize', function () {
@@ -137,5 +161,7 @@
       if (target) target.click();
     },
     closeMenu: closeMenu,
+    showRail: function(){root.classList.remove('rail-collapsed');if(railBtn)railBtn.setAttribute('aria-expanded','true');window.dispatchEvent(new CustomEvent('tm1-canvas-resize'));},
+    hideRail: function(){root.classList.add('rail-collapsed');if(railBtn)railBtn.setAttribute('aria-expanded','false');window.dispatchEvent(new CustomEvent('tm1-canvas-resize'));},
   };
 })();

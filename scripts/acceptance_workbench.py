@@ -89,8 +89,8 @@ def main():
             return True
 
         def close_detail():
-            if page.locator("#ew-detail button:has-text('关闭详情')").count():
-                page.click("#ew-detail button:has-text('关闭详情')")
+            if page.locator("#ew-detail button[aria-label='关闭详情']").count():
+                page.click("#ew-detail button[aria-label='关闭详情']")
                 page.wait_for_timeout(500)
 
         def refit():
@@ -100,7 +100,10 @@ def main():
         nodes = node_count()
         check(nodes >= 3, "首次进入即渲染局部图（%d 个 Cube 图标）" % nodes)
 
-        # 2. 搜索并切换对象
+        # 2. 搜索并切换对象（资源栏默认收起，先展开）
+        if page.locator("#ew-rail").evaluate("el => getComputedStyle(el).display") == "none":
+            page.click("#ew-toggle-rail")
+            page.wait_for_timeout(300)
         page.fill("#ew-search", CUBE)
         page.wait_for_timeout(600)
         results = page.locator("#ew-resources button")
@@ -127,7 +130,9 @@ def main():
         detail = page.inner_text("#ew-detail")
         check("读取" in detail or "写入" in detail, "TI 详情显示读取/写入 Cube")
 
-        page.get_by_role("button", name="核对写入切面与值表达式").first.click()
+        # 写入切面在 process 详情打开时已自动分析（loadWrites.click()），
+        # 详细切面渲染在「源码与证据」标签页，切换到该标签查看。
+        page.get_by_role("tab", name="源码与证据").first.click()
         page.wait_for_timeout(3000)
         detail = page.evaluate("() => document.querySelector('#ew-detail').textContent")
         check("已解析目标写入" in detail, "写入切面面板展开")
@@ -178,6 +183,12 @@ def main():
         page.wait_for_timeout(1000)
         check(page.evaluate("() => window.__ewCanvas.cy().nodes().filter(n => n.hasClass('cn-selected')).length") == 2,
               "真实鼠标 Ctrl 多选两个 Cube")
+        # 人工模块在侧栏「人工模块」details 中（默认折叠），先展开并确保资源栏可见
+        if page.locator("#ew-rail").evaluate("el => getComputedStyle(el).display") == "none":
+            page.click("#ew-toggle-rail")
+            page.wait_for_timeout(300)
+        page.evaluate("() => { const d=document.getElementById('ew-module-tools'); if(d) d.open = true; }")
+        page.wait_for_timeout(300)
         page.fill("#ew-group-name", "验收模块A")
         page.click("#ew-group-create")
         page.wait_for_timeout(800)
@@ -223,6 +234,8 @@ def main():
         check("SP75" in page.input_value("#ew-mdx"), "MDX 研究文本原文恢复")
         check("SELECT" in page.input_value("#ew-mdx"), "MDX 结构完整（未被截断或改写）")
         check("验收备注" in page.input_value("#ew-notes"), "设计笔记恢复")
+        page.evaluate("() => { const d=document.getElementById('ew-module-tools'); if(d) d.open = true; }")
+        page.wait_for_timeout(300)
         restored_groups = page.inner_text("#ew-groups")
         check("验收模块A" in restored_groups, "人工模块恢复")
         check(node_count() >= 2, "刷新后画布重新渲染")

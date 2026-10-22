@@ -216,3 +216,27 @@ def test_ai_payload_or_cell_execution_not_in_workspace_contract():
     with pytest.raises(ValidationError):wb.Workspace.model_validate({**workspace().model_dump(),'credentials':{'password':'secret'}})
     with pytest.raises(ValidationError):wb.GraphQuery(node_budget=121)
     with pytest.raises(ValidationError):wb.GraphQuery(depth=7)
+
+
+def test_visible_objects_filters_brace_technical_but_keeps_legal_names():
+    from tm1_insight.api.workbench import visible_objects
+    nodes = {
+        'a': dict(id='a', type='cube', name='General Ledger'),
+        'b': dict(id='b', type='cube', name='}APQ Cube Dependency'),
+        'c': dict(id='c', type='cube', name=' Sys Parameter'),       # 前导空格，合法对象，不得排除
+        'd': dict(id='d', type='cube', name='#####.#########'),      # 特殊符号名，合法对象，不得排除
+        'e': dict(id='e', type='cube', name="'}DimensionProperties'"),  # 引号包裹，不匹配 } 前缀规则，不扩大过滤
+    }
+    # 默认过滤：只去掉纯 } 前缀
+    visible = visible_objects(nodes, type='cube', q='', include_technical=False)
+    names = {n['name'] for n in visible}
+    assert '}APQ Cube Dependency' not in names
+    assert ' Sys Parameter' in names
+    assert '#####.#########' in names
+    assert "General Ledger" in names
+    # include_technical=True 保留全部
+    all_names = {n['name'] for n in visible_objects(nodes, type='cube', q='', include_technical=True)}
+    assert '}APQ Cube Dependency' in all_names
+    # q 过滤与 type 过滤仍生效
+    assert [n['name'] for n in visible_objects(nodes, type='cube', q='ledger', include_technical=False)] == ['General Ledger']
+    assert visible_objects(nodes, type='process', q='', include_technical=False) == []
