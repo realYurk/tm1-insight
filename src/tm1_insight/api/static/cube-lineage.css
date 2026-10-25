@@ -1,4 +1,10 @@
 #cl-root {max-width:1500px;margin:auto;min-width:0}
+/* 关系摘要提示与二级分析区域 */
+.cl-hint {color:var(--muted,#8b94ab);font-size:12px}
+.cl-loading {color:var(--muted,#556);font-size:13px;padding:8px 0}
+.cl-advanced {margin:24px 0;padding:12px 16px;border:1px solid var(--border,#dde3ec);border-radius:10px;background:var(--card,#fff)}
+.cl-advanced > summary {cursor:pointer;font-size:13px;color:var(--muted,#556)}
+.cl-advanced-body {margin-top:14px}
 .cl-toolbar {display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:24px 0}
 .cl-toolbar label:first-child {flex:1;min-width:240px}
 .cl-toolbar label {display:grid;gap:6px}

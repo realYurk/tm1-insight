@@ -142,7 +142,7 @@ def test_human_export_keeps_independent_writes_and_technical_contract(con):
                inspected=[dict(relation='ab',process='Multiple',writes=writes,total=2,read_total=1)])
     md=exported(value)
     human=md.split('## 技术证据附录')[0]
-    assert '## 已核对的切面与计算' in human and r'a \* 2' in human
+    assert '## 已分析的切面与计算' in human and r'a \* 2' in human
     assert 'Region = Member1（固定）' in human and 'Year = pYear（动态）' in human
     assert 'data:1:72' in human and 'data:1:121' in human and 'data:1:3' in human
     write_lines=[line for line in human.splitlines() if line.startswith('| data:')]
@@ -175,7 +175,7 @@ def test_human_export_rule_unknowns_escaping_scope_and_deterministic_evidence():
     value['inspected'].reverse()
     assert exported(value)==forward
     value['inspected']=[]
-    assert '尚未主动核对 TI 写入点或 Rule' in exported(value)
+    assert '尚未分析 TI 写入点或 Rule' in exported(value)
 
 
 def test_query_races_cancel_and_export_keep_the_loaded_cube():
@@ -227,13 +227,16 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
            {id:'cb',source:'Cube_C',target:'Cube_B',kind:'RULE_REFERENCE'}]})});await tick();
   const table=get('cl-table').children[0],panels=get('cl-details').children;
   assert.equal(table.children.length,3); // Header + relations only, no embedded evidence rows.
-  const first=table.children[1].children[5].children[0],second=table.children[2].children[5].children[0];
+  const first=table.children[1].children[4].children[0],second=table.children[2].children[4].children[0];
   await first.onclick();assert.equal(panels[0].hidden,false);assert.equal(first.attrs['aria-expanded'],'true');
   assert.equal(panels[0].scrolled,true);
+  // Opening a detail auto-issues the bounded local analysis fetch (no per-TI buttons).
+  assert(requests.some(r=>r.url.startsWith('/api/workbench/writes?')), 'TI detail auto-analyzes');
   const initial=panels[0].children.length;
   await first.onclick();assert.equal(panels[0].hidden,true);
   await first.onclick();assert.equal(panels[0].children.length,initial); // No duplicate panel content.
   await second.onclick();assert.equal(panels[0].hidden,true);assert.equal(panels[1].hidden,false);
+  assert(requests.some(r=>r.url.startsWith('/api/workbench/rules?')), 'Rule detail auto-analyzes');
   await panels[1].children[0].children[1].onclick();assert.equal(panels[1].hidden,true);
   assert.equal(second.focused,true);
   assert.equal(second.attrs['aria-expanded'],'false');
@@ -242,7 +245,9 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
   const status=get('cl-status').textContent;assert.equal(cancelled.options.signal.aborted,true);
   cancelled.reject(new Error('late cancellation failure'));await tick();
   assert.equal(get('cl-status').textContent,status);assert.equal(get('cl-export').disabled,true);
-  assert(requests.every(r=>r.url==='/api/workbench/graph'&&r.options.method==='POST'));
+  assert(requests.every(r=>r.url.startsWith('/api/workbench/')
+    &&(r.url.endsWith('/api/workbench/graph')?r.options.method==='POST':r.options.method===undefined)),
+    'read-only local endpoints only');
   console.log('race, cancellation, result identity and read-only requests verified');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 '''

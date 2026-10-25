@@ -78,6 +78,8 @@ from tm1_insight.api.workbench import router as workbench_router
 app.include_router(workbench_router)
 from tm1_insight.api.assets import router as assets_router
 app.include_router(assets_router)
+from tm1_insight.api.module_spec import router as module_spec_router
+app.include_router(module_spec_router)
 
 
 # ---- 全局异常处理：任何未捕获异常都返回友好错误页，而非白屏 500 ----

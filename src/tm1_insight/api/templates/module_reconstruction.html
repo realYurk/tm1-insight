@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}模块重构规格 · TM1 Insight{% endblock %}
+{% block content %}
+<section id="mr-root" data-kind="{{ kind }}" data-name="{{ name }}" data-model="{{ model }}" data-selection="{{ selection }}">
+<header class="page-head"><div><h1>模块重构规格</h1><p class="muted">选择明确范围，把已有计算证据整理成可以交接的工程规格。只读本地模型。</p></div></header>
+<details id="mr-definition" open><summary>研究范围与人工说明</summary>
+<div class="mr-fields"><label>模块名称<input id="mr-name" class="input" maxlength="200" value="模块研究"></label><label>已有研究定义<select id="mr-saved" class="input"><option value="">选择本地定义</option></select></label><button id="mr-open" class="btn">打开定义</button></div>
+<div class="mr-fields"><label>对象类型<select id="mr-kind" class="input"><option value="cube">Cube / Rule 所属 Cube</option><option value="process">TI</option></select></label><label>对象名称<input id="mr-object" class="input" list="mr-options" value="{{ name }}" maxlength="1000" autocomplete="off"></label><datalist id="mr-options"></datalist><button id="mr-add" class="btn">加入范围入口</button></div>
+<div id="mr-entries"></div>
+<div class="mr-fields"><label><input id="mr-calls" type="checkbox">展开调用关系</label><label><input id="mr-access" type="checkbox" checked>展开直接 Cube 读写</label><label>最大关系深度<input id="mr-depth" class="input" type="number" min="0" max="4" value="1"></label><label>节点预算<input id="mr-nodes" class="input" type="number" min="2" max="60" value="24"></label><label>边预算<input id="mr-edges" class="input" type="number" min="1" max="200" value="80"></label><label>TI 分析预算<input id="mr-process-budget" class="input" type="number" min="1" max="20" value="12"></label><label>Rule 所属 Cube 预算<input id="mr-rule-budget" class="input" type="number" min="0" max="12" value="8"></label></div>
+<div class="mr-fields"><label>业务目标（用户描述）<textarea id="mr-objective" class="input" maxlength="4000"></textarea></label><label>输入说明<textarea id="mr-inputs" class="input" maxlength="4000"></textarea></label><label>输出说明<textarea id="mr-outputs" class="input" maxlength="4000"></textarea></label><label>已知顺序（用户描述）<textarea id="mr-order" class="input" maxlength="4000"></textarea></label><label>设计备注<textarea id="mr-remarks" class="input" maxlength="4000"></textarea></label><label>人工确认的业务规则<textarea id="mr-confirmed_rules" class="input" maxlength="4000"></textarea></label></div>
+<p class="muted">人工说明独立保存，不覆盖源码事实。取消勾选即排除；可手动补充多个 Cube、TI 或 Rule 所属 Cube。辅助调用仍保留证据。</p>
+<button id="mr-preview" class="btn">预览候选范围</button><div id="mr-members"></div><p id="mr-boundary" class="muted"></p>
+<div class="study-actions"><button id="mr-save" class="btn" disabled>保存研究定义</button><button id="mr-build" class="btn primary" disabled>确认范围并生成规格</button><button id="mr-cancel" class="btn" disabled>取消分析</button></div>
+</details>
+<p id="mr-status" role="status" aria-live="polite">选择入口并预览范围；不会执行 TI 或读取业务单元格。</p><progress id="mr-progress" hidden></progress>
+<section id="mr-result" hidden><header><h2 id="mr-title"></h2><p id="mr-coverage"></p><div class="study-actions"><a id="mr-md" class="btn" download>导出 Markdown</a><a id="mr-json" class="btn" download>导出 JSON</a></div></header><nav id="mr-chapters" class="study-actions"></nav><div id="mr-report"></div></section>
+</section>
+{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/cube-lineage.css?v=4"><link rel="stylesheet" href="/static/module-spec.css?v=1"><script src="/static/module-spec.js?v=1" defer></script>{% endblock %}

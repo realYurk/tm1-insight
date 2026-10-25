@@ -50,9 +50,9 @@ def source_declaration(con, name):
                 reason='源码存在未确认的数据源覆盖' if overridden else '仅为采集声明；有效 Cube/View 与行值绑定另行核对')
 
 
-def build(path, schedules=(), declaration=None):
+def build(path, schedules=(), declaration=None, *, process=None):
     header, _, processes = workflow.page(path, 'processes', limit=500)
-    root = header['root']
+    root = process or header['root']
     detail = workflow.detail(path, root)
     if detail is None:
         raise KeyError(root)

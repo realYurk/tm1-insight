@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}业务架构 · TM1 Insight{% endblock %}
 {% block content %}
+<p><a class="btn" href="/module-reconstruction?kind={{ 'cube' if kind=='cube' else 'process' }}&amp;name={{ name|urlencode }}&amp;model={{ research_model() }}">模块重构规格</a></p>
 {% if initial_view == 'workbench' %}
 {# Canvas-first 工作台：独占视口，不渲染页面级标题与旧分析表单 #}
 {% include 'architecture_workbench.html' %}
