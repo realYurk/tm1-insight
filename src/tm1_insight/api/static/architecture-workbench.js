@@ -248,7 +248,7 @@
     const data=await req('/api/workbench/detail?'+new URLSearchParams({snapshot_id:snapshot,type:n.type,name:n.name}));if(token!==detailGeneration)return;
     const o=data.object;
     if(n.type==='cube'){
-      const lineage=element('a','查看 Cube 上下游与切面','btn');lineage.href='/graph?'+new URLSearchParams({cube:n.name});p.appendChild(lineage);
+      const lineage=element('a','查看 Cube 上下游与切面','btn');lineage.href='/graph?'+new URLSearchParams({cube:n.name,model:snapshot});p.appendChild(lineage);
       // —— 核心关系（摘要行 + 可展开明细） ——
       window.TM1Inspector.stat(p,'当前图输入 / 输出',adjacent.filter(e=>e.target===id).length+' / '+adjacent.filter(e=>e.source===id).length);
       window.TM1Inspector.stat(p,'关联 TI',new Set(adjacent.flatMap(e=>e.process_ids||[])).size+' 个（当前范围）');

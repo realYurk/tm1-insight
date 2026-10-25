@@ -34,7 +34,7 @@ def js(value, expression):
     if not node:pytest.skip('Node is required for presentation contract tests')
     source=Path('src/tm1_insight/api/static/cube-lineage.js').read_text(encoding='utf-8')
     script="global.window={};global.document={getElementById:()=>null};\n"+source+"\nconst data="+json.dumps(value)+";console.log(JSON.stringify("+expression+"));"
-    result=subprocess.run([node,'-e',script],capture_output=True,text=True,encoding='utf-8',check=True)
+    result=subprocess.run([node],input=script,capture_output=True,text=True,encoding='utf-8',check=True)
     return json.loads(result.stdout)
 
 
@@ -148,7 +148,7 @@ def test_human_export_keeps_independent_writes_and_technical_contract(con):
     write_lines=[line for line in human.splitlines() if line.startswith('| data:')]
     assert len(write_lines)==2 and '静态读取依赖' in write_lines[0]
     assert '本表未确认该源切面' in write_lines[1] and 'vUnknown' in write_lines[1]
-    assert '数据行变量等其他来源证据保留在附录' in human
+    assert 'VIEW 值列依赖分别投影' in human
     assert '| data:1:121' in human.split('条件（未求值）')[0]  # Conditions cannot break a Markdown table.
     assert '<details>' in md and '```json' not in human
     appendix=json.loads(md.split('```json\n')[1].split('\n```')[0])
@@ -213,7 +213,7 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
   assert.match(get('cl-summary').children[0].textContent,/^Cube_B /);
   assert.equal(get('cl-summary').children[1].href,'/explorer/cube/Cube_B');
   get('cl-export').onclick();assert.match(await blob.text(),/入口：Cube\\_B/);
-  assert.equal(location,'/graph?cube=Cube_B');
+  assert.equal(location,'/graph?cube=Cube_B&model=synthetic');
   const completed=get('cl-status').textContent;
   old.reject(new Error('obsolete request failed'));await tick();
   assert.equal(get('cl-status').textContent,completed);
@@ -246,5 +246,5 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
   console.log('race, cancellation, result identity and read-only requests verified');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 '''
-    completed=subprocess.run([node,'-e',harness.replace('SOURCE',json.dumps(source))],capture_output=True,text=True,encoding='utf-8',check=True)
+    completed=subprocess.run([node],input=harness.replace('SOURCE',json.dumps(source)),capture_output=True,text=True,encoding='utf-8',check=True)
     assert 'verified' in completed.stdout

@@ -156,6 +156,7 @@ def review(task:str, format:Literal['json','markdown']='json', download:bool=Fal
     header,_,_=workflow.page(artifact,limit=1)
     schedule_missing=False
     with closing(Store(get_settings()).connect(read_only=True)) as con:
+        declaration=workflow_review.source_declaration(con,header['root'])
         tables={r[0] for r in con.execute('SHOW TABLES').fetchall()}
         if 'chore_runs_process' not in tables:
             rows=[];schedule_missing=True
@@ -169,7 +170,7 @@ def review(task:str, format:Literal['json','markdown']='json', download:bool=Fal
     schedules=[dict(zip(('chore','step_order','active','start_time','frequency'),r)) for r in rows[:100]]
     for item in schedules:
         item['evidence']=dict(table='chore_runs_process',chore=item['chore'],process=header['root'],step_order=item['step_order'])
-    try:report=workflow_review.build(artifact,schedules)
+    try:report=workflow_review.build(artifact,schedules,declaration)
     except (sqlite3.Error,OSError,KeyError,ValueError) as exc:raise HTTPException(410,'局部报告不可用，请重新解析。') from exc
     if len(rows)>100:report['limitations'].append('直接调度仅展示前 100 项')
     if schedule_missing:report['limitations'].append('旧快照缺少 Chore 调度索引；未推断入口')

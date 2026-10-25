@@ -265,6 +265,12 @@ def _model_fingerprint() -> str:
 
 templates.env.globals["model_fingerprint"] = _model_fingerprint
 
+def _research_model():
+    from tm1_insight.api.knowledge_tasks import fingerprint
+    return fingerprint()
+
+templates.env.globals['research_model'] = _research_model
+
 
 def _build_info() -> dict:
     """前端版本信息（Workbench 1.1）：版本 / Git SHA / 构建时间 / 运行模式。"""
@@ -577,8 +583,9 @@ def explorer(request: Request):
 
 
 @app.get("/explorer/process/{name}", response_class=HTMLResponse)
-def explorer_process(request: Request, name: str, source: str = Query("", max_length=64)):
+def explorer_process(request: Request, name: str, source: str = Query("", max_length=64), model: str = Query('',max_length=64)):
     store = _store()
+    if model and model!=_research_model():return _error_page(request,409,'模型身份已变化','未显示其他本地模型的同名 TI，请返回原研究入口。')
     current_source = _process_search_source(store.settings)
     if source and source != current_source:
         return _error_page(request, 409, "源码位置已失效", "数据源或文件已变化，请返回 TI 列表重新搜索；旧行号未用于定位。")
@@ -590,6 +597,7 @@ def explorer_process(request: Request, name: str, source: str = Query("", max_le
         con.close()
     if not proc:
         return _error_page(request, 404, "TI 进程不存在", "未找到名为「" + name + "」的 TI 进程。它可能已被重命名或删除。")
+    if model and model!=_research_model():return _error_page(request,409,'模型身份已变化','读取期间模型已变化，请重新选择。')
     if source and current_source != _process_search_source():
         return _error_page(request, 409, "源码位置已失效", "数据源或文件已变化，请返回 TI 列表重新搜索；旧行号未用于定位。")
     return templates.TemplateResponse(request, "process_view.html", {
@@ -628,8 +636,9 @@ def chores_page(request: Request, q: str = Query("", max_length=1000),
 
 
 @app.get("/explorer/cube/{name}", response_class=HTMLResponse)
-def explorer_cube(request: Request, name: str):
+def explorer_cube(request: Request, name: str, model: str = Query('',max_length=64)):
     store = _store()
+    if model and model!=_research_model():return _error_page(request,409,'模型身份已变化','未显示其他本地模型的同名 Cube，请返回原研究入口。')
     source = _process_search_source(store.settings)
     con = store.connect(read_only=True)
     try:
@@ -723,10 +732,10 @@ def invocation_export(name: str = Query(..., min_length=1, max_length=1000), cal
 
 # ---- 页面：Graph（知识图谱：以 TI 为中心的操作 cube + 调用链） ----
 @app.get("/graph", response_class=HTMLResponse)
-def graph(request: Request, ti: Optional[str] = Query(None,max_length=1000), depth:int=Query(2,ge=0,le=4), nodes:int=Query(60,ge=1,le=120), cube: Optional[str] = Query(None,max_length=1000)):
+def graph(request: Request, ti: Optional[str] = Query(None,max_length=1000), depth:int=Query(2,ge=0,le=4), nodes:int=Query(60,ge=1,le=120), cube: Optional[str] = Query(None,max_length=1000), model: str = Query('',max_length=64)):
     if cube is not None or ti is None:
-        return templates.TemplateResponse(request, "cube_lineage.html", {"cube":cube or ''})
-    return templates.TemplateResponse(request,"ti_lineage.html",{"ti":ti,"depth":depth,"node_budget":nodes})
+        return templates.TemplateResponse(request, "cube_lineage.html", {"cube":cube or '',"model":model})
+    return templates.TemplateResponse(request,"ti_lineage.html",{"ti":ti,"depth":depth,"node_budget":nodes,"model":model})
 
 
 # ---- 页面：Impact（依赖 / 影响分析，复用 impact 引擎） ----

@@ -126,6 +126,7 @@
       slices(panel, n.slices.length ? n.slices : related.flatMap(e => e.slices.map(s => ({ target: byId.get(e.target).name, ...s }))));
       if (n.kind !== 'chore') { const a = make('a', '打开原始对象', panel); a.className = 'btn ghost'; a.href = '/explorer/' + (n.kind === 'process' ? 'process' : 'cube') + '/' + encodeURIComponent(n.name); }
       if(n.kind==='process'){const focus=make('a','以此 TI 为入口查看流程',panel);focus.className='btn primary';focus.href='/architecture?'+new URLSearchParams({kind:'process',name:n.name,analyze:'1',view:'functional_flow'});}
+      if(['cube','process'].includes(n.kind)){const research=make('a',n.kind==='cube'?'研究 Cube 上下游与切面':'研究 TI 调用与读写',panel);research.className='btn';research.href='/graph?'+new URLSearchParams({[n.kind==='cube'?'cube':'ti']:n.name,model:flow.model_fingerprint||''});}
       proof(panel, related);
     }
     function selectEdge(e) {

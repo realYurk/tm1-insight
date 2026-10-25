@@ -157,8 +157,11 @@ def writes(snapshot_id: str, process: str = Query(max_length=1000)):
     store, snapshot = guard(snapshot_id)
     from tm1_insight.store.calculation import inspect
     with closing(store.connect(read_only=True)) as con:
-        if not con.execute('SELECT 1 FROM processes WHERE name=?',[process]).fetchone():
+        size=con.execute("SELECT length(coalesce(prolog,''))+length(coalesce(metadata,''))+length(coalesce(data,''))+length(coalesce(epilog,'')) FROM processes WHERE name=?",[process]).fetchone()
+        if not size:
             raise HTTPException(404, '当前本地模型没有这个 TI')
+        from tm1_insight.workflow import MAX_CODE
+        if size[0]>MAX_CODE:raise HTTPException(413,'该 TI 超过局部源码预算；未读取完整源码，未记为已核对。')
         report = inspect(con, process)
     guard(snapshot)
     fields = ('id','operation','cube','coordinate_mapping','value_expression','formula_expression','evidence','trace_status',
@@ -169,7 +172,7 @@ def writes(snapshot_id: str, process: str = Query(max_length=1000)):
     # other reads remain standalone observations, never implied source slices.
     read_fields = ('id','cube','operation','resolution','coordinate_mapping','evidence')
     reads = [n for n in report['nodes'] if n['kind'] == 'read']
-    return dict(snapshot_id=snapshot, process=process, writes=[{k:w.get(k) for k in fields} for w in report['writes'][:80]],
+    return dict(snapshot_id=snapshot, process=process, data_row_lineage=report.get('data_row_lineage'),writes=[{k:w.get(k) for k in fields} for w in report['writes'][:80]],
                 reads=[{k:n.get(k) for k in read_fields} for n in reads[:160]], read_total=len(reads),
                 read_scope='CALCULATION_RETAINED_NODES_NOT_ALL_PROCESS_READS',
                 total=len(report['writes']), limitations=report.get('limits',[]), runtime_verified=False)
