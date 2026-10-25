@@ -162,8 +162,16 @@ def writes(snapshot_id: str, process: str = Query(max_length=1000)):
         report = inspect(con, process)
     guard(snapshot)
     fields = ('id','operation','cube','coordinate_mapping','value_expression','formula_expression','evidence','trace_status',
-              'data_row_value_dependencies','data_row_binding_status','unresolved_binding_reasons','value_definition_chain')
+              'data_row_value_dependencies','data_row_binding_status','unresolved_binding_reasons','value_definition_chain',
+              'read_nodes','control_context')
+    # Expose existing Calculation evidence, without interpreting co-access as a
+    # value dependency. read_nodes on each write are the parser's value trace;
+    # other reads remain standalone observations, never implied source slices.
+    read_fields = ('id','cube','operation','resolution','coordinate_mapping','evidence')
+    reads = [n for n in report['nodes'] if n['kind'] == 'read']
     return dict(snapshot_id=snapshot, process=process, writes=[{k:w.get(k) for k in fields} for w in report['writes'][:80]],
+                reads=[{k:n.get(k) for k in read_fields} for n in reads[:160]], read_total=len(reads),
+                read_scope='CALCULATION_RETAINED_NODES_NOT_ALL_PROCESS_READS',
                 total=len(report['writes']), limitations=report.get('limits',[]), runtime_verified=False)
 
 

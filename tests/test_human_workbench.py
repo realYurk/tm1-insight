@@ -145,7 +145,13 @@ def test_defaults_routes_exports_rule_summary_and_graph_lazy_slice(client):
     assert ai.status_code==200
     with zipfile.ZipFile(io.BytesIO(ai.content)) as z:assert 'Manifest.json' in z.namelist()
     graph=client.get('/graph?ti=Load_Sales&depth=1&nodes=10')
-    assert graph.status_code==200 and 'data-lineage-process' in graph.text
+    # The TI page now lazily uses the existing Workflow job's independent
+    # writes, replacing the legacy Formation-summary DOM hook. Keep the route,
+    # scope controls and technical Formation entry covered rather than require
+    # an obsolete rendering implementation.
+    assert graph.status_code==200 and 'id="tr-root"' in graph.text
+    assert 'data-depth="1"' in graph.text and 'data-budget="10"' in graph.text
+    assert 'Formation 加工证据' in graph.text
     assert client.get('/graph?nodes=10000').status_code==422
     for path in ['/workflow','/knowledge','/learn','/experience','/impact','/compare','/codegen']:
         assert client.get(path).status_code==200

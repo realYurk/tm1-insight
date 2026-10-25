@@ -42,7 +42,7 @@
 (function () {
   'use strict';
 
-  var ZOOM_MIN = 0.15, ZOOM_MAX = 4, ZOOM_STEP = 1.2;
+  var ZOOM_MIN = 0.01, ZOOM_MAX = 4, ZOOM_STEP = 1.2;
   var instances = new Set();
 
   function isAvailable() {
@@ -145,6 +145,7 @@
   }
 
   function setZoom(state, z) {
+    state.fitted = false;
     state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
     applyTransform(state);
   }
@@ -158,6 +159,8 @@
     var vp = state.viewport, inner = state.inner;
     if (!vp || !inner) return;
     var vr = vp.getBoundingClientRect();
+    if (!vr.width || !vr.height) return; // hidden details must not overwrite fit
+    state.fitted = true;
     var svg = inner.querySelector('svg');
     var box = svg && svg.viewBox.baseVal;
     var width = box && box.width + 40 || inner.scrollWidth || 800;
@@ -190,6 +193,8 @@
     state.nodeHandlers = [];
     state.code = code;
     state.inner.replaceChildren();
+    state.inner.style.width = '';
+    state.inner.style.height = '';
     var p = document.createElement('pre');
     p.className = 'mm-rendering';
     p.textContent = '正在离线渲染…';
@@ -197,7 +202,14 @@
     // 使用唯一的临时容器 id：mermaid 10 要求 id 元素存在时由它自己写入，
     // 我们直接读返回值再注入，避免手动创建同 id 元素造成冲突。
     var renderId = 'mm-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    function cleanTemporaryRender() {
+      // Mermaid 10 leaves its own body-level error SVG behind on parse failure.
+      // Remove only this invocation's temporary container, never another viewer.
+      var temporary=document.getElementById('d'+renderId);
+      if(temporary)temporary.remove();
+    }
     window.mermaid.render(renderId, code).then(function (res) {
+      cleanTemporaryRender();
       if (state.disposed || gen !== state.generation) return;  // 竞态：旧结果不覆盖新图
       var el = document.createElement('div');
       el.className = 'mm-render';
@@ -223,12 +235,16 @@
         if (opts.onRendered) opts.onRendered();
       });
     }).catch(function (err) {
+      cleanTemporaryRender();
       if (state.disposed || gen !== state.generation) return;
       showFallback(state, code, err);
     });
   }
 
   function showFallback(state, code, err) {
+    state.inner.style.transform = 'none';
+    state.inner.style.width = '100%';
+    state.inner.style.height = '100%';
     var box = document.createElement('div');
     box.className = 'mm-fallback';
     var msg = document.createElement('p');
@@ -341,6 +357,7 @@
       }
       if (e.target.closest('.node,.flowchart-link')) return;
       dragging = true; startX = e.clientX; startY = e.clientY; origX = state.pan.x; origY = state.pan.y;
+      state.fitted = false;
       viewport.style.cursor = 'grabbing';
       e.preventDefault();
     };
@@ -366,6 +383,7 @@
       dragging = false; viewport.style.cursor = 'grab';
     };
     var onWheel = function (e) {
+      if (!e.ctrlKey && !e.metaKey) return; // ordinary scrolling belongs to the report
       e.preventDefault();
       setZoom(state, state.zoom * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
     };
@@ -381,12 +399,20 @@
 
     var toolbar = buildToolbar(state, opts);
     wrapper.insertBefore(toolbar, viewport);
+    var help = document.createElement('p');help.className='mm-help';
+    help.textContent='普通滚轮阅读页面；Ctrl / ⌘ + 滚轮缩放图，拖动空白处平移。';
+    wrapper.appendChild(help);
     container.appendChild(wrapper);
+    var resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(function () {
+      if (!state.disposed && state.fitted && state.inner.querySelector('svg')) fitView(state);
+    }) : null;
+    if(resizeObserver)resizeObserver.observe(viewport);
 
     var destroy = function () {
       if (state.disposed) return;
       state.disposed = true;
       state.generation++;  // 使任何在途异步结果失效
+      if(resizeObserver)resizeObserver.disconnect();
       // 移除节点点击监听器
       (state.nodeHandlers || []).forEach(function (p) { p[0].removeEventListener('click', p[1]); });
       state.nodeHandlers = [];

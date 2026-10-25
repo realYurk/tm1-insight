@@ -1,10 +1,10 @@
 /* Offline presentation only. All actions/evidence come from Architecture facts. */
 (function () {
   'use strict';
-  let observer, generation = 0, includeContext = false;
+  let observer, generation = 0, includeContext = false, diagramDispose;
   const make = (tag, text, parent) => { const x = document.createElement(tag); x.textContent = text ?? ''; if (parent) parent.append(x); return x; };
   const details = (p, title) => { const d = make('details', '', p); make('summary', title, d); return d; };
-  function dispose() { ++generation; if (observer) observer.disconnect(); observer = null; }
+  function dispose() { ++generation; if(diagramDispose)diagramDispose();diagramDispose=null; if (observer) observer.disconnect(); observer = null; }
   // 与后端 functional_flow.mermaid() 保持一致的标签转义：保留中文与括号，
   // 仅中和会破坏 Mermaid 语法或注入标记的字符。
   const mmLabel = (v) => String(v ?? '')
@@ -27,30 +27,36 @@
     if (!active()) return;
     parent.replaceChildren();
     const heading = make('div', '', parent); heading.className = 'flow-heading';
-    make('h2', '业务流程图', heading);
-    make('p', '先看输入、处理与结果；点击节点或连线查看详情。', heading);
+    make('h2', '模块概览', heading);
+    make('p', '先看对象、处理动作与关键切面；简图和技术证据按需展开。', heading);
     const toolbar = make('div', '', heading); toolbar.className = 'study-actions';
     [['human-markdown', '人类阅读版 Markdown'], ['mermaid', 'Mermaid 图'], ['flow-json', '流程 JSON'], ['ai-package', 'AI 分析完整版 ZIP']].forEach(([format, label]) => {
       const a = make('a', label, toolbar); a.className = 'btn ghost'; a.href = api.url('export', { format, include_context:includeContext });
     });
-    // 视图切换：自绘 SVG 流程图 <-> 离线 Mermaid 图
-    const viewSwitch = make('div', '', toolbar); viewSwitch.className = 'flow-view-switch';
+    make('p', flow.note, parent).className = 'flow-note';
+    const summaries=make('section','',parent);summaries.setAttribute('aria-label','模块对象与动作摘要');
+    const diagram=details(parent,'查看业务简图（辅助）');
+    const readableGraph=flow.nodes.length<=24&&flow.edges.length<=40;
+    // Existing diagrams are auxiliary; tables never depend on rendering success.
+    const viewSwitch = make('div', '', diagram); viewSwitch.className = 'flow-view-switch';
     const btnFlow = make('button', '流程图', viewSwitch); btnFlow.type = 'button'; btnFlow.className = 'btn ghost active';
     const btnMmd = make('button', 'Mermaid 图', viewSwitch); btnMmd.type = 'button'; btnMmd.className = 'btn ghost';
-    const selfView = make('div', '', parent); selfView.className = 'flow-self-view';
-    const mmdView = make('div', '', parent); mmdView.className = 'flow-mmd-view'; mmdView.hidden = true;
-    let mmdInstance = null;
+    const selfView = make('div', '', diagram); selfView.className = 'flow-self-view';
+    const mmdView = make('div', '', diagram); mmdView.className = 'flow-mmd-view'; mmdView.hidden = true;
+    let mmdInstance = null;diagramDispose=()=>{if(mmdInstance)mmdInstance.destroy();mmdInstance=null;};
     const switchView = (mode) => {
+      if(!readableGraph)return;
       const isMmd = mode === 'mermaid';
       selfView.hidden = isMmd; mmdView.hidden = !isMmd;
       btnFlow.classList.toggle('active', !isMmd); btnMmd.classList.toggle('active', isMmd);
       if (isMmd) {
         try {
+          if(mmdInstance)mmdInstance.destroy();
           // 稳定 ID 映射：mermaid 节点 id 'n0','n1',... -> 业务节点对象
           const idMap = {}; flow.nodes.forEach((n, i) => { idMap['n' + i] = n; });
           mmdInstance = window.TM1Mermaid.mount(mmdView, {
             code: toMermaid(flow), title: '业务流程图', idMap: idMap,
-            onNodeClick: (node) => { if (node) { selectNode(node); layout.scrollIntoView({ block: 'start' }); } },
+            onNodeClick: (node) => { if (node) { selectNode(node); panel.scrollIntoView({ block: 'start' }); } },
           });
         } catch (e) { make('p', e.message, mmdView); }
       } else { if (mmdInstance) { mmdInstance.destroy(); mmdInstance = null; } }
@@ -58,14 +64,14 @@
     btnFlow.addEventListener('click', () => switchView('flow'));
     btnMmd.addEventListener('click', () => switchView('mermaid'));
     const options = make('label', '', toolbar); options.className='flow-context'; const check=make('input','',options); check.type='checkbox'; check.checked=includeContext; options.append(document.createTextNode(' 展开调用入口、消费者与来源规则')); check.addEventListener('change',()=>{includeContext=check.checked;render(parent,api).catch(e=>make('p',e.message,parent));});
-    make('p', flow.note, parent).className = 'flow-note';
+
     if (flow.statistics.truncated) make('p', '已达到展示范围上限，当前图不完整。请缩小入口，完整事实可在架构导出中查看。', parent).className = 'flow-boundary';
     const layout = make('div', '', selfView); layout.className = 'flow-layout';
     const viewport = make('div', '', layout); viewport.className = 'flow-viewport'; viewport.tabIndex = 0; viewport.setAttribute('aria-label', '业务流程图，可滚动');
     const canvas = make('div', '', viewport); canvas.className = 'flow-canvas';
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); canvas.append(svg); svg.classList.add('flow-lines'); svg.setAttribute('aria-label', '流程动作连线');
     const lanes = ['来源 / 规则输入', '处理 / 规则计算', '结果 / 中间数据'].map(title => { const lane = make('div', '', canvas); lane.className = 'flow-lane'; make('h3', title, lane); return lane; });
-    const panel = make('aside', '', layout); panel.className = 'flow-detail'; panel.setAttribute('aria-label', '流程节点详情');
+    const panel = make('aside', '', summaries);panel.hidden=true; panel.className = 'flow-review-detail'; panel.setAttribute('aria-label', '流程节点详情');
     const byId = new Map(flow.nodes.map(n => [n.id, n])), cards = new Map();
     const smallButton = (p, title, fn) => {
       const b = make('button', title, p); b.type = 'button'; b.className = 'btn ghost';
@@ -110,7 +116,7 @@
       if (values.length > 6) make('p', '其余切面组合见写入点证据或流程导出。', p);
     }
     function selectNode(n) {
-      panel.replaceChildren(); cards.forEach((card, id) => card.setAttribute('aria-pressed', String(id === n.id)));
+      panel.hidden=false;panel.replaceChildren(); cards.forEach((card, id) => card.setAttribute('aria-pressed', String(id === n.id)));
       make('small', n.kind === 'process' ? 'TI PROCESS' : n.kind === 'rule' ? 'RULE' : n.kind === 'chore' ? 'CHORE' : 'CUBE', panel).className = 'flow-eyebrow';
       make('h3', n.title, panel); make('p', n.role + ' · ' + n.summary, panel);
       if (n.kind === 'cube') { make('h4', '维度结构', panel); make('p', n.dimensions.join(' → ') || '当前范围未保存维度定义', panel); }
@@ -123,7 +129,7 @@
       proof(panel, related);
     }
     function selectEdge(e) {
-      panel.replaceChildren(); cards.forEach(card => card.setAttribute('aria-pressed', 'false'));
+      panel.hidden=false;panel.replaceChildren(); cards.forEach(card => card.setAttribute('aria-pressed', 'false'));
       make('small', '关系详情', panel).className = 'flow-eyebrow'; make('h3', e.label, panel);
       make('p', byId.get(e.source).title + ' → ' + byId.get(e.target).title, panel);
       make('p', e.note, panel); slices(panel, e.slices); proof(panel, [e]);
@@ -139,9 +145,9 @@
       card.addEventListener('click', () => selectNode(n)); cards.set(n.id, card);
     });
     if (!flow.nodes.length) make('p', '当前范围没有已确认的可展示关系。可以切换到模块概览核对入口与边界。', viewport);
-    else selectNode(flow.nodes.find(n => n.selected_entry) || flow.nodes[0]);
+    // Initial view remains a readable summary, with no forced evidence pane.
     function draw() {
-      if (!canvas.isConnected || !active()) return;
+      if (!canvas.isConnected || !active() || !diagram.open || selfView.hidden || !readableGraph) return;
       svg.replaceChildren(); const bounds = canvas.getBoundingClientRect();
       svg.setAttribute('width', canvas.scrollWidth); svg.setAttribute('height', canvas.scrollHeight);
       const create = (tag, attrs, p = svg) => { const x = document.createElementNS(svg.namespaceURI, tag); Object.entries(attrs).forEach(([k, v]) => x.setAttribute(k, v)); p.append(x); return x; };
@@ -161,8 +167,11 @@
       });
     }
     observer = new ResizeObserver(draw); observer.observe(canvas); requestAnimationFrame(draw);
-    window.TM1Workbench.flowTables(selfView,flow,{selectNode:n=>{selectNode(n);layout.scrollIntoView({block:'start'});},selectEdge:e=>{selectEdge(e);layout.scrollIntoView({block:'start'});}});
-    const folded = details(selfView, '技术执行细节（Bedrock / 框架调用）及辅助关系已折叠');
+    window.TM1Workbench.flowTables(summaries,flow,{selectNode:n=>{selectNode(n);panel.scrollIntoView({block:'start'});},selectEdge:e=>{selectEdge(e);panel.scrollIntoView({block:'start'});}});
+    summaries.append(panel);
+    diagram.addEventListener('toggle',()=>{if(diagram.open)requestAnimationFrame(draw);});
+    if(!readableGraph){layout.hidden=true;btnFlow.disabled=btnMmd.disabled=true;make('p','本范围超过 24 个对象 / 40 条动作的简图阅读预算，请以对象与动作表研究，或缩小分析范围。',diagram);}
+    const folded = details(parent, '技术执行细节（Bedrock / 框架调用）及辅助关系已折叠');
     make('p', '折叠基于现有引擎的技术角色与源码效果分类；核心读写仍保留在所属处理步骤中。', folded);
     make('p', '技术关系 ' + (flow.statistics.folded.technical || 0) + '；其余辅助、未确认或展示预算外的关系请在“关系与计算”及完整架构中核对。', folded);
     smallButton(folded, '查看技术关系与原始依据', () => api.technical());

@@ -1,11 +1,36 @@
-/* Human-facing Inspector over the existing API contracts; no semantic parser. */
+/* Human-facing Inspector over the existing API contracts; no semantic parser.
+ *
+ * 视觉层级（Canvas Polish 2.0）：
+ *   header 卡片（对象名 + 类型徽章）
+ *   → 概览摘要（cx-summary-block 分区）
+ *   → 源码与证据 tab（可折叠，按需渲染）
+ * 所有内容仍由调用方（architecture-workbench.js）按既有契约填充；
+ * 本文件只负责呈现层，不解析语义、不虚构事实。
+ */
 (function(){
   'use strict';
   const technicalPanels=new WeakMap();
   function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
-  function mount(host,title,close){
-    const head=el('header',undefined,'cx-inspector-head'),heading=el('h2',title),button=el('button','×','cx-tbtn');heading.title=title;
-    button.type='button';button.setAttribute('aria-label','关闭详情');button.onclick=close;head.append(heading,button);
+
+  // 对象类型 → 徽章文案与色调（克制：仅文字底色区分，不引入新图形语言）
+  const TYPE_BADGE={
+    cube:['Cube','b-cube'], process:['TI','b-process'], draft:['草稿','b-draft'],
+    source:['来源','b-source'], group:['模块','b-group'], chore:['调度','b-muted'], dimension:['维度','b-muted'],
+  };
+
+  function mount(host,title,close,meta){
+    const head=el('header',undefined,'cx-inspector-head');
+    const headMain=el('div',undefined,'cx-inspector-head-main');
+    const heading=el('h2',title);heading.title=title;
+    headMain.appendChild(heading);
+    if(meta&&meta.type&&TYPE_BADGE[meta.type]){
+      const [label,cls]=TYPE_BADGE[meta.type];
+      headMain.appendChild(el('span',label,'cx-badge '+cls));
+    }
+    if(meta&&meta.subtitle)headMain.appendChild(el('p',meta.subtitle,'cx-inspector-sub'));
+    const button=el('button','×','cx-tbtn');
+    button.type='button';button.setAttribute('aria-label','关闭详情');button.onclick=close;
+    head.append(headMain,button);
     const tabs=el('div',undefined,'cx-inspector-tabs'),body=el('div',undefined,'cx-inspector-main'),technical=el('div',undefined,'cx-inspector-technical');technical.hidden=true;
     [['概览',body],['源码与证据',technical]].forEach(([label,pane])=>{const b=el('button',label,'cx-tbtn');b.type='button';b.setAttribute('role','tab');b.setAttribute('aria-selected',String(pane===body));b.onclick=()=>{body.hidden=pane!==body;technical.hidden=pane!==technical;[...tabs.children].forEach(x=>x.setAttribute('aria-selected',String(x===b)));};tabs.appendChild(b);});
     tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','详情深度');host.replaceChildren(head,tabs,body,technical);technicalPanels.set(body,technical);return body;
@@ -14,7 +39,7 @@
   function stat(parent,label,value){const row=el('div',undefined,'cx-summary-row');row.append(el('span',label),el('strong',String(value)));parent.appendChild(row);}
   function list(parent,label,values,max=3){const items=[...new Set(values.filter(Boolean))];stat(parent,label,items.length?items.slice(0,max).join('、')+(items.length>max?` 等 ${items.length} 项`:''):'当前范围未确认');}
   function writes(parent,data){
-    parent.querySelector('[data-compact-writes]')?.remove();const box=el('section',undefined,'cx-summary-block');box.dataset.compactWrites='1';
+    parent.querySelector('[data-compact-writes]')?.remove();const box=el('section',undefined,'cx-summary-block');
     if(!data||data.error){
       box.appendChild(el('p','未取得写入分析结果（接口错误或对象不存在），不能据此认定「没有写入」。','cx-summary-limit'));
       parent.appendChild(box);return;
@@ -39,7 +64,7 @@
     parent.appendChild(box);
   }
   function rules(parent,data,scope){
-    parent.querySelector('[data-compact-rules]')?.remove();const box=el('section',undefined,'cx-summary-block');box.dataset.compactRules='1';
+    parent.querySelector('[data-compact-rules]')?.remove();const box=el('section',undefined,'cx-summary-block');
     if(data.available===false||data.error){box.appendChild(el('p','当前范围未取得可用规则结果，不能据此认定没有规则。','cx-summary-limit'));parent.appendChild(box);return;}
     const all=data.rules||[],rows=scope?all.filter(scope):all;
     stat(box,'相关 Rule',rows.length+' 条');

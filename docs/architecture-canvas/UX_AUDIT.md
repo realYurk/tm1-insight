@@ -13,6 +13,21 @@
 | 高度连接节点自动触发环形布局 | `canvas-layout.js:compute` 的 starLike 分支 | 环形仅保留为显式兼容策略，默认分层；循环用 SCC 保留，不推断循环内执行顺序 |
 | 点击大圆形反馈仍可能来自 Cytoscape core，单独关闭节点 overlay 不够 | `canvas-graph.js:styleSheet` 原只有 node/edge overlay 设置 | 关闭 core `active-bg-opacity` / `active-bg-size`，保留小幅选中边框 |
 | 局部展开无条件清空手工坐标 | `architecture-workbench.js:explore` 原 `positions={}` | 合并展开保留已有坐标；新查询和显式自动布局仍可重新排列 |
+
+## Canvas 5.0 审计增补（2026-10-22 晚，真实运行 + 截图证据）
+
+隔离服务 8811 + demo 合成模型，Playwright 实测 General Ledger（18 节点 / 18 关系）：
+
+| 用户抱怨 | 实测证据 / 源码根因 | 处理 |
+|---|---|---|
+| 默认画布像蜘蛛网 | 截图 `logs/canvas5_audit/00_default.png`：GL 位于左侧向 17 节点扇形辐射。布局引擎已默认 layered（`canvas-layout.js:compute`，radial 仅显式 opt.strategy 才触发）；扇形是数据事实（GL 直连全部邻居，分层后全部落在第 1 层分两列）。要进一步减少蛛网感需路径聚焦/逐级探索（P1 待办），不是布局算法问题 | 布局保持 layered；P1 路径聚焦未在本轮实现 |
+| Cube 名称经常看不完整 | `canvas-graph.js:shortName` 硬截断 18 字符 + `text-max-width:104px`；实测 "EXP Energy Cost A…" | 已修复：卡片标签用完整 `data(name)`，`text-max-width:150` 换行，悬停仍有完整 fullName 提示 |
+| Cube 图标很大 | 原 58×58 椭圆节点 + 48px 立体 SVG，名称是图标下方小字 | 已修复：改为紧凑横向卡片（高 44、宽按名称长度 `min(64+len*6.2, 240)`，与 `canvas-layout.nodeWidth` 同一公式），左侧 22px 小图标，右侧完整名称 |
+| 缩放往返后图形比例异常 | 几何实测：节点 renderedBoundingBox 60 模型单位，zoom 0.884→1.5→0.6→1.0 往返后仍为 60×60，宽高比 1:1 恒定。节点本身无缩放 bug；异常感来自椭圆节点+方形图标的形状不匹配 | 已修复：roundrectangle 卡片消除形状不匹配；往返一致性有几何数据佐证 |
+| 夸张的圆形点击阴影 | `canvas-graph.js:styleSheet` 已有 `core active-bg-opacity/size = 0`，node/edge `overlay-opacity: 0`；CSS 中无 ripple | 已确认早已禁用；选中反馈仅为 1px 边框（选中 2px 蓝边），克制 |
+| 右侧像数据湖后台 | Inspector 已是两层（概览/源码与证据），但概览仍堆叠统计+按钮+折叠区 | 本轮未重做；已有两层结构是 P0 第六条的落地基础 |
+
+节点卡片改造后回归：acceptance_excellence（布局指标 overlap 0 / clipped 0 / aspect 1.14）、acceptance_pointer、acceptance_canvas 全部通过；pytest test_canvas_ux + test_engineering_workbench 33 passed。
 | 关闭详情和 Esc 清空选择，破坏连续探索 | `tm1-canvas-escape` | 只关闭详情，保留选择；清空选择保留在更多菜单 |
 
 保留：Cytoscape 离线画布、Cube 图标色板、候选虚线 / Rule / Feeder 类型、关系筛选、拖动与框选、图表联动、原有生成器、工作区 v3、源代码高亮、证据契约和旧路由。没有改 Parser / Dependency / Lineage / Rule IR、正式数据库或模板算法。

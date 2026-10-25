@@ -211,6 +211,31 @@ def test_workflow_cancel_and_stale_source(client,monkeypatch):
     assert client.get(f'/api/workflow/tasks/{task}/export').status_code==409
 
 
+@pytest.mark.parametrize('column,value',[
+    ('data',"CellPutN(7,'Cube_C',vYear,vProduct);"),
+    ('datasource',json.dumps({'Type':'TM1CubeView','data_row_metadata':{'variables':[{'Name':'vValue','Type':'Numeric','Position':3}]}})),
+])
+def test_source_or_metadata_change_invalidates_review_without_overwriting_artifact(client,column,value):
+    from tm1_insight.api.app import _store
+    from tm1_insight.api import workflow as api
+    seed_client(client)
+    task=client.post('/api/workflow/tasks',json={'process':'Compute'}).json()['task_id']
+    assert await_task(client,task)['status']=='completed'
+    artifact=api.path(task)
+    before=hashlib.sha256(artifact.read_bytes()).hexdigest()
+    # This is the isolated synthetic fixture database, never a user collection.
+    con=_store().connect()
+    try:con.execute(f'UPDATE processes SET {column}=? WHERE name=?',[value,'Compute'])
+    finally:con.close()
+    for suffix in ['review','export','evidence?process=Compute']:
+        assert client.get(f'/api/workflow/tasks/{task}/{suffix}').status_code==409
+    fresh=client.post('/api/workflow/tasks',json={'process':'Compute'}).json()['task_id']
+    state=await_task(client,fresh)
+    assert state['status']=='completed' and not state['cached']
+    assert client.get(f'/api/workflow/tasks/{fresh}/review').status_code==200
+    assert hashlib.sha256(artifact.read_bytes()).hexdigest()==before
+
+
 @pytest.mark.parametrize("change", ["unsupported_coordinate", "missing_dimension"])
 def test_incomplete_coordinate_proof_keeps_formula_partial(con,change):
     if change=="unsupported_coordinate":

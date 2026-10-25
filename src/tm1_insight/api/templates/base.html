@@ -7,6 +7,7 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/workbench.css?v=architecture-1.2">
+  <link rel="stylesheet" href="/static/mermaid-viewer.css?v=1">
   <link rel="stylesheet" href="/static/human-workbench.css?v=2"><script src="/static/syntax.js?v=2"></script>
   <script>
     // 页面加载前应用主题，避免闪烁
@@ -54,7 +55,7 @@
         </div>
 
         {{ nav('/graph','数据血缘','graph',path == '/graph') }}
-        {{ nav('/architecture?view=workbench','业务架构','network',path == '/architecture') }}
+        {{ nav('/architecture','业务架构','network',path == '/architecture') }}
         {{ nav('/assets','工程资产','assets',path == '/assets') }}
         {{ nav('/allocation','可配置分摊','network',path == '/allocation') }}
 

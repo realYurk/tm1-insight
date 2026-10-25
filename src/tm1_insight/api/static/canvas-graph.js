@@ -54,12 +54,12 @@
   };
 
   const EDGE_STYLE = {
-    TI_CANDIDATE: { line: 'dashed', color: '#64748b', arrow: 'vee', cls: 'ei-candidate' },
-    RULE_REFERENCE: { line: 'solid', color: '#2563eb', arrow: 'tee', cls: 'ei-rule' },
-    FEEDER_REFERENCE: { line: 'dotted', color: '#94a3b8', arrow: 'none', cls: 'ei-feeder' },
-    DESIGN_RELATION: { line: 'dashed', color: '#b45309', arrow: 'triangle', cls: 'ei-design' },
-    TI_READ: { line: 'solid', color: '#94a3b8', arrow: 'vee', cls: 'ei-raw' },
-    TI_WRITE: { line: 'solid', color: '#94a3b8', arrow: 'vee', cls: 'ei-raw' },
+    TI_CANDIDATE: { line: 'dashed', color: '#94a3b8', arrow: 'vee', cls: 'ei-candidate' },
+    RULE_REFERENCE: { line: 'solid', color: '#5b7fd6', arrow: 'tee', cls: 'ei-rule' },
+    FEEDER_REFERENCE: { line: 'dotted', color: '#b3bdd0', arrow: 'none', cls: 'ei-feeder' },
+    DESIGN_RELATION: { line: 'dashed', color: '#c08a3e', arrow: 'triangle', cls: 'ei-design' },
+    TI_READ: { line: 'solid', color: '#b3bdd0', arrow: 'vee', cls: 'ei-raw' },
+    TI_WRITE: { line: 'solid', color: '#b3bdd0', arrow: 'vee', cls: 'ei-raw' },
     CALL: { line: 'dotted', color: '#cbd5e1', arrow: 'vee', cls: 'ei-raw' },
     SCHEDULE: { line: 'dotted', color: '#cbd5e1', arrow: 'vee', cls: 'ei-raw' },
     STRUCTURE: { line: 'dotted', color: '#e2e8f0', arrow: 'none', cls: 'ei-raw' },
@@ -71,30 +71,34 @@
       {
         selector: 'node',
         style: {
-          shape: 'ellipse',
-          width: 58,
-          height: 58,
+          // 轻量横向卡片：左侧小图标 + 右侧完整名称。
+          // 宽度由 data(cardW) 按名称长度计算，与 canvas-layout.nodeWidth 同一公式，
+          // 保证布局间距与视觉宽度一致；缩放只改变 rendered 尺寸，不改变宽高比。
+          shape: 'roundrectangle',
+          width: 'data(cardW)',
+          height: 42,
           'background-color': '#ffffff',
-          'background-opacity': 0.001,
-          'background-fit': 'contain',
-          'background-clip': 'none',
-          'border-width': 0,
-          'border-color': '#2563eb',
-          label: 'data(short)',
-          'font-size': 10.5,
+          'background-opacity': 1,
+          'background-fit': 'none',
+          'background-width': '18px',
+          'background-height': '18px',
+          'background-position-x': '12px',
+          'background-position-y': '50%',
+          'background-image-opacity': 0.92,
+          'border-width': 1,
+          'border-color': '#e2e8f0',
+          label: 'data(name)',
+          'font-size': 11,
           'font-family': 'system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif',
-          color: '#334155',
-          'text-valign': 'bottom',
+          color: '#1e293b',
+          'text-valign': 'center',
           'text-halign': 'center',
-          'text-margin-y': 8,
+          // 文字中心右移半个图标区（图标占左侧 12+18px），使正文落在图标右侧
+          'text-margin-x': 10,
+          'text-max-width': 165,
           'text-wrap': 'wrap',
-          'text-max-width': '104px',
-          'text-background-color': '#ffffff',
-          'text-background-opacity': 0.85,
-          'text-background-padding': '2px',
-          'text-background-shape': 'roundrectangle',
           'overlay-opacity': 0,
-          'transition-property': 'border-width, border-color',
+          'transition-property': 'border-width, border-color, background-color',
           'transition-duration': window.matchMedia('(prefers-reduced-motion: reduce)').matches?'0ms':'90ms',
         },
       },
@@ -104,13 +108,13 @@
       { selector: 'node[type="group"]', style: { 'background-image': ICON.group, color: '#475569', 'font-weight': 'bold' } },
       { selector: 'node[type="process"]', style: { 'background-image': ICON.process, color: '#475569' } },
       { selector: 'node[type="chore"], node[type="dimension"]', style: { 'background-image': ICON.muted } },
-      { selector: 'node.cn-hover', style: { 'border-width': 2, 'border-color': '#bfdbfe' } },
-      { selector: 'node.cn-selected', style: { 'border-width': 2, 'border-color': '#2563eb' } },
-      { selector: 'node.cn-kb-focus', style: { 'border-width': 2.5, 'border-style': 'dashed', 'border-color': '#3556d4' } },
+      { selector: 'node.cn-hover', style: { 'border-width': 1.5, 'border-color': '#b9cdf3', 'background-color': '#fcfdff' } },
+      { selector: 'node.cn-selected', style: { 'border-width': 1.5, 'border-color': '#3556d4', 'background-color': '#f6f9ff' } },
+      { selector: 'node.cn-kb-focus', style: { 'border-width': 2, 'border-style': 'dashed', 'border-color': '#3556d4' } },
       {
         selector: 'edge',
         style: {
-          width: 1.8,
+          width: 1.4,
           'curve-style': 'unbundled-bezier',
           'control-point-step-size': 34,
           'control-point-weights': 0.5,
@@ -119,28 +123,29 @@
           'loop-sweep': '70deg',
           'target-arrow-shape': 'data(arrow)',
           'target-arrow-color': 'data(color)',
-          'arrow-scale': 0.85,
+          'arrow-scale': 0.8,
           'line-color': 'data(color)',
           'line-style': 'data(lineStyle)',
-          label: 'data(label)',
-          'font-size': 10.5,
+          label: '',
+          'font-size': 9.5,
           'font-weight': 600,
           'font-family': 'system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif',
-          color: '#475569',
+          color: '#7a849c',
           'text-rotation': 'autorotate',
           'text-background-color': '#ffffff',
-          'text-background-opacity': 0.82,
-          'text-background-padding': '3px',
+          'text-background-opacity': 0.75,
+          'text-background-padding': '2px',
           'text-max-width': '140px',
           'text-margin-y': -2,
           'overlay-padding': 13,
           'overlay-opacity': 0,
-          'transition-property': 'line-color, width',
+          'transition-property': 'line-color, width, opacity',
           'transition-duration': window.matchMedia('(prefers-reduced-motion: reduce)').matches?'0ms':'90ms',
         },
       },
-      { selector: 'edge.cn-hover', style: { width: 2.8 } },
-      { selector: 'edge.cn-selected', style: { width: 3, 'line-color': '#1d4ed8', 'target-arrow-color': '#1d4ed8' } },
+      // 边标签降噪：默认隐藏，聚焦（hover/选中）时才出现——减少「2 TI / Rule」糊满画布
+      { selector: 'edge.cn-hover', style: { width: 2.2, label: 'data(fullLabel)', color: '#334155', 'text-background-opacity': 0.95 } },
+      { selector: 'edge.cn-selected', style: { width: 2.4, label: 'data(fullLabel)', 'line-color': '#3556d4', 'target-arrow-color': '#3556d4', color: '#1e293b', 'text-background-opacity': 0.95 } },
       { selector: 'node.cn-connect-target', style: { 'border-width': 3, 'border-color': '#b45309' } },
       { selector: 'edge[status="CANDIDATE"]', style: { 'line-style': 'dashed' } },
       { selector: 'edge.cn-dim', style: { opacity: 0.25 } },
@@ -361,19 +366,10 @@
         }
       });
 
-      // 语义缩放：低倍率下隐藏边标签（节点标签保留但缩短），高倍率恢复
+      // 语义缩放：低倍率下保持边的轻量（标签本身已只在聚焦时显示，无需额外切换）
       let lowZoom = false;
       cy.on('zoom', function () {
-        const z = cy.zoom();
-        const nowLow = z < 0.55;
-        if (nowLow === lowZoom) return;
-        lowZoom = nowLow;
-        cy.batch(function () {
-          cy.edges().forEach(function (e) {
-            if (nowLow) { e.data('shownLabel', e.data('label') || ''); e.data('label', ''); }
-            else if (e.data('shownLabel') !== undefined) { e.data('label', e.data('shownLabel')); }
-          });
-        });
+        lowZoom = cy.zoom() < 0.55;
       });
 
       cy.on('mouseover', 'node', function (evt) {
@@ -545,6 +541,9 @@
       setGraph: function (payload) {
         const nodes = (payload.nodes || []).map(function (n) {
           const type = n.type || 'cube';
+          // 卡片宽度与 canvas-layout.nodeWidth 同一公式：布局间距与视觉宽度一致。
+          // 上限收紧到 210：避免长名称卡片右侧大片空白（文字 165px 内换行补齐）。
+          const cardW = Math.min(60 + String(n.name || '').length * 6.0, 210);
           return {
             group: 'nodes',
             data: {
@@ -552,6 +551,7 @@
               name: n.name,
               fullName: n.name,
               short: shortName(n.name, type === 'source' ? 22 : 18),
+              cardW: cardW,
               type: type,
               provenance: n.provenance || '',
             },
@@ -571,6 +571,7 @@
               kind: e.kind,
               status: e.status || '',
               label: edgeLabel(e),
+              fullLabel: edgeLabel(e),
               hint: e.hint || '',
               color: s.color,
               lineStyle: s.line,

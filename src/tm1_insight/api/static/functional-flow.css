@@ -40,20 +40,7 @@
 @media(prefers-reduced-motion:reduce){.flow-node{transition:none}}
 
 /* ---- 离线 Mermaid 查看器（mermaid-viewer.js） ---- */
-.mm-wrapper {display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden}
-.mm-toolbar {display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg)}
-.mm-toolbar .btn {font-size:11px;padding:5px 10px}
-.mm-viewport {position:relative;overflow:auto;min-height:480px;max-height:72vh;background:var(--bg);cursor:grab}
-.mm-viewport:active {cursor:grabbing}
-.mm-inner {position:relative;display:inline-block;min-width:100%;transform-origin:0 0}
-.mm-rendering {padding:40px;color:var(--muted);font-size:12px;text-align:center}
-.mm-render {padding:20px;text-align:center}
-.mm-render svg {max-width:none;height:auto}
-.mm-fallback {padding:16px}
-.mm-fallback p {color:#b47824;font-size:12px;margin:0 0 10px}
-.mm-fallback pre {max-height:400px;overflow:auto}
-
-/* ---- 视图切换（自绘流程图 <-> Mermaid 图） ---- */
+/* Shared Mermaid viewport styles live in mermaid-viewer.css. */
 .flow-view-switch {display:inline-flex;gap:2px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
 .flow-view-switch .btn {border:none;border-radius:0;background:transparent;color:var(--muted)}
 .flow-view-switch .btn.active {background:var(--accent);color:#fff}
@@ -109,3 +96,10 @@
 .cf-table td code.var-inline { display: inline-block; max-width: 300px; overflow-wrap: anywhere; white-space: normal; word-break: break-all; font-size: 11.5px; }
 .cf-table td:nth-child(2) { min-width: 200px; }
 .cf-table td:nth-child(3) { min-width: 220px; }
+
+/* Read-only module overview: summary tables first, diagrams optional. */
+.flow-review-detail {border:1px solid var(--border);border-radius:10px;padding:18px;margin:20px 0;background:var(--card);min-width:0;overflow-wrap:anywhere}
+.flow-review-detail pre {max-width:100%;overflow:auto}
+#ar-content,#ar-workspace,.flow-mmd-view,.flow-self-view {min-width:0;max-width:100%}
+#ar-content>details {margin:20px 0}
+.flow-self-view .flow-layout {grid-template-columns:minmax(0,1fr)}

@@ -1,0 +1,17 @@
+/* Shared offline diagram viewport. Intrinsic SVG + one outer pan/zoom transform. */
+.mm-wrapper {display:flex;flex-direction:column;gap:0;box-sizing:border-box;width:100%;max-width:100%;min-width:0;border:1px solid var(--border,#dde2ea);border-radius:12px;background:var(--card,#fff);overflow:hidden}
+.mm-toolbar {display:flex;flex-wrap:wrap;gap:6px;min-width:0;padding:10px 12px;border-bottom:1px solid var(--border,#dde2ea);background:var(--bg,#f7f9fc)}
+.mm-toolbar .btn {font-size:11px;padding:5px 10px}
+.mm-viewport {position:relative;box-sizing:border-box;overflow:hidden;width:100%;min-width:0;height:clamp(280px,55vh,640px);max-height:76vh;background:var(--bg,#f7f9fc);cursor:grab;touch-action:pan-y}
+.mm-viewport:active {cursor:grabbing}
+.mm-inner {position:absolute;left:0;top:0;display:block;min-width:0;transform-origin:0 0}
+.mm-rendering {padding:24px;color:var(--muted,#647083);font-size:12px}
+.mm-render {padding:20px;text-align:center}
+.mm-render svg {max-width:none;height:auto}
+.mm-fallback {box-sizing:border-box;width:100%;max-width:100%;height:100%;padding:16px;overflow:auto}
+.mm-fallback p {color:#9a6a24;font-size:12px;margin:0 0 10px;overflow-wrap:anywhere}
+.mm-fallback pre {max-width:100%;overflow:auto;white-space:pre}
+.mm-wrapper:fullscreen {width:100vw;height:100vh;border-radius:0}
+.mm-wrapper:fullscreen .mm-viewport {flex:1;max-height:none;height:auto}
+.mm-help {font-size:11px;color:var(--muted,#647083);padding:6px 12px;margin:0}
+@media(max-width:640px){.mm-toolbar{padding:8px;gap:4px}.mm-viewport{height:340px}.mm-toolbar .btn{padding:5px 8px}}

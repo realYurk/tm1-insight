@@ -11,11 +11,12 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">数据血缘</h1>
+    <h1 class="page-title">TI 调用与读写</h1>
     <p class="page-sub">以 TI 进程为中心，看它往哪个 Cube 的哪个切面写数据；上下游调用链为辅</p>
   </div>
 </div>
 
+<nav class="study-actions"><a class="btn" href="/graph">Cube 血缘</a><a class="btn primary" href="/graph?ti=">TI 调用与读写</a></nav>
 <form class="graph-budget" action="/graph"><input type="hidden" name="ti" value="{{ ti or '' }}"><label>调用深度 <input type="number" name="depth" min="0" max="4" value="{{ depth }}"></label><label>节点预算 <input type="number" name="nodes" min="1" max="120" value="{{ node_budget }}"></label><button class="btn ghost">应用范围</button></form>
 <!-- ============ TI 搜索（自动联想） ============ -->
 <div class="search-hero">

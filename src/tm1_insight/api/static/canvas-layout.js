@@ -21,7 +21,7 @@
 
   function nodeWidth(name) {
     var len = String(name || '').length;
-    return Math.min(64 + len * 6.2, 240);
+    return Math.min(60 + len * 6.0, 210);
   }
 
   /* ---------------- Tarjan SCC（迭代版，防深图爆栈） ---------------- */

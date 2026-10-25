@@ -99,21 +99,23 @@ def main() -> int:
         check(strat in ("radial", "layered"), "布局策略明确（%s）" % strat)
         page.screenshot(path=os.path.join(OUT, "60_hub_radial_1920.png"))
 
-        # ======================= 2. 语义缩放 =======================
-        print("\n[2] 语义缩放：低倍率隐藏边标签", flush=True)
-        labels_before = page.evaluate(
-            "() => window.__ewCanvas.cy().edges().filter(e => e.data('label')).length")
-        page.evaluate("() => window.__ewCanvas.cy().zoom(0.4)")
-        page.wait_for_timeout(400)
-        labels_low = page.evaluate(
-            "() => window.__ewCanvas.cy().edges().filter(e => e.data('label')).length")
-        check(labels_before > 0 and labels_low == 0,
-              "低倍率下边标签隐藏（%d → %d）" % (labels_before, labels_low))
-        page.evaluate("() => window.__ewCanvas.cy().zoom(1.0)")
-        page.wait_for_timeout(400)
-        labels_back = page.evaluate(
-            "() => window.__ewCanvas.cy().edges().filter(e => e.data('label')).length")
-        check(labels_back == labels_before, "恢复倍率后标签还原（%d）" % labels_back)
+        # ======================= 2. 边标签降噪 =======================
+        # Polish 2.0 起：边标签默认不渲染（画布去噪），hover / 选中该边时才显示。
+        print("\n[2] 边标签降噪：默认隐藏，聚焦显示", flush=True)
+        edge_state = page.evaluate("""() => {
+            const cy = window.__ewCanvas.cy();
+            const withLabel = cy.edges().filter(e => e.data('label')).length;
+            if (!withLabel) return { withLabel: 0 };
+            const e = cy.edges().filter(x => x.data('label'))[0];
+            const defaultLabel = String(e.style('label') || '');
+            e.addClass('cn-hover');
+            const hoverLabel = String(e.style('label') || '');
+            e.removeClass('cn-hover');
+            return { withLabel, defaultLabel, hoverLabel };
+        }""")
+        check(edge_state["withLabel"] > 0 and not edge_state["defaultLabel"] and edge_state["hoverLabel"],
+              "边标签默认隐藏、hover 显示（%d 条带标签；默认=%r，hover=%r）"
+              % (edge_state["withLabel"], edge_state["defaultLabel"], edge_state["hoverLabel"]))
 
         # ======================= 3. 键盘与 Dock =======================
         print("\n[3] 键盘快捷键与底部 Dock", flush=True)

@@ -146,3 +146,37 @@ def export(task:str,format:Literal['json','markdown']='json'):
     artifact=path(task)
     if format=='json':return FileResponse(artifact,media_type='application/json',filename='Workflow.json',headers={'Cache-Control':'no-store'})
     return StreamingResponse(workflow.markdown(artifact),media_type='text/markdown',headers={'Content-Disposition':'attachment; filename=Workflow.md','Cache-Control':'no-store'})
+
+
+@router.get('/api/workflow/tasks/{task}/review')
+def review(task:str, format:Literal['json','markdown']='json', download:bool=False):
+    """Readable projection of the existing scoped artifact; no new parsing."""
+    from tm1_insight import workflow_review
+    artifact=path(task)
+    header,_,_=workflow.page(artifact,limit=1)
+    schedule_missing=False
+    with closing(Store(get_settings()).connect(read_only=True)) as con:
+        tables={r[0] for r in con.execute('SHOW TABLES').fetchall()}
+        if 'chore_runs_process' not in tables:
+            rows=[];schedule_missing=True
+        else:
+            columns={r[1] for r in con.execute("PRAGMA table_info('chores')").fetchall()} if 'chores' in tables else set()
+            fields=','.join('c.'+field if field in columns else 'NULL' for field in ('active','start_time','frequency'))
+            join='LEFT JOIN chores c ON c.name=r.chore_name' if 'name' in columns else ''
+            rows=con.execute(f'''SELECT r.chore_name,r.step_order,{fields}
+                FROM chore_runs_process r {join}
+                WHERE r.process_name=? ORDER BY r.chore_name,r.step_order LIMIT 101''',[header['root']]).fetchall()
+    schedules=[dict(zip(('chore','step_order','active','start_time','frequency'),r)) for r in rows[:100]]
+    for item in schedules:
+        item['evidence']=dict(table='chore_runs_process',chore=item['chore'],process=header['root'],step_order=item['step_order'])
+    try:report=workflow_review.build(artifact,schedules)
+    except (sqlite3.Error,OSError,KeyError,ValueError) as exc:raise HTTPException(410,'局部报告不可用，请重新解析。') from exc
+    if len(rows)>100:report['limitations'].append('直接调度仅展示前 100 项')
+    if schedule_missing:report['limitations'].append('旧快照缺少 Chore 调度索引；未推断入口')
+    state(task)
+    if format=='markdown':
+        return StreamingResponse(iter([workflow_review.markdown(report)]),media_type='text/markdown',
+            headers={'Content-Disposition':'attachment; filename=TI-Reconstruction.md','Cache-Control':'no-store'})
+    headers={'Cache-Control':'no-store'}
+    if download:headers['Content-Disposition']='attachment; filename=TI-Reconstruction.json'
+    return JSONResponse(report,headers=headers)
