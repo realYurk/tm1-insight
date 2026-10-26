@@ -12,9 +12,9 @@
 
   function paged(parent,items,render,size=20){const body=n('div','',parent),controls=n('div','',parent);controls.className='workflow-pager';let page=0;const prev=button(controls,'上一页',()=>{page--;draw();}),label=n('span','',controls),next=button(controls,'下一页',()=>{page++;draw();});function draw(){body.replaceChildren();render(body,items.slice(page*size,(page+1)*size));controls.hidden=items.length<=size;label.textContent=`${page*size+1}–${Math.min((page+1)*size,items.length)} / ${items.length}`;prev.disabled=page===0;next.disabled=(page+1)*size>=items.length;}draw();}
   function flowTables(parent,flow,api){
-    n('h2','对象与作用',parent);
+    n('h2','B · 对象与作用',parent);
     paged(parent,flow.nodes,(p,items)=>{const body=table(p,['对象','角色','维度数','作用摘要','详情'],'对象与作用');items.forEach(item=>{const row=n('tr','',body);n('td',item.title,row);n('td',item.role,row);n('td',item.dimension_count??'—',row);n('td',item.summary,row);button(n('td','',row),'查看对象',()=>api.selectNode(item));});});
-    n('h2','动作与关键切面',parent);const nodes=new Map(flow.nodes.map(x=>[x.id,x]));
+    n('h2','C · 动作与关键切面',parent);const nodes=new Map(flow.nodes.map(x=>[x.id,x]));
     paged(parent,flow.edges,(p,items)=>{const body=table(p,['来源 / 发起对象','动作','目标对象','关键切面摘录','详情'],'动作与关键切面');items.forEach(e=>{const row=n('tr','',body);n('td',nodes.get(e.source).title,row);n('td',e.label,row);n('td',nodes.get(e.target).title,row);const cell=n('td','',row);if(e.slices.length){coordinates(cell,e.slices[0].coordinates);n('small',e.slices.length+' 组切面，详情可展开各写入点',cell);}else n('span','—',cell);button(n('td','',row),'查看动作',()=>api.selectEdge(e));});});
   }
   async function ruleTable(parent,api,offset=0,q=''){

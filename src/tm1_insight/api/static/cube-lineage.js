@@ -4,7 +4,7 @@
  * auto-runs the existing bounded local analysis (budget + cancel preserved). */
 (function(){
   'use strict';
-  const labels={TI_CANDIDATE:'TI 数据处理',RULE_REFERENCE:'Rule 声明式计算',FEEDER_REFERENCE:'Feeder 计算支持（非数值来源）'};
+  const labels={TI_CANDIDATE:'TI 共同读写候选',RULE_REFERENCE:'Rule 声明式计算',FEEDER_REFERENCE:'Feeder 计算支持（非数值来源）'};
   const operations={CellPutN:'覆盖数值',CellPutS:'覆盖文本',CellIncrementN:'累加数值'};
   function slices(mapping){return (mapping?.items||[]).map(c=>{
     const b=c.binding||{}, fixed=b.kind==='FIXED_MEMBER', dynamic=['PARAMETER','DATA_ROW_VARIABLE','LOOKUP_COORDINATE'].includes(b.kind);
@@ -72,7 +72,7 @@
   const link=(text,url)=>{const a=el('a',text);a.href=url;return a;};
   let snapshot='',resultName='',generation=0,abort=null,result=null,rows=[],viewer=null,inspected=new Map(),searchTimer;
   let reviewAbort=null,reviewRun=0,detailAbort=null;const writeCache=new Map(),ruleCache=new Map();
-  async function get(url,opts={}){const r=await fetch(url,{...opts,signal:opts.signal||abort?.signal});if(!r.ok){const e=new Error(r.status===409?'本地模型已变化，停止分析；未按名称重新绑定。':`本地分析请求失败 (${r.status})`);e.status=r.status;throw e;}return r.json();}
+  async function get(url,opts={}){let r;try{r=await fetch(url,{...opts,signal:opts.signal||abort?.signal});}catch(e){if(e.name==='AbortError')throw e;throw new Error('本地服务不可达或连接已中断，请检查启动窗口后重新分析。');}if(!r.ok){const e=new Error(r.status===409?'本地模型已变化，停止分析；未按名称重新绑定。':`本地分析请求失败 (${r.status})`);e.status=r.status;throw e;}return r.json();}
   function cached(cache,key,url,signal){if(!cache.has(key)){const pending=get(url,{signal}).catch(e=>{if(cache.get(key)===pending)cache.delete(key);throw e;});cache.set(key,pending);}return cache.get(key);}
   function analyzedCount(row){const records=[...inspected.values()].filter(x=>x.relation===row.id);
     return row.kind==='TI_CANDIDATE'?new Set(records.map(x=>x.process)).size:records.length;}
@@ -100,7 +100,7 @@
   function sliceBox(parent,title,items){const box=el('section');box.append(el('h3',title));if(!items.length)box.append(el('p','未取得可确认的坐标；不按变量名猜测。','muted'));
     items.forEach(c=>{const p=el('p');p.append(el('span',c.kind,'cl-pill'+(c.kind==='待确认'?' cl-unknown':'')),document.createTextNode(` ${c.dimension} = ${c.value}`));box.append(p);if(c.reason)box.append(el('p',c.reason,'muted small'));});parent.append(box);}
   function button(text,fn){const b=el('button',text,'btn');b.type='button';b.onclick=async()=>{b.disabled=true;try{await fn();}catch(e){if(e.name!=='AbortError')b.after(el('p',e.message,'err'));}finally{b.disabled=false;}};return b;}
-  function writeDetail(host,w){const part=el('article',undefined,'cl-detail');part.append(el('h3',`${operations[w.operation]||w.operation} · ${loc(w.evidence)}`),el('p',`写入值表达式：${w.value_expression}`));
+  function writeDetail(host,w){const part=el('details',undefined,'cl-detail');part.append(el('summary',`${operations[w.operation]||w.operation} · ${w.value_expression} · ${loc(w.evidence)}`));part.append(el('h3',`${operations[w.operation]||w.operation} · ${loc(w.evidence)}`),el('p',`写入值表达式：${w.value_expression}`));
     const coord=el('div',undefined,'cl-slices');
     if(!w.source_reads.length&&!w.source_data_rows.length)sliceBox(coord,'源切面：未确认',[]);
     w.source_reads.forEach(r=>sliceBox(coord,`源读取：${r.cube} · ${loc(r.evidence)}`,slices(r.coordinate_mapping)));
@@ -125,6 +125,7 @@
       const loaded=await loadTI(row,process,token,signal);
       if(!loaded||token!==generation||signal?.aborted)return;const {data,writes}=loaded;
       host.replaceChildren(el('h3',`TI：${process}`));
+      const fixed=[...new Set(writes.flatMap(w=>w.target_slices.filter(c=>c.kind==='固定').map(c=>c.dimension+' = '+c.value)))];host.append(el('p',fixed.slice(0,4).join('；')||'目标坐标以动态表达式为主，展开写入点查看。'));host.append(el('p',[...new Set(writes.map(w=>operations[w.operation]||w.operation))].join('、')+' · '+writes.length+' 个写入点'));
       host.append(link('查看 TI 源码','/explorer/process/'+encodeURIComponent(process)+'?'+new URLSearchParams({model:snapshot})));
       host.append(link('研究此 TI 调用与读写','/graph?'+new URLSearchParams({ti:process,model:snapshot})));
       if(!writes.length)host.append(el('p','本次源码分析未取得该目标写入点；保留索引候选关系，不虚构切面。'));
@@ -165,7 +166,7 @@
     $('cl-coverage').textContent=`分析覆盖：关系 ${c.relations_total} 条，已分析 ${c.reviewed+c.partial}，未分析 ${c.unreviewed}（未分析不代表无法确认，仅是尚未读取本地分析）。图截断：${result.limits.truncated?'是':'否'}；Rule 覆盖：${result.rule_scope?.complete?'当前预算完整':'不完整或未分析'}。`;}
   function render(){
     const panels=$('cl-details');panels.replaceChildren();let active=null;
-    const table=el('table'),head=el('tr');['来源 Cube','目标 Cube','处理机制','关系摘要'].forEach(x=>head.append(el('th',x)));table.append(head);
+    const table=el('table'),head=el('tr');['来源 Cube','目标 Cube','处理机制','关系摘要','操作'].forEach(x=>head.append(el('th',x)));table.append(head);
     rows.forEach((row,index)=>{
       const tr=el('tr');tr.dataset.relation=row.id;
       tr.append(el('td',row.source_name),el('td',row.target_name));
@@ -181,14 +182,14 @@
         if(!body.hidden){close();return;}
         active?.();active=close;body.hidden=false;trigger.setAttribute('aria-expanded','true');tr.classList.add('cl-selected');
         focusRow=row;draw();
-        if(loaded){body.scrollIntoView({block:'start'});return;}loaded=true;const token=generation;
+        body.replaceChildren();loaded=true;const token=generation;
         detailAbort=new AbortController();const signal=detailAbort.signal;
         const heading=el('div',undefined,'cl-detail-heading');heading.append(el('h2',`${row.source_name} → ${row.target_name}`),button('关闭关系详情',()=>{close();trigger.focus();}));body.append(heading,el('p',row.label,'muted'));
         /* 自动分析：读取本地已有结果（缓存命中即刻显示），失败逐项降级，不阻断其他项。 */
-        if(row.kind==='TI_CANDIDATE'){(row.process_names||[]).forEach(process=>{const panel=el('div');body.append(panel);analyzeTI(panel,row,process,token,signal);});}
+        if(row.kind==='TI_CANDIDATE'){(async()=>{for(const process of (row.process_names||[])){if(signal.aborted)break;const panel=el('div');body.append(panel);await analyzeTI(panel,row,process,token,signal);}})();}
         else {const panel=el('div');body.append(panel);analyzeRule(panel,row,token,signal);}
         evidence(body,'索引 / 引用证据',row);
-        body.scrollIntoView({block:'start'});
+        if(!window.matchMedia||!window.matchMedia('(min-width:1101px)').matches)body.scrollIntoView({block:'start'});
       });
       trigger.setAttribute('aria-expanded','false');trigger.setAttribute('aria-controls',body.id);
       const cell=el('td');cell.append(trigger);tr.append(cell);table.append(tr);
@@ -204,8 +205,8 @@
     cubeNodes.forEach((n,i)=>idsFor.set(n.id,'n'+i));
     if(cubeNodes.length>24||list.length>30){$('cl-diagram-host').replaceChildren(el('p','当前图超过 24 个 Cube / 30 条关系的可读预算，请以关系表研究、选中单条关系或缩小入口范围。'));return;}
     const safe=s=>String(s).replace(/[^\p{L}\p{N} _().-]/gu,' ');let code='flowchart LR\n'+cubeNodes.map(n=>`${idsFor.get(n.id)}["${safe(n.name)}"]`).join('\n');
-    list.forEach(r=>{if(!idsFor.has(r.source)||!idsFor.has(r.target))return;code+=`\n${idsFor.get(r.source)} ${r.kind==='TI_CANDIDATE'?'-.->':'-->'}|"${r.kind==='TI_CANDIDATE'?'TI 数据处理':'Rule 引用'}"| ${idsFor.get(r.target)}`;});
-    viewer=window.TM1Mermaid.mount($('cl-diagram-host'),{code,title:focusRow?`${focusRow.source_name} → ${focusRow.target_name} · 当前选中关系`:'Cube 关联简图'});}
+    list.forEach(r=>{if(!idsFor.has(r.source)||!idsFor.has(r.target))return;code+=`\n${idsFor.get(r.source)} ${r.kind==='TI_CANDIDATE'?'-.->':'-->'}|"${r.kind==='TI_CANDIDATE'?`经 ${(r.process_names||[]).length} TI · 候选`:'Rule 引用'}"| ${idsFor.get(r.target)}`;});
+    const idMap=Object.fromEntries(cubeNodes.map(n=>[idsFor.get(n.id),n]));viewer=window.TM1Mermaid.mount($('cl-diagram-host'),{code,idMap,onNodeClick:n=>{if(n){$('cl-name').value=n.name;load();}},title:focusRow?`${focusRow.source_name} → ${focusRow.target_name} · 当前选中关系`:'Cube 关联简图',onEdgeClick:i=>{const r=list[i];if(r)document.querySelector('tr[data-relation="'+CSS.escape(r.id)+'"] button')?.click();}});}
   function stopReview(){++reviewRun;reviewAbort?.abort();if(result?.report_run?.status==='RUNNING'){result.report_run.cancelled=true;result.report_run.status='CANCELLED';}$('cl-review-cancel').disabled=true;$('cl-review').disabled=!result;$('cl-report').disabled=!result?.report_run&&!inspected.size;}
   async function batch(){if(!result)return;stopReview();const run=reviewRun,token=generation;reviewAbort=new AbortController();const signal=reviewAbort.signal,budget=Math.max(1,Math.min(20,Math.floor(Number($('cl-review-budget').value)||8))),groups=new Map();
     rows.forEach(r=>{const names=r.kind==='TI_CANDIDATE'?[...new Set(r.process_names||[])]:[r.target_name];names.forEach(name=>{const isTI=r.kind==='TI_CANDIDATE',key=(isTI?'TI:':'Rule:')+name;if(inspected.has(isTI?r.id+'::'+name:r.id))return;if(!groups.has(key))groups.set(key,{isTI,name,rows:[]});groups.get(key).rows.push(r);});});
@@ -231,7 +232,9 @@
   $('cl-diagram').ontoggle=draw;
   $('cl-review').onclick=batch;$('cl-review-cancel').onclick=()=>{stopReview();$('cl-review-status').textContent='已停止；已取得的证据保留，可下载部分研究报告。';updateCoverage();};
   function download(summaryOnly){if(!result)return;const a=el('a');a.href=URL.createObjectURL(new Blob([markdownReport({...result,summary_only:summaryOnly},resultName,rows,[...inspected.values()],snapshot)],{type:'text/markdown;charset=utf-8'}));a.download=summaryOnly?'Cube-Lineage-Summary.md':'Cube-Research.md';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+  if($('cl-json'))$('cl-json').onclick=()=>{if(!result)return;const a=el('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({schema:'cube-lineage-review-1',snapshot_id:snapshot,target:resultName,scope:result,inspected:[...inspected.values()],runtime_verified:false},null,2)],{type:'application/json'}));a.download='Cube-Lineage-Technical.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
   $('cl-export').onclick=()=>download(true);$('cl-report').onclick=()=>download(false);
   window.addEventListener('pagehide',()=>{stopReview();++generation;abort?.abort();clearTimeout(searchTimer);viewer?.destroy();});
+  if($('cl-relations'))$('cl-relations').ontoggle=()=>{if($('cl-relations').open&&!result)load();};
   if(root.dataset.cube)load();
 })();

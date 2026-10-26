@@ -27,15 +27,16 @@
     if (!active()) return;
     parent.replaceChildren();
     const heading = make('div', '', parent); heading.className = 'flow-heading';
-    make('h2', '模块概览', heading);
-    make('p', '先看对象、处理动作与关键切面；简图和技术证据按需展开。', heading);
+    make('h2', '业务流程总览', heading);
+    make('p', '输入 → 处理 → 结果。点击流程对象或下方表格查看局部关系，技术证据按需展开。', heading);
+    make('p', '连线表示读取、写入或规则引用，不代表逐值传输或运行顺序。', heading).className='flow-note';
     const toolbar = make('div', '', heading); toolbar.className = 'study-actions';
-    [['human-markdown', '人类阅读版 Markdown'], ['mermaid', 'Mermaid 图'], ['flow-json', '流程 JSON'], ['ai-package', 'AI 分析完整版 ZIP']].forEach(([format, label]) => {
+    [['human-markdown', '人类阅读版 Markdown'], ['mermaid', 'Mermaid 图'], ['flow-json', '流程 JSON'], ['ai-package', '技术完整版 ZIP']].forEach(([format, label]) => {
       const a = make('a', label, toolbar); a.className = 'btn ghost'; a.href = api.url('export', { format, include_context:includeContext });
     });
-    make('p', flow.note, parent).className = 'flow-note';
+
     const summaries=make('section','',parent);summaries.setAttribute('aria-label','模块对象与动作摘要');
-    const diagram=details(parent,'查看业务简图（辅助）');
+    const diagram=details(parent,'A · 业务流程图');diagram.open=true;parent.insertBefore(diagram,summaries);
     const readableGraph=flow.nodes.length<=24&&flow.edges.length<=40;
     // Existing diagrams are auxiliary; tables never depend on rendering success.
     const viewSwitch = make('div', '', diagram); viewSwitch.className = 'flow-view-switch';
@@ -176,6 +177,8 @@
     make('p', '折叠基于现有引擎的技术角色与源码效果分类；核心读写仍保留在所属处理步骤中。', folded);
     make('p', '技术关系 ' + (flow.statistics.folded.technical || 0) + '；其余辅助、未确认或展示预算外的关系请在“关系与计算”及完整架构中核对。', folded);
     smallButton(folded, '查看技术关系与原始依据', () => api.technical());
+    const drill=make('section','',parent);make('h2','D · 下钻入口',drill);make('p','点击上方对象或动作，查看局部血缘、对象源码和技术依据。输入、装载、计算、结果与输出仅在已有事实支持时分层，不按对象名套模板。',drill);
+    if(readableGraph)switchView('mermaid');
     heading.scrollIntoView({block:'start'});
   }
   window.TM1FunctionalFlow = { render, dispose };

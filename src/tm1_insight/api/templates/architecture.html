@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}业务架构 · TM1 Insight{% endblock %}
 {% block content %}
-<p><a class="btn" href="/module-reconstruction?kind={{ 'cube' if kind=='cube' else 'process' }}&amp;name={{ name|urlencode }}&amp;model={{ research_model() }}">模块重构规格</a></p>
 {% if initial_view == 'workbench' %}
 {# Canvas-first 工作台：独占视口，不渲染页面级标题与旧分析表单 #}
 {% include 'architecture_workbench.html' %}
@@ -25,11 +24,11 @@
 <section id="ar-progress" class="job-progress" hidden><p id="ar-state" role="status"></p><progress id="ar-bar"></progress><button type="button" class="btn ghost" id="ar-cancel">取消</button></section>
 <section id="ar-workspace" hidden>
   <p id="ar-root" class="architecture-entry"></p><p class="muted small">局部架构 · 静态源码与模型事实 · 运行路径及迁移等价仍需验证</p>
-  <div class="study-actions" aria-label="架构视图">{% for key,label in [('functional_flow','对象与动作'),('overview','范围与边界'),('cubes','数据模型'),('write_explanations','数据形成'),('transformation_steps','加工链路'),('unified_relations','关系与计算'),('execution_relationships','调用与调度'),('export','架构导出')] %}<button type="button" class="btn ghost" data-ar-view="{{ key }}">{{ label }}</button>{% endfor %}</div>
+  <details class="architecture-expert"><summary>深入查看模型、加工与技术证据</summary><div class="study-actions" aria-label="架构视图">{% for key,label in [('functional_flow','流程总览'),('overview','范围与边界'),('cubes','数据模型'),('write_explanations','数据形成'),('transformation_steps','加工链路'),('unified_relations','关系与计算'),('execution_relationships','调用与调度'),('export','架构导出')] %}<button type="button" class="btn ghost" data-ar-view="{{ key }}">{{ label }}</button>{% endfor %}</div></details>
   <form id="ar-filter" class="architecture-filter"><input class="input" id="ar-query" placeholder="在当前视图内搜索名称" aria-label="架构范围内搜索"><button class="btn ghost">查找</button><label><input type="checkbox" id="ar-technical"> 专家视图（技术辅助与底层关系）</label></form>
   <div id="ar-content" aria-live="polite"></div>
   <div id="ar-pager" class="workflow-pager"><button type="button" class="btn ghost" id="ar-prev">上一页</button><span id="ar-page"></span><button type="button" class="btn ghost" id="ar-next">下一页</button></div>
 </section>
 {% endif %}
 {% endblock %}
-{% block scripts %}<link rel="stylesheet" href="/static/functional-flow.css?v=4"><script src="/static/workbench-tables.js?v=2" defer></script><script src="/static/mermaid-viewer.js?v=6" defer></script>{% if initial_view == 'workbench' %}<link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=2" defer></script><script src="/static/canvas-graph.js?v=14" defer></script><script src="/static/canvas-experience.js?v=1" defer></script><script src="/static/canvas-shell.js?v=2" defer></script><script src="/static/workspace-persistence.js?v=1" defer></script><script src="/static/architecture-workbench.js?v=readonly-1" defer></script>{% else %}<script src="/static/functional-flow.js?v=5" defer></script><script src="/static/architecture.js?v=human-first-2" defer></script>{% endif %}{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/functional-flow.css?v=4"><script src="/static/workbench-tables.js?v=2" defer></script><script src="/static/mermaid-viewer.js?v=7" defer></script>{% if initial_view == 'workbench' %}<link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=2" defer></script><script src="/static/canvas-graph.js?v=14" defer></script><script src="/static/canvas-experience.js?v=1" defer></script><script src="/static/canvas-shell.js?v=2" defer></script><script src="/static/workspace-persistence.js?v=1" defer></script><script src="/static/architecture-workbench.js?v=readonly-1" defer></script>{% else %}<script src="/static/functional-flow.js?v=6" defer></script><script src="/static/architecture.js?v=human-first-2" defer></script>{% endif %}{% endblock %}

@@ -264,6 +264,25 @@
       var handler = function (event) { event.stopPropagation(); opts.onEdgeClick(i, event); };
       edge.style.cursor = 'pointer'; edge.addEventListener('click', handler);
       state.nodeHandlers.push([edge, handler]);
+      // A thin dashed stroke is a poor hit target. Keep its appearance and
+      // add a transparent local hit path; no graph relation is added.
+      var hit = edge.cloneNode(false);
+      hit.removeAttribute('id'); hit.removeAttribute('class');
+      hit.removeAttribute('marker-end'); hit.removeAttribute('marker-start');
+      hit.setAttribute('stroke', 'transparent'); hit.setAttribute('stroke-width', '14');
+      hit.setAttribute('fill', 'none'); hit.style.pointerEvents = 'stroke';
+      hit.style.cursor = 'pointer'; hit.addEventListener('click', handler);
+      edge.parentNode.appendChild(hit); state.nodeHandlers.push([hit, handler]);
+      var label = svg.querySelectorAll('.edgeLabels > g.edgeLabel')[i];
+      if (label) {
+        label.style.cursor = 'pointer'; label.style.pointerEvents = 'all';
+        label.setAttribute('role', 'button'); label.setAttribute('tabindex', '0');
+        label.setAttribute('aria-label', '查看关系：' + label.textContent);
+        label.addEventListener('click', handler); state.nodeHandlers.push([label, handler]);
+        label.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handler(event); }
+        });
+      }
     });
     if (!opts.onNodeClick) return;
     // 记录已绑定的事件监听器，unmount 时移除（防泄漏）。

@@ -188,6 +188,51 @@ def rules(snapshot_id: str, cube: str = Query(max_length=1000)):
     return result
 
 
+@router.get('/api/workbench/formation-plan')
+def formation_plan(snapshot_id: str = '', cube: str = Query(max_length=1000), budget: int = Query(12, ge=1, le=40)):
+    """Discover target writers even when no source Cube is known."""
+    store, snapshot = guard(snapshot_id)
+    with closing(store.connect(read_only=True)) as con:
+        row = con.execute('SELECT length(rules) FROM cubes WHERE name=?',[cube]).fetchone()
+        if row is None: raise HTTPException(404,'目标 Cube 不在当前模型中')
+        writers = [r[0] for r in con.execute('SELECT DISTINCT process_name FROM process_writes_cube WHERE cube_name=? ORDER BY process_name LIMIT 41',[cube]).fetchall()]
+    jobs = [dict(kind='TI',name=n) for n in writers[:budget]]
+    if row[0]: jobs.append(dict(kind='RULE',name=cube))
+    guard(snapshot)
+    return dict(schema='cube-formation-answer-1',snapshot_id=snapshot,target=cube,jobs=jobs,
+                writers_discovered=len(writers),discovery_capped=len(writers)==41,
+                writers_selected=min(len(writers),budget),truncated=len(writers)>budget,
+                scope='当前目标的已索引直接写入 TI 与自身 Rule；不展开调用，不证明索引完整或运行结果。',runtime_verified=False)
+
+
+@router.get('/api/workbench/formation-item')
+def formation_item(snapshot_id: str, cube: str = Query(max_length=1000),
+                   kind: str = Query(pattern='^(TI|RULE)$'), name: str = Query(max_length=1000),
+                   dimension: str = Query('',max_length=1000), member: str = Query('',max_length=1000)):
+    from tm1_insight import formation_answer as answer
+    from tm1_insight.store.calculation import inspect
+    from tm1_insight.store.queries import cube_rule_semantics
+    from tm1_insight.workflow import MAX_CODE
+    store, snapshot = guard(snapshot_id)
+    with closing(store.connect(read_only=True)) as con:
+        if kind=='TI':
+            row=con.execute("SELECT length(coalesce(prolog,''))+length(coalesce(metadata,''))+length(coalesce(data,''))+length(coalesce(epilog,'')) FROM processes WHERE name=?",[name]).fetchone()
+            if not row: raise HTTPException(404,'TI 不在当前模型中')
+            if row[0]>MAX_CODE: raise HTTPException(413,'TI 源码超过单项预算')
+            result=answer.ti(inspect(con,name),snapshot,cube,dimension,member)
+        else:
+            if name!=cube: raise HTTPException(422,'仅分析目标自身 Rule')
+            row=con.execute('SELECT length(rules) FROM cubes WHERE name=?',[cube]).fetchone()
+            if not row: raise HTTPException(404,'Cube 不在当前模型中')
+            if (row[0] or 0)>256000: raise HTTPException(413,'Rule 超过 256k 源码预算')
+            parsed=cube_rule_semantics(con,cube)
+            if parsed.get('error'): raise HTTPException(422,'Rule 分析未完成')
+            result=answer.rule(parsed,snapshot,cube,dimension,member)
+    guard(snapshot)
+    return dict(result,schema=answer.VERSION,snapshot_id=snapshot,target=cube,
+                task_status='PARTIAL_FAILURE' if result.get('incomplete') else 'COMPLETED',runtime_verified=False)
+
+
 def root():
     return get_settings().user_data_root / 'workspaces'
 

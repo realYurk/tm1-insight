@@ -38,3 +38,21 @@
 .cl-slices {display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
 .cl-slices section {min-width:0;padding:12px;background:var(--surface,#f4f6fa);border-radius:6px}
 .cl-slices p {margin:6px 0;overflow-wrap:anywhere}
+.lineage-layout {display:grid;grid-template-columns:minmax(0,1fr) minmax(290px,360px);gap:20px;align-items:start}
+.lineage-main,.lineage-side {min-width:0;overflow-wrap:anywhere}
+.lineage-side {position:sticky;top:20px;max-height:80vh;overflow:auto;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+.lineage-layout .cl-table-wrap table {min-width:0;font-size:12px}
+.lineage-main .cl-table-wrap th:nth-child(1),.lineage-main .cl-table-wrap th:nth-child(2) {width:20%}
+.lineage-main .cl-table-wrap th:nth-child(3) {width:23%}
+.lineage-main .cl-table-wrap th:nth-child(4) {width:24%}
+.lineage-main .cl-table-wrap th:nth-child(5) {width:13%}
+.lineage-main .cl-table-wrap td,.lineage-main .cl-table-wrap th {min-width:0;padding:10px 6px}
+.lineage-side a {display:inline-block;margin:4px 8px 8px 0}
+.lineage-layout .cl-table-wrap th:first-child,.lineage-layout .cl-table-wrap td:first-child,.lineage-layout .cl-table-wrap th:nth-child(2),.lineage-layout .cl-table-wrap td:nth-child(2) {position:static}
+.lineage-side .cl-relation-detail {padding:0;border:0;margin:0}
+.lineage-side .cl-detail {padding:10px;border:0;border-bottom:1px solid var(--border);border-radius:0}
+.lineage-side h2 {font-size:17px}.lineage-side h3 {font-size:14px}
+.formation-secondary {margin:24px 0;padding:16px;border:1px solid var(--border);border-radius:10px}
+#cl-diagram,#tr-diagram {min-width:0;max-width:100%;overflow:hidden}
+#tr-diagram-host .mm-root,#cl-diagram-host .mm-root {max-width:100%}
+@media(max-width:1100px){.lineage-layout{grid-template-columns:minmax(0,1fr)}.lineage-side{position:static;max-height:none}}
