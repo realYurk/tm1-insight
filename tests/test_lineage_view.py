@@ -110,3 +110,17 @@ vm.runInNewContext(SOURCE,{window,document,fetch,sessionStorage,AbortController,
 '''.replace('SOURCE',json.dumps(source))
     result=subprocess.run([node,'-e',harness],capture_output=True,text=True,encoding='utf-8',check=True)
     assert result.stdout.strip()=='ok'
+
+
+def test_lineage_canvas_has_offline_distinct_icons():
+    node=shutil.which('node')
+    if not node: pytest.skip('Node is required for canvas icon checks')
+    source=Path('src/tm1_insight/api/static/canvas-graph.js').read_text(encoding='utf-8')
+    script='global.window={};\n'+source+'\nconsole.log(JSON.stringify(window.TM1Canvas.icons));'
+    icons=json.loads(subprocess.run([node],input=script,text=True,capture_output=True,encoding='utf-8',check=True).stdout)
+    from urllib.parse import unquote
+    cube=unquote(icons['cube']);file=unquote(icons['lineageFile']);gear=unquote(icons['lineageGear'])
+    assert cube.count('<polygon')==3
+    assert '<path' in file and 'M15 21h18' in file
+    assert '<circle' in gear and 'cx=\'24\'' in gear
+    assert all(value.startswith('data:image/svg+xml;utf8,') for value in (icons['cube'],icons['lineageFile'],icons['lineageGear']))

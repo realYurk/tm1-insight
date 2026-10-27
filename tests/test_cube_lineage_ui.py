@@ -122,6 +122,47 @@ def test_writes_api_preserves_old_fields_and_adds_read_evidence(client,monkeypat
     assert {'coordinate_mapping','evidence','resolution'}<=data['reads'][0].keys()
 
 
+def test_external_source_declaration_is_bounded_and_does_not_guess_dynamic(client,monkeypatch,con):
+    import tm1_insight.api.workbench as api
+    for name,code,source in [
+        ('CsvLoad','',{'type':'CHARACTERDELIMITED','file':r'C:\private\inf_001.csv'}),
+        ('DynamicFile',"DataSourceNameForServer = pFile;",{'type':'ASCII','file':'old.csv'}),
+        ('SqlLoad','',{'type':'ODBC','query':'SELECT confidential FROM table'}),
+    ]:
+        con.execute('INSERT INTO processes(name,prolog,metadata,data,epilog,datasource) VALUES (?,?,?,?,?,?)',
+                    [name,code,'','','',json.dumps(source)])
+        con.execute('INSERT INTO process_writes_cube VALUES (?,?)',[name,'Cube_B'])
+    class Lease:
+        def execute(self,*args):return con.execute(*args)
+        def close(self):pass
+    class Local:
+        def connect(self,read_only=False):
+            assert read_only
+            return Lease()
+    monkeypatch.setattr(api,'guard',lambda snapshot:(Local(),'synthetic'))
+    result=client.get('/api/workbench/lineage-inputs',params={'snapshot_id':'synthetic','cube':'Cube_B'})
+    assert result.status_code==200
+    items=result.json()['items']
+    assert [(x['process'],x['type'],x['name']) for x in items]==[('CsvLoad','file','inf_001.csv'),('SqlLoad','database','数据库数据源')]
+    assert 'DynamicFile' in result.json()['writers']
+    assert all(x['status']=='RECORDED_DECLARATION' for x in items)
+    assert 'confidential' not in result.text and 'private' not in result.text and 'old.csv' not in result.text
+
+
+def test_flow_adds_process_and_external_nodes_without_value_claim():
+    from test_lineage_view import view
+    data={'result':{'snapshot_id':'s','nodes':[{'id':'a','name':'A','type':'cube'},{'id':'b','name':'B','type':'cube'}], 'limits':{}},
+          'rows':[{'id':'ab','source':'a','target':'b','kind':'TI_CANDIDATE','process_names':['Load']}],
+          'inputs':[{'type':'file','name':'inf_001.csv','process':'Load','target':'B'}],
+          'writers':[{'process':'Constant','target':'B'}]}
+    model=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'B',data.inputs,data.writers)")
+    assert {n['type'] for n in model['nodes']}=={'cube','process','file'}
+    assert any(e['label']=='数据源声明' and e['state']=='CANDIDATE' for e in model['edges'])
+    assert any(e['label']=='读取' and e['state']=='CANDIDATE' for e in model['edges'])
+    assert any(e['label']=='写入' for e in model['edges'])
+    assert any(n['name']=='Constant' and n['type']=='process' for n in model['nodes'])
+
+
 def test_unrelated_read_observation_cannot_supply_a_write_slice():
     data={'writes':[{'cube':'B','read_nodes':[],'coordinate_mapping':{'items':[]}}],
           'reads':[{'id':7,'cube':'A','coordinate_mapping':{'items':[]}}]}
@@ -190,6 +231,7 @@ class Element {
   append(...nodes){this.children.push(...nodes);}
   replaceChildren(...nodes){this.children=nodes;}
   setAttribute(name,value){this.attrs[name]=value;}
+  addEventListener(name,handler){this['on'+name]=handler;}
   scrollIntoView(){this.scrolled=true;}
   focus(){this.focused=true;}
   click(){}

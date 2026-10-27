@@ -26,6 +26,28 @@
     return {...n,title:n.name,role:n.id===root?'当前 Cube':up&&down?'直接上下游':up?'直接上游':down?'直接下游':'间接关系',current:n.id===root};}),
    edges,truncated:!!result.limits?.truncated,runtime_verified:false});
  }
+ function flowModel(result,rows,entry,inputs=[],writers=[]){
+  const base=cubeModel(result,rows,entry), nodes=[...base.nodes], edges=[], known=new Set(nodes.map(n=>n.id));
+  const addNode=n=>{if(!known.has(n.id)){known.add(n.id);nodes.push(n);}};
+  const addEdge=e=>{if(!edges.some(x=>x.source===e.source&&x.target===e.target&&x.relation===e.relation))edges.push(e);};
+  for(const row of base.edges){
+   if(row.kind==='RULE_REFERENCE'){addEdge({source:row.source,target:row.target,label:'Rule 引用',state:'RULE_REFERENCE',relation:row.id});continue;}
+   for(const name of row.process_names||[]){const id='ti:'+JSON.stringify([name,row.target]);addNode({id,name,title:name,type:'process',role:'TI',process:name,relation:row.id});
+    addEdge({source:row.source,target:id,label:'读取',state:'CANDIDATE',relation:row.id,process:name});
+    addEdge({source:id,target:row.target,label:'写入',state:'SOURCE_CALL',relation:row.id,process:name});}
+  }
+  for(const input of inputs){const target=nodes.find(n=>n.type==='cube'&&n.name===input.target);if(!target)continue;
+   const ti='ti:'+JSON.stringify([input.process,target.id]), external='input:'+JSON.stringify([input.type,input.name,input.process,target.id]);addNode({id:ti,name:input.process,title:input.process,type:'process',role:'TI',process:input.process,target:input.target});
+   addNode({id:external,name:input.name,title:input.name,type:input.type,role:input.type==='file'?'文件':'数据库'});
+   addEdge({source:external,target:ti,label:'数据源声明',state:'CANDIDATE',process:input.process});
+   addEdge({source:ti,target:target.id,label:'写入',state:'SOURCE_CALL',process:input.process,target:input.target});
+  }
+  for(const writer of writers){const target=nodes.find(n=>n.type==='cube'&&n.name===writer.target);if(!target)continue;const ti='ti:'+JSON.stringify([writer.process,target.id]);
+   addNode({id:ti,name:writer.process,title:writer.process,type:'process',role:'TI',process:writer.process,target:writer.target});
+   if(!edges.some(e=>e.source===ti&&e.target===target.id))addEdge({source:ti,target:target.id,label:'写入',state:'SOURCE_CALL',process:writer.process,target:writer.target});
+  }
+  return bounded({...base,mode:'flow',nodes,edges});
+ }
  function callModel(report){
   const source=(report.calls||[]).concat(report.downstream_calls||[]),pairs=new Set(source.filter(c=>c.target).map(c=>JSON.stringify([c.process,c.target])));
   const indexed=(report.callers||[]).filter(c=>!pairs.has(JSON.stringify([c.process,c.target]))).map(c=>({...c,index_only:true}));
@@ -41,9 +63,9 @@
  function escape(value){return String(value??'').replace(/&/g,'&amp;').replace(/"/g,'#quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/`/g,"'").replace(/[\r\n]/g,' ');}
  function mermaid(model){
   const ids=new Map(model.nodes.map((n,i)=>[n.id,'n'+i])),short=s=>s.length>62?s.slice(0,28)+' … '+s.slice(-26):s;
-  const lines=['flowchart LR'];model.nodes.forEach(n=>{const text=escape((model.mode==='cube'?'▣ ':'TI · ')+short(n.title)+' · '+n.role),id=ids.get(n.id);lines.push(model.mode==='cube'?`${id}["${text}"]`:`${id}("${text}")`);if(n.current)lines.push(`style ${id} fill:#e7efff,stroke:#3564cd,stroke-width:2px`);});
+  const lines=['flowchart LR'];model.nodes.forEach(n=>{const prefix=model.mode==='flow'?(n.type==='cube'?'▣ Cube · ':n.type==='process'?'⚙ TI · ':n.type==='file'?'▤ 文件 · ':'▥ 数据库 · '):(model.mode==='cube'?'▣ ':'TI · ');const text=escape(prefix+short(n.title)+(model.mode==='flow'?'':' · '+n.role)),id=ids.get(n.id);lines.push(n.type==='process'||model.mode==='process'?`${id}("${text}")`:`${id}["${text}"]`);if(n.current)lines.push(`style ${id} fill:#e7efff,stroke:#3564cd,stroke-width:2px`);});
   model.edges.forEach(e=>{if(!ids.has(e.source)||!ids.has(e.target))return;const uncertain=['CANDIDATE','PARTIAL_STATIC_VALUE_DEPENDENCY','INDEX_CALL','CONDITIONAL_CALL'].includes(e.state);lines.push(`${ids.get(e.source)} ${uncertain?'-.->':'-->'}|"${escape(e.label+(e.direct===false?' · 间接':''))}"| ${ids.get(e.target)}`);});
   return {code:lines.join('\n'),idMap:Object.fromEntries(model.nodes.map(n=>[ids.get(n.id),n]))};
  }
- window.TM1LineageView={edgeSummary,cubeModel,callModel,mermaid,escape};
+ window.TM1LineageView={edgeSummary,cubeModel,flowModel,callModel,mermaid,escape};
 })();

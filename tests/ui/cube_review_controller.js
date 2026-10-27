@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('nod
 class Element {
   constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.value='';this.attrs={};this.classList={add(){},remove(){}};}
   append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;}
-  setAttribute(k,v){this.attrs[k]=v;}scrollIntoView(){}focus(){}click(){}after(){}
+  setAttribute(k,v){this.attrs[k]=v;}addEventListener(k,f){this['on'+k]=f;}scrollIntoView(){}focus(){}click(){}after(){}
 }
 const ids=new Map(),get=id=>{if(!ids.has(id))ids.set(id,new Element(id));return ids.get(id);};
 let requests=[],blob;

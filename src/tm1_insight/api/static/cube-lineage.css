@@ -68,3 +68,38 @@
 #cl-diagram,#tr-diagram {min-width:0;max-width:100%;overflow:hidden}
 #tr-diagram-host .mm-root,#cl-diagram-host .mm-root {max-width:100%}
 @media(max-width:1100px){.lineage-layout{grid-template-columns:minmax(0,1fr)}.lineage-side{position:static;max-height:none}}
+
+/* Data-lineage overview: processing cards stay readable beside the canvas. */
+#cl-relations[hidden] {display:none}
+#cl-root .lineage-layout {grid-template-columns:minmax(0,1fr) minmax(310px,410px);gap:16px}
+#cl-root #cl-diagram {background:linear-gradient(145deg,#fff,#f7faff);border-color:#dce6f5;border-radius:16px}
+#cl-root .lineage-side {border-color:#dce6f5;border-radius:16px;background:#fff;box-shadow:0 8px 30px rgba(35,65,110,.06)}
+#cl-root .cl-process-card {margin:14px 0;padding:16px;background:#f7faff;border:1px solid #dce6f5;border-radius:12px;overflow-wrap:anywhere}
+#cl-root .cl-process-card h3 {margin:5px 0 8px;color:#17345c;line-height:1.4}
+#cl-root .cl-card-kicker {font-size:11px;font-weight:700;color:#5278af;letter-spacing:.06em}
+#cl-root .cl-card-path {font-size:13px;color:#526781;overflow-wrap:anywhere}
+#cl-root .cl-write-card {margin-top:12px;padding:12px;background:#fff;border:1px solid #e4eaf3;border-radius:10px}
+#cl-root .cl-write-card h3 {font-size:13px;color:#315f9b}
+#cl-root .cl-write-card p {font-size:13px;line-height:1.5;margin:6px 0}
+#cl-root .cl-slices {grid-template-columns:1fr;gap:7px}
+#cl-root .cl-slices section {padding:9px;background:#f5f8fc}
+#cl-root .cl-slices h3 {margin:0 0 4px;font-size:12px;color:#61748c}
+@media(max-width:1100px){#cl-root .lineage-layout{grid-template-columns:minmax(0,1fr)}}
+
+/* Full-width lineage canvas, with an inspector only when selected. */
+body:has(#cl-root) .content {max-width:none;padding:22px 24px 36px}
+#cl-root {max-width:none;width:100%}
+#cl-root .lineage-layout {grid-template-columns:minmax(0,1fr)}
+#cl-root .lineage-layout:has(#cl-inspector:not([hidden])) {grid-template-columns:minmax(0,1fr) minmax(310px,390px)}
+#cl-root #cl-diagram {padding:0;overflow:hidden}
+#cl-root #cl-diagram > summary {padding:13px 18px;background:#fff;border-bottom:1px solid #e4eaf3;font-weight:600}
+#cl-root #cl-diagram-host.cn-canvas {position:relative;inset:auto;width:100%;height:clamp(480px,68vh,1100px);min-width:0;overflow:hidden}
+#cl-root .cl-canvas-toolbar {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:9px 14px;background:#fff;border-bottom:1px solid #edf1f7;color:#687992;font-size:12px}
+#cl-root .cl-canvas-toolbar > div {display:flex;gap:6px;flex-wrap:wrap}
+#cl-root .cl-canvas-toolbar .btn {padding:5px 10px;font-size:12px}
+#cl-root .cl-inspector-head {display:flex;justify-content:space-between;align-items:center;gap:12px}
+#cl-root .cl-inspector-head h2 {margin:0}
+#cl-root .cl-inspector-head button {padding:3px 9px;font-size:19px}
+#cl-root #cl-canvas-limit:empty {display:none}
+#cl-root #cl-canvas-limit:not(:empty) {padding:8px 14px;margin:0}
+@media(max-width:1100px){#cl-root .lineage-layout:has(#cl-inspector:not([hidden])) {grid-template-columns:minmax(0,1fr)}#cl-root #cl-diagram-host.cn-canvas {height:60vh;min-height:400px}}

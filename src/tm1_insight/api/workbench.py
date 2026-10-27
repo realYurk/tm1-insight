@@ -178,6 +178,52 @@ def writes(snapshot_id: str, process: str = Query(max_length=1000)):
                 total=len(report['writes']), limitations=report.get('limits',[]), runtime_verified=False)
 
 
+@router.get('/api/workbench/lineage-inputs')
+def lineage_inputs(snapshot_id: str, cube: str = Query(max_length=1000)):
+    """Bounded recorded external input declarations for indexed writers, never row lineage."""
+    import ntpath
+    from tm1_insight.learning.syntax import statements
+    from tm1_insight.workflow import MAX_CODE
+    store, snapshot = guard(snapshot_id)
+    with closing(store.connect(read_only=True)) as con:
+        names = [r[0] for r in con.execute('SELECT DISTINCT process_name FROM process_writes_cube WHERE cube_name=? ORDER BY process_name LIMIT 13', [cube]).fetchall()]
+        items = []
+        for name in names[:12]:
+            row = con.execute("SELECT datasource,prolog,metadata,data,epilog FROM processes WHERE name=?", [name]).fetchone()
+            if not row or sum(len(x or '') for x in row[1:]) > MAX_CODE:
+                continue
+            try:
+                data = json.loads(row[0]) if row[0] else {}
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            kind = str(data.get('type') or data.get('Type') or '').casefold()
+            if kind not in {'ascii', 'characterdelimited', 'odbc', 'oledb'}:
+                continue
+            # Runtime assignments could replace a recorded declaration. Do not
+            # display a stale file/database name as the effective input.
+            tokens = statements(tuple(x or '' for x in row[1:]), include_logging=True)
+            if any(len(t) > 1 and t[0]['value'].casefold() in {'datasourcetype', 'datasourcenameforserver', 'datasourcequery'} and t[1]['value'] == '=' for t in tokens):
+                continue
+            source = data.get('file') or data.get('cube') or data.get('name')
+            if kind in {'ascii', 'characterdelimited'}:
+                if not isinstance(source, str) or not source.strip():
+                    continue
+                label = ntpath.basename(source.strip().replace('/', '\\'))
+                if not label or any(c in label for c in '\r\n'):
+                    continue
+                source_type = 'file'
+            else:
+                # Do not expose connection strings or SQL text.
+                label, source_type = '数据库数据源', 'database'
+            items.append(dict(process=name, target=cube, name=label, type=source_type,
+                              evidence=dict(table='processes', column='datasource', process=name),
+                              status='RECORDED_DECLARATION'))
+    guard(snapshot)
+    return dict(snapshot_id=snapshot, items=items, writers=names[:12], truncated=len(names)>12, runtime_verified=False)
+
+
 @router.get('/api/workbench/rules')
 def rules(snapshot_id: str, cube: str = Query(max_length=1000)):
     store, snapshot = guard(snapshot_id)

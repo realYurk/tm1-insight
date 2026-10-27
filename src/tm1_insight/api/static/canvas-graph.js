@@ -46,6 +46,9 @@
     group: dataUri(stackSvg()),
     source: dataUri(fileSvg()),
     muted: dataUri(cubeSvg(CUBE_GRAY)),
+    lineageFile: dataUri("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><path d='M10 4h19l10 10v28a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z' fill='#e8f6ee' stroke='#188555' stroke-width='2'/><path d='M29 4v10h10' fill='none' stroke='#188555' stroke-width='2'/><path d='M15 21h18M15 27h18M15 33h18M21 19v17M28 19v17' stroke='#188555' stroke-width='1.5'/></svg>"),
+    lineageGear: dataUri("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><path d='M20 4h8l1 5a16 16 0 0 1 4 2l4-3 6 6-3 4a16 16 0 0 1 2 4l5 1v7l-5 1a16 16 0 0 1-2 4l3 4-6 6-4-3a16 16 0 0 1-4 2l-1 5h-8l-1-5a16 16 0 0 1-4-2l-4 3-6-6 3-4a16 16 0 0 1-2-4l-5-1v-7l5-1a16 16 0 0 1 2-4l-3-4 6-6 4 3a16 16 0 0 1 4-2z' fill='#e9efff' stroke='#5272c7' stroke-width='1.6'/><circle cx='24' cy='26' r='7' fill='#fff' stroke='#5272c7' stroke-width='2'/></svg>"),
+    lineageDatabase: dataUri("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><ellipse cx='24' cy='10' rx='16' ry='6' fill='#eff0ff' stroke='#6e6abb' stroke-width='2'/><path d='M8 10v25c0 4 7 7 16 7s16-3 16-7V10M8 19c0 4 7 7 16 7s16-3 16-7M8 27c0 4 7 7 16 7s16-3 16-7' fill='none' stroke='#6e6abb' stroke-width='2'/></svg>"),
   };
 
   const TYPE_LABEL = {
@@ -65,7 +68,7 @@
     STRUCTURE: { line: 'dotted', color: '#e2e8f0', arrow: 'none', cls: 'ei-raw' },
   };
 
-  function styleSheet() {
+  function styleSheet(opt) {
     const base = [
       {selector:'core',style:{'active-bg-opacity':0,'active-bg-size':0}},
       {
@@ -150,6 +153,13 @@
       { selector: 'edge[status="CANDIDATE"]', style: { 'line-style': 'dashed' } },
       { selector: 'edge.cn-dim', style: { opacity: 0.25 } },
     ];
+    if (opt && opt.lineage) base.push(
+      {selector:'node',style:{'height':54,'background-width':'28px','background-height':'28px','background-position-x':'12px','text-margin-x':16,'font-size':12,'border-color':'#dbe5f2','color':'#233955'}},
+      {selector:'node[type="process"]',style:{'background-image':ICON.lineageGear,'background-color':'#f8faff'}},
+      {selector:'node[type="source"]',style:{'background-image':ICON.lineageFile,'background-color':'#f7fcf9','color':'#216245'}},
+      {selector:'node[type="database"]',style:{'background-image':ICON.lineageDatabase,'background-color':'#faf9ff','color':'#554f8f'}},
+      {selector:'edge',style:{'label':'data(fullLabel)','text-rotation':'none','font-size':10,'color':'#63758d','text-background-opacity':.95,'width':1.7}}
+    );
     return base;
   }
 
@@ -324,7 +334,7 @@
       cy = cytoscape({
         container: container,
         elements: [],
-        style: styleSheet(),
+        style: styleSheet(opt),
         layout: { name: 'preset' },
         wheelSensitivity: 0.18,
         minZoom: 0.12,
@@ -571,7 +581,7 @@
               kind: e.kind,
               status: e.status || '',
               label: edgeLabel(e),
-              fullLabel: edgeLabel(e),
+              fullLabel: opt.lineage ? (e.label || '') : edgeLabel(e),
               hint: e.hint || '',
               color: s.color,
               lineStyle: s.line,
@@ -613,7 +623,7 @@
 
         cy.elements().remove();
         cy.add(nodes.concat(edges));
-        cy.style(styleSheet());
+        cy.style(styleSheet(opt));
 
         if (hasPreset) {
           cy.layout({ name: 'preset', fit: false, padding: 30 }).run();
@@ -757,6 +767,7 @@
       cancelConnect: cancelConnect,
       layoutStrategy: function () { return lastStrategy; },
       destroy: function () {
+        window.removeEventListener('resize', api.resize);
         window.removeEventListener('mousemove', moveConnect, true);
         window.removeEventListener('mouseup', endConnect, true);
         window.removeEventListener('mousemove', moveBox, true);
