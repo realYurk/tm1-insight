@@ -154,11 +154,15 @@
       { selector: 'edge.cn-dim', style: { opacity: 0.25 } },
     ];
     if (opt && opt.lineage) base.push(
-      {selector:'node',style:{'height':54,'background-width':'28px','background-height':'28px','background-position-x':'24px','text-margin-x':27,'text-max-width':'data(labelW)','text-wrap':'ellipsis','font-size':12,'border-color':'#dbe5f2','color':'#233955'}},
-      {selector:'node[type="process"]',style:{'background-image':ICON.lineageGear,'background-color':'#f8faff'}},
-      {selector:'node[type="source"]',style:{'background-image':ICON.lineageFile,'background-color':'#f7fcf9','color':'#216245'}},
-      {selector:'node[type="database"]',style:{'background-image':ICON.lineageDatabase,'background-color':'#faf9ff','color':'#554f8f'}},
-      {selector:'edge',style:{'label':'data(fullLabel)','text-rotation':'none','font-size':10,'color':'#63758d','text-background-opacity':.95,'width':1.7}}
+      {selector:'node',style:{'height':54,'background-width':'28px','background-height':'28px','background-position-x':'24px','text-margin-x':27,'text-max-width':'data(labelW)','text-wrap':'ellipsis','font-size':12,'border-color':'#d6e2f1','color':'#233955'}},
+      {selector:'node[type="process"]',style:{'background-image':ICON.lineageGear,'background-color':'#f7f8ff','border-color':'#d5dcf3'}},
+      {selector:'node[type="source"]',style:{'background-image':ICON.lineageFile,'background-color':'#f3fbf7','border-color':'#cce9d9','color':'#216245'}},
+      {selector:'node[type="database"]',style:{'background-image':ICON.lineageDatabase,'background-color':'#faf8ff','border-color':'#e1daf3','color':'#554f8f'}},
+      {selector:'node.cn-selected',style:{'border-width':2,'border-color':'#426acb','background-color':'#eff5ff'}},
+      {selector:'edge',style:{'label':'data(displayLabel)','text-rotation':'none','font-size':10,'color':'#536f8e','text-background-opacity':.96,'width':1.6}},
+      {selector:'edge[status="CANDIDATE"]',style:{'line-style':'dashed','line-color':'#8fa6c4','target-arrow-color':'#8fa6c4'}},
+      {selector:'edge[kind="TI_WRITE"]',style:{'line-color':'#83a3ca','target-arrow-color':'#83a3ca'}},
+      {selector:'edge.cn-hover, edge.cn-selected',style:{'label':'data(fullLabel)','width':2.2,'color':'#334e71'}}
     );
     return base;
   }
@@ -583,6 +587,7 @@
               status: e.status || '',
               label: edgeLabel(e),
               fullLabel: opt.lineage ? (e.label || '') : edgeLabel(e),
+              displayLabel: opt.lineage && (payload.edges || []).length > 10 ? '' : (e.label || ''),
               hint: e.hint || '',
               color: s.color,
               lineStyle: s.line,

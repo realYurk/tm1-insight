@@ -18,16 +18,34 @@
    label:confirmed?`${confirmed} 处静态值依赖${confirmed<writes.length||done<expected?' · 含候选':''}`:`经 ${expected} TI · 候选`,
    note:confirmed?'仅这些写入点包含所选来源的静态值依赖；其他写入不随之升级。':'仅同一 TI 共同读写，不代表已确认值传输。'};
  }
- function cubeModel(result,rows,entry,records=[]){
+ function cubeModel(result,rows,entry,records=[],limit=true){
   const root=(result.nodes||[]).find(n=>n.type==='cube'&&n.name===entry)?.id;
   const edges=rows.map(r=>({...r,...edgeSummary(r,records),direct:r.source===root||r.target===root}));
-  return bounded({schema:'lineage-presentation-2',mode:'cube',snapshot_id:result.snapshot_id,entry,
+  const model={schema:'lineage-presentation-2',mode:'cube',snapshot_id:result.snapshot_id,entry,
    nodes:(result.nodes||[]).filter(n=>n.type==='cube').map(n=>{const up=edges.some(e=>e.source===n.id&&e.target===root),down=edges.some(e=>e.target===n.id&&e.source===root);
     return {...n,title:n.name,role:n.id===root?'当前 Cube':up&&down?'直接上下游':up?'直接上游':down?'直接下游':'间接关系',current:n.id===root};}),
-   edges,truncated:!!result.limits?.truncated,runtime_verified:false});
+   edges,truncated:!!result.limits?.truncated,runtime_verified:false};
+  return limit?bounded(model):model;
+ }
+ function connectedFlow(model){
+  const nodes=model.nodes,edges=model.edges;
+  const root=nodes.find(n=>n.current),selected=new Set(root?[root.id]:[]),chosen=new Set(),queue=root?[root.id]:[];
+  const adjacent=new Map(nodes.map(n=>[n.id,[]]));
+  edges.forEach((edge,i)=>{if(adjacent.has(edge.source)&&adjacent.has(edge.target)){adjacent.get(edge.source).push(i);if(edge.source!==edge.target)adjacent.get(edge.target).push(i);}});
+  const byId=new Map(nodes.map(n=>[n.id,n])),externalTI=new Set(edges.filter(e=>['file','database'].includes(byId.get(e.source)?.type)).map(e=>e.target));
+  while(queue.length&&chosen.size<30){const id=queue.shift();
+   const options=[...(adjacent.get(id)||[])].sort((a,b)=>{const other=i=>edges[i].source===id?edges[i].target:edges[i].source;return Number(!externalTI.has(other(a)))-Number(!externalTI.has(other(b)))||a-b;});
+   for(const i of options){if(chosen.size>=30)break;const e=edges[i],other=e.source===id?e.target:e.source;
+    if(!selected.has(other)){if(selected.size>=24||(id===root?.id&&externalTI.size&&selected.size>=18))continue;selected.add(other);queue.push(other);}chosen.add(i);
+   }
+  }
+  for(let i=0;i<edges.length&&chosen.size<30;i++){const e=edges[i];if(selected.has(e.source)&&selected.has(e.target))chosen.add(i);}
+  model.nodes=nodes.filter(n=>selected.has(n.id));model.edges=edges.filter((e,i)=>chosen.has(i));
+  model.display_limits={nodes_total:nodes.length,edges_total:edges.length,nodes_hidden:nodes.length-model.nodes.length,edges_hidden:edges.length-model.edges.length};
+  model.display_truncated=!!(model.display_limits.nodes_hidden||model.display_limits.edges_hidden);return model;
  }
  function flowModel(result,rows,entry,inputs=[],writers=[]){
-  const base=cubeModel(result,rows,entry), nodes=[...base.nodes], edges=[], known=new Set(nodes.map(n=>n.id));
+  const base=cubeModel(result,rows,entry,[],false), nodes=[...base.nodes], edges=[], known=new Set(nodes.map(n=>n.id));
   const addNode=n=>{if(!known.has(n.id)){known.add(n.id);nodes.push(n);}};
   const addEdge=e=>{if(!edges.some(x=>x.source===e.source&&x.target===e.target&&x.relation===e.relation))edges.push(e);};
   for(const row of base.edges){
@@ -40,13 +58,13 @@
    const ti='ti:'+JSON.stringify([input.process,target.id]), external='input:'+JSON.stringify([input.type,input.name,input.process,target.id]);addNode({id:ti,name:input.process,title:input.process,type:'process',role:'TI',process:input.process,target:input.target});
    addNode({id:external,name:input.name,title:input.name,type:input.type,role:input.type==='file'?'文件':'数据库'});
    addEdge({source:external,target:ti,label:'数据源声明',state:'CANDIDATE',process:input.process});
-   addEdge({source:ti,target:target.id,label:'写入',state:'SOURCE_CALL',process:input.process,target:input.target});
+   addEdge({source:ti,target:target.id,label:'写入',state:'SOURCE_CALL',process:input.process,target_name:input.target});
   }
   for(const writer of writers){const target=nodes.find(n=>n.type==='cube'&&n.name===writer.target);if(!target)continue;const ti='ti:'+JSON.stringify([writer.process,target.id]);
    addNode({id:ti,name:writer.process,title:writer.process,type:'process',role:'TI',process:writer.process,target:writer.target});
-   if(!edges.some(e=>e.source===ti&&e.target===target.id))addEdge({source:ti,target:target.id,label:'写入',state:'SOURCE_CALL',process:writer.process,target:writer.target});
+   if(!edges.some(e=>e.source===ti&&e.target===target.id))addEdge({source:ti,target:target.id,label:'写入',state:'SOURCE_CALL',process:writer.process,target_name:writer.target});
   }
-  return bounded({...base,mode:'flow',nodes,edges});
+  return connectedFlow({...base,mode:'flow',nodes,edges});
  }
  function callModel(report){
   const source=(report.calls||[]).concat(report.downstream_calls||[]),pairs=new Set(source.filter(c=>c.target).map(c=>JSON.stringify([c.process,c.target])));

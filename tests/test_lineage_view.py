@@ -46,6 +46,38 @@ def test_cube_roles_bounds_and_safe_long_labels():
     assert any(n['name']==long_name for n in result['chart']['idMap'].values())
 
 
+def test_flow_budget_keeps_connected_paths_and_prioritizes_recorded_file():
+    data={'result':{'snapshot_id':'s','nodes':[{'id':'a','name':'A','type':'cube'},
+          {'id':'b','name':'B','type':'cube'},{'id':'orphan','name':'Unrelated','type':'cube'}], 'limits':{}},
+          'rows':[{'id':'ab','source':'a','target':'b','kind':'TI_CANDIDATE','process_names':[f'Load{i}' for i in range(40)]}],
+          'inputs':[{'type':'file','name':'input.csv','process':'Load0','target':'B'}]}
+    result=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'B',data.inputs)")
+    nodes={n['id'] for n in result['nodes']};edges=result['edges']
+    assert len(nodes)<=24 and len(edges)<=30 and result['display_truncated']
+    assert 'orphan' not in nodes and any(n['name']=='input.csv' for n in result['nodes'])
+    reached={'b'}
+    for _ in nodes:
+        for e in edges:
+            if e['source'] in reached: reached.add(e['target'])
+            if e['target'] in reached: reached.add(e['source'])
+    assert reached==nodes
+    assert all(e['source'] in nodes and e['target'] in nodes for e in edges)
+    assert any(e['label']=='数据源声明' and e['state']=='CANDIDATE' for e in edges)
+
+
+def test_layered_layout_places_file_before_process_and_cube():
+    node=shutil.which('node')
+    if not node: pytest.skip('Node is required for layout checks')
+    source=Path('src/tm1_insight/api/static/canvas-layout.js').read_text(encoding='utf-8')
+    script="global.window={};\n"+source+"\n"+r'''
+const nodes=[{id:'file',name:'input.csv',type:'source'},{id:'ti',name:'Load',type:'process'},{id:'cube',name:'B',type:'cube'}];
+const edges=[{source:'file',target:'ti'},{source:'ti',target:'cube'}];
+console.log(JSON.stringify(window.TM1CanvasLayout.compute(nodes,edges,{strategy:'layered',direction:'LR'}).positions));
+'''
+    positions=json.loads(subprocess.run([node],input=script,text=True,capture_output=True,encoding='utf-8',check=True).stdout)
+    assert positions['file']['x'] < positions['ti']['x'] < positions['cube']['x']
+
+
 def test_calls_keep_direction_conditions_cycles_dynamic_and_index():
     c=lambda a,b,**extra:dict(process=a,target=b,**extra)
     data={'process':'A','snapshot_id':'s','analyzed_process_names':['A','B'],

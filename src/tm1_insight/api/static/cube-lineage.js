@@ -194,7 +194,8 @@
   let focusRow=null;
   function draw(){if(!result||!$('cl-diagram').open)return;
     const view=window.TM1LineageView.flowModel(result,rows,resultName,externalInputs,indexedWriters);
-    const positions=viewer?.getPositions?.(),saved=viewer?.getView?.();
+    const key=JSON.stringify([view.nodes.map(n=>n.id),view.edges.map(e=>[e.source,e.target,e.label])]);
+    const previous=viewer?.getPositions?.(),positions=viewer?._lineageKey===key?previous:undefined,saved=viewer?.getView?.();
     function selectProcess(name,target,relation){$('cl-inspector').hidden=false;viewer?.resize?.();const host=$('cl-node-detail');Array.from($('cl-details').children).forEach(p=>{p.hidden=true;});host.hidden=false;host.replaceChildren();detailAbort?.abort();detailAbort=new AbortController();
       const row=rows.find(r=>r.id===relation)||rows.find(r=>(r.process_names||[]).includes(name)&&(!target||r.target_name===target))||{id:'input:'+name,source_name:'',target_name:target||resultName};
       analyzeTI(host,row,name,generation,detailAbort.signal);}
@@ -203,7 +204,9 @@
     const first=!viewer;if(first)viewer=window.TM1Canvas.mount($('cl-diagram-host'),{lineage:true,onNodeClick:id=>viewer._onNodeClick(id),onEdgeClick:id=>viewer._onEdgeClick(id)});
     viewer._onNodeClick=onNodeClick;viewer._onEdgeClick=onEdgeClick;
     viewer.setGraph({nodes:view.nodes.map(n=>({...n,type:n.type==='file'?'source':n.type})),edges:view.edges.map((e,i)=>({...e,id:'flow-'+i,kind:e.state==='RULE_REFERENCE'?'RULE_REFERENCE':e.label==='写入'?'TI_WRITE':'TI_READ',status:e.state==='CANDIDATE'?'CANDIDATE':''})),layout:'layered',positions,view:saved});
+    viewer._lineageKey=key;
     const rootNode=view.nodes.find(n=>n.current);if(rootNode)viewer.select([rootNode.id]);
+    if(!positions&&saved&&rootNode&&previous?.[rootNode.id]){const after=viewer.getPositions()[rootNode.id],before=previous[rootNode.id];if(after)viewer.applyView({...saved,x:saved.x+(before.x-after.x)*saved.zoom,y:saved.y+(before.y-after.y)*saved.zoom});}
     if(first){const current=view.nodes.find(n=>n.current),canvas=viewer;if(current)setTimeout(()=>{if(viewer===canvas){const cy=canvas.cy(),node=cy?.getElementById(current.id);if(node?.length){cy.zoom(1.3);cy.center(node);}}},450);}
     $('cl-canvas-limit').textContent=view.display_truncated?`图内折叠 ${view.display_limits.nodes_hidden} 个对象 / ${view.display_limits.edges_hidden} 条连接；可缩小层数继续研究。`:'';
   }
