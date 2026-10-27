@@ -122,5 +122,5 @@ def test_lineage_canvas_has_offline_distinct_icons():
     cube=unquote(icons['cube']);file=unquote(icons['lineageFile']);gear=unquote(icons['lineageGear'])
     assert cube.count('<polygon')==3
     assert '<path' in file and 'M15 21h18' in file
-    assert '<circle' in gear and 'cx=\'24\'' in gear
+    assert '<circle' in gear and 'cx=\'24\'' in gear and "width='192'" in gear
     assert all(value.startswith('data:image/svg+xml;utf8,') for value in (icons['cube'],icons['lineageFile'],icons['lineageGear']))

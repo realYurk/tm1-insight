@@ -7,9 +7,9 @@
  const states={CONFIRMED_STATIC:'已确认静态表达式或引用',PARTIAL:'部分已确认',UNRESOLVED:'值来源尚未解析',CANDIDATE:'仅共同读写候选'};
  let run=0,controller=null,plan=null,query=null,results=new Map(),failures=new Map(),task='NOT_STARTED';
  const taskLabels={NOT_STARTED:'尚未开始',RUNNING:'分析中',COMPLETED:'已完成',CANCELLED:'已取消',PARTIAL_FAILURE:'部分失败',FAILED:'失败'};
- function source(g){if(g.value_kind==='CONSTANT')return '常量写入，无需源 Cube';if(g.value_kind==='PARAMETER')return '由已声明参数计算';return g.sources.length?g.sources.map(s=>s.kind==='VIEW_FIELD'?`${s.cube} / ${s.view} · VIEW 成员字段 ${s.variable}`:s.kind==='VIEW_VALUE'?`${s.cube} / ${s.view} · VIEW 值列 ${s.variable}`:s.cube).join('；'):'值来源未闭合；目标写入已定位';}
- function slice(g){if(g.kind==='RULE')return g.area||'Rule 区域见源码';const ordered=[...g.coordinates].sort((a,b)=>(a.kind!=='FIXED')-(b.kind!=='FIXED'));
-  return ordered.slice(0,6).map(c=>`${c.dimension||'坐标 '+c.position} = ${c.expression||'待确认'}${c.kind==='DYNAMIC'?'（动态表达式）':c.kind==='UNRESOLVED'?'（归属或成员待确认）':''}`).join('；')+(ordered.length>6?'；其余坐标见证据':'');}
+ function source(g){if(g.value_kind==='CONSTANT')return '常量写入，无需源 Cube';if(g.value_kind==='PARAMETER')return '由已声明参数计算';return g.sources.length?g.sources.map(s=>s.kind==='VIEW_FIELD'?`${s.cube} / ${s.view} · VIEW 成员字段 ${s.variable}`:s.kind==='VIEW_VALUE'?`${s.cube} / ${s.view} · VIEW 值列 ${s.variable}`:s.cube).join('；'):'';}
+ function slice(g){if(g.kind==='RULE')return g.area||'';const ordered=g.coordinates.filter(c=>['FIXED','DYNAMIC'].includes(c.kind)&&c.dimension&&c.expression!==null&&c.expression!==undefined&&c.expression!=='').sort((a,b)=>(a.kind!=='FIXED')-(b.kind!=='FIXED'));
+  return ordered.slice(0,6).map(c=>`${c.dimension} = ${c.expression}${c.kind==='DYNAMIC'?'（动态表达式）':''}`).join('；')+(ordered.length>6?'；其余坐标见证据':'');}
  function position(g){return `${g.location.section}:${g.location.line}:${g.location.column||1}`;}
  function status(){const count=results.size;$('fa-status').textContent=`${taskLabels[task]} · ${count} / ${plan?.jobs.length||0} 项取得结果${failures.size?'；'+failures.size+' 项失败，可重试':''}`;$('fa-cancel').disabled=task!=='RUNNING';$('fa-retry').disabled=task==='RUNNING';$('fa-export').disabled=!results.size;}
  function proof(host,g){const d=el('details'),s=el('summary','源码定位与原始证据 · '+position(g));d.append(s);const a=el('a','打开对象源码');a.href='/explorer/'+(g.kind==='TI'?'process/':'cube/')+encodeURIComponent(g.owner)+'?'+new URLSearchParams({model:plan.snapshot_id});d.append(a);d.addEventListener('toggle',()=>{if(d.open&&!d.dataset.loaded){d.dataset.loaded='1';const pre=el('pre',JSON.stringify(g.evidence,null,2));pre.className='code';pre.style.maxHeight='320px';pre.style.overflow='auto';d.append(pre);}});host.append(d);}
@@ -20,13 +20,13 @@
    box.append(el('h2',gs[0].owner+' · '+(gs[0].kind==='TI'?'TI 写入':'Rule 计算')));
    box.append(el('p',[...new Set(gs.map(g=>mode[g.operation]))].join('、')+' · '+gs.length+' 个独立区域 / 条件记录'));
    const unique=xs=>[...new Set(xs)];
-   unique(gs.map(slice)).slice(0,2).forEach(s=>box.append(el('p',s)));
-   unique(gs.map(g=>`${g.expression} ← ${source(g)}`)).slice(0,2).forEach(s=>box.append(el('p',s)));
+   unique(gs.map(slice)).filter(Boolean).slice(0,2).forEach(s=>box.append(el('p',s)));
+   unique(gs.map(g=>source(g)?`${g.expression} ← ${source(g)}`:g.expression)).filter(Boolean).slice(0,2).forEach(s=>box.append(el('p',s)));
    if(unique(gs.map(slice)).length>2||unique(gs.map(g=>g.expression)).length>2)box.append(el('p','另有不同切面或表达式，展开查看；未将它们合并为同一动作。'));
    if(gs.some(g=>g.match==='POSSIBLE'))box.append(el('p','包含可能匹配项：动态坐标或区域归属不足，未认定命中具体单元格。'));
    const ids=unique(gs.flatMap(g=>g.blocker_refs));if(ids.length){box.append(el('p','阻碍值解释：'+ids.slice(0,1).map(id=>blockers.get(id)?.reason||'见共享证据缺口').join('；')+(ids.length>1?'；其他根因见证据缺口':'')));}
    const detail=el('details');detail.append(el('summary','展开切面、表达式与条件（'+gs.length+' 项）'));
-   for(const g of gs){const part=el('section');part.className='cl-detail';part.append(el('h3',mode[g.operation]+' · '+position(g)),el('p',slice(g)),el('p','值表达式：'+g.expression),el('p',source(g)),el('p',states[g.evidence_state]));
+   for(const g of gs){const part=el('section');part.className='cl-detail';part.append(el('h3',mode[g.operation]+' · '+position(g)));if(slice(g))part.append(el('p',slice(g)));part.append(el('p','值表达式：'+g.expression));if(source(g))part.append(el('p',source(g)));part.append(el('p',states[g.evidence_state]));
     if(g.conditions.length)part.append(el('p','条件（未求值）：'+g.conditions.map(c=>c.condition||c.expression||c.raw||c.kind||'见证据').join('；')));
     else part.append(el('p','本记录未保留控制条件；不据此证明必然执行。'));
     proof(part,g);detail.append(part);}

@@ -127,3 +127,20 @@ const submit=()=>get('cl-search').events.submit({preventDefault(){}});
 '''
     p=subprocess.run([node],input=harness.replace('SOURCE',json.dumps(source)),text=True,capture_output=True,encoding='utf-8',check=True)
     assert 'verified' in p.stdout
+
+
+def test_formation_summary_omits_unresolved_coordinate_without_inventing_mapping():
+    import json, shutil, subprocess
+    from pathlib import Path
+    import pytest
+    node=shutil.which('node')
+    if not node: pytest.skip('Node is required for presentation checks')
+    source=Path('src/tm1_insight/api/static/formation-answer.js').read_text(encoding='utf-8')
+    source=source.replace("if(!$('fa-root'))return;", "if(!$('fa-root')){window.inspectSummary={slice,source};return;}")
+    script="global.window={};global.document={getElementById:()=>null};\n"+source+"\n"+r'''
+const g={kind:'TI',coordinates:[{kind:'UNRESOLVED',position:1,expression:'Amount'},{kind:'FIXED',dimension:'Measure',expression:'Sales'},{kind:'DYNAMIC',dimension:'Year',expression:'pYear'}],sources:[],value_kind:'UNKNOWN'};
+console.log(JSON.stringify({slice:window.inspectSummary.slice(g),source:window.inspectSummary.source(g)}));
+'''
+    data=json.loads(subprocess.run([node],input=script,text=True,capture_output=True,encoding='utf-8',check=True).stdout)
+    assert data['slice']=='Measure = Sales；Year = pYear（动态表达式）'
+    assert data['source']=='' and 'Amount' not in data['slice'] and '待确认' not in data['slice']
