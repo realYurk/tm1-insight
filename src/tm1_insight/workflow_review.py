@@ -75,6 +75,11 @@ def build(path, schedules=(), declaration=None, *, process=None):
     # Calls at other source locations remain independent; never draw them as
     # direct invocations by the selected root or interpret discovery as order.
     indirect = [c for c in execution if c['process'] != root]
+    if process and process != header['root']:
+        # The artifact was expanded from its original root; its other calls
+        # are not necessarily downstream of the selected child.
+        indirect = []
+        limits.append('当前 TI 的其他调用路径请返回原入口报告查看；未将全部范围内调用称作该 TI 的下游。')
     source_reads = [{k:n.get(k) for k in ('id','cube','operation','resolution','coordinate_mapping','evidence')}
                     for n in detail.get('nodes', []) if n['kind'] == 'read']
     all_writes = detail.get('writes', [])
@@ -113,6 +118,7 @@ def build(path, schedules=(), declaration=None, *, process=None):
                              view_sources=[view['cube']] if view and view.get('cube') else [],behaviors=behaviors),
                 sources=sources,
                 sections=sections, calls=root_calls, downstream_calls=indirect, callers=callers,
+                analyzed_process_names=sorted(known),
                 schedules=list(schedules), structure=structure, writes=scoped,
                 parameters=detail.get('parameter_names', []),
                 data_row_lineage=detail.get('data_row_lineage'),

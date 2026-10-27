@@ -59,6 +59,14 @@ const inst=window.TM1Mermaid.mount(host,{code:'flowchart LR\n a-->b'});
   width=0;const hidden=inst.getView().zoom;observers[0].fn();
   if(inst.getView().zoom!==hidden)throw Error('Collapsed diagram corrupted fit');
   inst.destroy();if(!observers[0].disconnected||host.children.length||windowListeners.some(x=>['mousemove','mouseup'].includes(x[0])))throw Error('Viewer leaked listeners or observer');
+  const compact=window.TM1Mermaid.mount(host,{code:'flowchart LR\n a-->b',compact:true});
+  await new Promise(r=>setImmediate(r));
+  const compactBar=host.children[0].children[0], select=compactBar.children.find(n=>n.tag==='select');
+  if(!select)throw Error('Compact zoom presets missing');
+  for(const scale of [1,1.5,.6,1]){select.value=String(scale);select.events.change();if(compact.getView().zoom!==scale)throw Error('Incorrect zoom preset');}
+  const transformed=host.children[0].children[1].children[0].style.transform;
+  if(!transformed.includes('scale(1)'))throw Error('Zoom did not round-trip uniformly');
+  compact.destroy();
   console.log(JSON.stringify({ordinaryScroll:true,explicitZoom:true,fit:fitted,resize:true,dispose:true}));
 })().catch(e=>{console.error(e);process.exitCode=1;});
 '''

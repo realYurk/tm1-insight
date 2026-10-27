@@ -126,7 +126,15 @@
     var expSvg = btn('导出 SVG', function () { exportSvg(state, opts); });
     var expPng = btn('导出 PNG', function () { exportPng(state, opts); });
 
-    [zoomOut, zoomIn, fit, one, dir, full, copy, expMmd, expSvg, expPng].forEach(function (b) { bar.appendChild(b); });
+    [zoomOut, zoomIn, fit, one, dir].forEach(function (b) { bar.appendChild(b); });
+    if (opts.compact) {
+      var ratio = document.createElement('select');ratio.className='input';ratio.setAttribute('aria-label','缩放预设');
+      var placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='缩放预设';ratio.appendChild(placeholder);
+      [100,150,60].forEach(function (percent) { var o=document.createElement('option');o.value=percent/100;o.textContent=percent+'%';ratio.appendChild(o); });
+      ratio.addEventListener('change',function(){if(ratio.value)setZoom(state,Number(ratio.value));ratio.selectedIndex=0;});bar.appendChild(ratio);
+      var more=document.createElement('details');more.className='mm-more';var summary=document.createElement('summary');summary.textContent='Mermaid / 导出';more.appendChild(summary);
+      [full,copy,expMmd,expSvg,expPng].forEach(function(b){more.appendChild(b);});bar.appendChild(more);
+    } else [full,copy,expMmd,expSvg,expPng].forEach(function(b){bar.appendChild(b);});
     if (opts.onBoxSelect) {
       var boxSelect = btn('框选模式', function () {
         state.boxSelection = !state.boxSelection;
@@ -271,6 +279,7 @@
       hit.removeAttribute('marker-end'); hit.removeAttribute('marker-start');
       hit.setAttribute('stroke', 'transparent'); hit.setAttribute('stroke-width', '14');
       hit.setAttribute('fill', 'none'); hit.style.pointerEvents = 'stroke';
+      hit.setAttribute('data-mm-hit','true');
       hit.style.cursor = 'pointer'; hit.addEventListener('click', handler);
       edge.parentNode.appendChild(hit); state.nodeHandlers.push([hit, handler]);
       var label = svg.querySelectorAll('.edgeLabels > g.edgeLabel')[i];
@@ -290,6 +299,9 @@
     svg.querySelectorAll('.node').forEach(function (node) {
       var svgNodeId = node.id;
       var nodeId = extractNodeId(svgNodeId);
+      var mapped=opts.idMap && opts.idMap[nodeId];
+      var fullName=typeof mapped==='string'?mapped:mapped && (mapped.name||mapped.title);
+      if(fullName){var title=document.createElementNS('http://www.w3.org/2000/svg','title');title.textContent=fullName;node.appendChild(title);node.setAttribute('aria-label',fullName);}
       node.style.cursor = 'pointer';
       var handler = function (event) {
         var labels = node.querySelectorAll('.nodeLabel, text');
@@ -374,7 +386,7 @@
         selectionBox.style.position = 'fixed'; wrapper.appendChild(selectionBox);
         e.preventDefault(); return;
       }
-      if (e.target.closest('.node,.flowchart-link')) return;
+      if (e.target.closest('.node,.flowchart-link,.edgeLabel,[data-mm-hit]')) return;
       dragging = true; startX = e.clientX; startY = e.clientY; origX = state.pan.x; origY = state.pan.y;
       state.fitted = false;
       viewport.style.cursor = 'grabbing';

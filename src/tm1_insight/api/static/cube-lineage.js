@@ -14,7 +14,7 @@
     ...w,target_slices:slices(w.coordinate_mapping),
     // Only read_nodes belonging to this value expression may supply source slices.
     // All other process reads remain observations, not this write's source.
-    source_reads:(data.reads||[]).filter(r=>r.cube===source&&(w.read_nodes||[]).includes(r.id)),
+    source_reads:(data.reads||[]).filter(r=>r.cube===source&&r.resolution==='resolved'&&(w.read_nodes||[]).includes(r.id)),
     source_data_rows:(w.data_row_binding_status==='STATIC_CELL_VALUE_DEPENDENCY'?(w.data_row_value_dependencies||[]):[]).filter(d=>d.source_cube===source&&d.source_field?.kind==='CELL_VALUE'),
     source_row_slices:data.data_row_lineage?.source_view_binding?.cube===source?(data.data_row_lineage.source_coordinate_mapping||[]).map(c=>({dimension:c.dimension,kind:'动态',value:c.variable})):[],
     source_observations:(data.reads||[]).filter(r=>r.cube===source&&!(w.read_nodes||[]).includes(r.id))
@@ -36,7 +36,7 @@
     const order=(a,b)=>{const x=String(a.relation)+'\0'+String(a.process||''),y=String(b.relation)+'\0'+String(b.process||'');return x<y?-1:x>y?1:0;};
     const records=[...inspections].sort(order),byId=new Map(rows.map(r=>[r.id,r]));
     const covered=coverage(rows,records);
-    const lines=[result.summary_only?'# Cube 血缘摘要':'# Cube 血缘研究',`入口：${text(name)}`,'','范围：直接关系，最多 40 Cube / 100 关系；仅含本次分析过的切面。静态关联不证明值流。',`截断：${result.limits.truncated?'是':'否'}；Rule 范围完整：${result.rule_scope?.complete?'是':'否'}`,'','## Cube 关系','',
+    const lines=[result.summary_only?'# Cube 血缘摘要':'# Cube 血缘研究',`入口：${text(name)}`,'',`范围：${result.query?.depth||1} 层，最多 40 Cube / 100 关系；仅含本次分析过的切面。静态关联不证明值流。`,`截断：${result.limits.truncated?'是':'否'}；Rule 范围完整：${result.rule_scope?.complete?'是':'否'}`,'','## 通俗摘要：Cube 关系','',
       '| 来源 | 目标 | 机制 | TI |','|---|---|---|---|',...rows.map(r=>`| ${text(r.source_name)} | ${text(r.target_name)} | ${text(r.label)} | ${text((r.process_names||[]).join('、'))} |`),'','## 已分析的切面与计算','',
       '固定成员、动态表达式与待确认坐标分别标记。切面最多摘录 6 项；源码位置按 Section:行:列记录。源切面按本写入保留读取节点及已确认的 VIEW 值列依赖分别投影；其他来源证据保留在附录。未分析的关系不补造切面。',''];
     lines.push(`分析覆盖：关系总数 ${covered.relations_total}，已分析 ${covered.reviewed}，部分分析 ${covered.partial}，未分析 ${covered.unreviewed}；TI / Rule 分析 ${covered.checks_completed} / ${covered.checks_total}。`,'');
@@ -87,7 +87,7 @@
         const fixed=writes.reduce((n,w)=>n+w.target_slices.filter(c=>c.kind==='固定').length,0);
         const sourced=writes.filter(w=>w.source_reads.length||w.source_data_rows.length).length;
         cell.append(el('p',`${writes.length} 个写入点 · ${ops}${fixed?` · ${fixed} 个固定坐标`:''}`,'small'));
-        cell.append(el('p',sourced?`${sourced} 个写入点已定位源读取`:'源切面未确认（证据边界见详情）','small'));
+        cell.append(el('p',window.TM1LineageView?.edgeSummary(row,[...inspected.values()]).label||(sourced?`${sourced} 个写入点已定位源读取`:'仅共同读写候选'),'small'));
       }else cell.append(el('p','本目标未取得写入点','small'));
     }else{
       const rules=records.flatMap(x=>x.rules||[]);
@@ -116,7 +116,7 @@
     const data=await cached(writeCache,process,'/api/workbench/writes?'+new URLSearchParams({snapshot_id:snapshot,process}),signal);if(token!==generation||signal?.aborted)return;
     const writes=writeRows(data,row.source_name,row.target_name);
     inspected.set(row.id+'::'+process,{relation:row.id,process,writes,limitations:data.limitations||[],total:data.total,read_total:data.read_total,truncated:data.total>data.writes.length||data.read_total>data.reads.length});
-    updateRow(row);updateCoverage();return {data,writes};
+    updateRow(row);updateCoverage();draw();return {data,writes};
   }
   /* 自动分析：复用同一缓存与 409 保护；单 TI 失败不阻断其余分析。 */
   async function analyzeTI(host,row,process,token,signal){
@@ -125,7 +125,7 @@
       const loaded=await loadTI(row,process,token,signal);
       if(!loaded||token!==generation||signal?.aborted)return;const {data,writes}=loaded;
       host.replaceChildren(el('h3',`TI：${process}`));
-      const fixed=[...new Set(writes.flatMap(w=>w.target_slices.filter(c=>c.kind==='固定').map(c=>c.dimension+' = '+c.value)))];host.append(el('p',fixed.slice(0,4).join('；')||'目标坐标以动态表达式为主，展开写入点查看。'));host.append(el('p',[...new Set(writes.map(w=>operations[w.operation]||w.operation))].join('、')+' · '+writes.length+' 个写入点'));
+      const sourceFacts=writes.flatMap(w=>w.source_reads.flatMap(r=>slices(r.coordinate_mapping)));host.append(el('p',sourceFacts.length?'已确认源切面：'+[...new Set(sourceFacts.slice(0,4).map(c=>c.dimension+' = '+c.value))].join('；'):writes.some(w=>w.source_data_rows.length)?'来源：已绑定 VIEW 值列，坐标映射见写入点':'所选源 Cube 的值切面尚未确认；共同读写仅为候选。'));const fixed=[...new Set(writes.flatMap(w=>w.target_slices.filter(c=>c.kind==='固定').map(c=>c.dimension+' = '+c.value)))];host.append(el('p',fixed.slice(0,4).join('；')||'目标坐标以动态表达式为主，展开写入点查看。'));host.append(el('p',[...new Set(writes.map(w=>operations[w.operation]||w.operation))].join('、')+' · '+writes.length+' 个写入点'));
       host.append(link('查看 TI 源码','/explorer/process/'+encodeURIComponent(process)+'?'+new URLSearchParams({model:snapshot})));
       host.append(link('研究此 TI 调用与读写','/graph?'+new URLSearchParams({ti:process,model:snapshot})));
       if(!writes.length)host.append(el('p','本次源码分析未取得该目标写入点；保留索引候选关系，不虚构切面。'));
@@ -141,7 +141,7 @@
     const data=await cached(ruleCache,row.target_name,'/api/workbench/rules?'+new URLSearchParams({snapshot_id:snapshot,cube:row.target_name}),signal);if(token!==generation||signal?.aborted)return;
     if(!data.available||data.error){ruleCache.delete(row.target_name);throw new Error('Rule 语义结果不可用');}
     const rules=(data.rules||[]).filter(r=>(r.db_references||[]).some(d=>d.cube_resolved&&d.cube===row.source_name));
-    inspected.set(row.id,{relation:row.id,rules});updateRow(row);updateCoverage();return {data,rules};
+    inspected.set(row.id,{relation:row.id,rules});updateRow(row);updateCoverage();draw();return {data,rules};
   }
   async function analyzeRule(host,row,token,signal){
     host.replaceChildren(el('p','正在读取本地 Rule 分析…','cl-loading'));
@@ -179,6 +179,7 @@
       let loaded=false;
       const close=()=>{body.hidden=true;trigger.setAttribute('aria-expanded','false');tr.classList.remove('cl-selected');if(active===close)active=null;detailAbort?.abort();detailAbort=null;if(focusRow===row){focusRow=null;draw();}};
       const trigger=button('查看详情',()=>{
+        if($('cl-node-detail'))$('cl-node-detail').hidden=true;
         if(!body.hidden){close();return;}
         active?.();active=close;body.hidden=false;trigger.setAttribute('aria-expanded','true');tr.classList.add('cl-selected');
         focusRow=row;draw();
@@ -198,15 +199,16 @@
     const names=new Set(rows.flatMap(r=>[r.source_name,r.target_name]));$('cl-summary').replaceChildren(el('h2',`${resultName} · ${rows.length} 条关系 / ${names.size} 个相关 Cube`),link('查看入口 Cube 结构与全部写入 TI','/explorer/cube/'+encodeURIComponent(resultName)));
   }
   let focusRow=null;
-  function draw(){if(!result||!$('cl-diagram').open)return;viewer?.destroy();
-    /* 默认只画当前选中的关系；无选中时才画全量（仍受可读预算限制）。 */
-    const list=focusRow?[focusRow]:rows;
-    const idsFor=new Map();const cubeNodes=result.nodes.filter(n=>n.type==='cube'&&(focusRow?n.id===focusRow.source||n.id===focusRow.target:true));
-    cubeNodes.forEach((n,i)=>idsFor.set(n.id,'n'+i));
-    if(cubeNodes.length>24||list.length>30){$('cl-diagram-host').replaceChildren(el('p','当前图超过 24 个 Cube / 30 条关系的可读预算，请以关系表研究、选中单条关系或缩小入口范围。'));return;}
-    const safe=s=>String(s).replace(/[^\p{L}\p{N} _().-]/gu,' ');let code='flowchart LR\n'+cubeNodes.map(n=>`${idsFor.get(n.id)}["${safe(n.name)}"]`).join('\n');
-    list.forEach(r=>{if(!idsFor.has(r.source)||!idsFor.has(r.target))return;code+=`\n${idsFor.get(r.source)} ${r.kind==='TI_CANDIDATE'?'-.->':'-->'}|"${r.kind==='TI_CANDIDATE'?`经 ${(r.process_names||[]).length} TI · 候选`:'Rule 引用'}"| ${idsFor.get(r.target)}`;});
-    const idMap=Object.fromEntries(cubeNodes.map(n=>[idsFor.get(n.id),n]));viewer=window.TM1Mermaid.mount($('cl-diagram-host'),{code,idMap,onNodeClick:n=>{if(n){$('cl-name').value=n.name;load();}},title:focusRow?`${focusRow.source_name} → ${focusRow.target_name} · 当前选中关系`:'Cube 关联简图',onEdgeClick:i=>{const r=list[i];if(r)document.querySelector('tr[data-relation="'+CSS.escape(r.id)+'"] button')?.click();}});}
+  function draw(){if(!result||!$('cl-diagram').open)return;
+    const view=window.TM1LineageView.cubeModel(result,rows,resultName,[...inspected.values()]);
+    const saved=viewer && $('cl-diagram-host').querySelector('svg') ? viewer.getView?.() : null;viewer?.destroy();viewer=null;
+    if(view.nodes.length>24||view.edges.length>30){$('cl-diagram-host').replaceChildren(el('p','当前图超过 24 Cube / 30 关系的可读预算。请缩小层数或在关系列表选择关系；报告保留本次查询范围。'));return;}
+    const graph=window.TM1LineageView.mermaid(view);
+    viewer=window.TM1Mermaid.mount($('cl-diagram-host'),{...graph,view:saved,compact:true,title:'Cube 关系 · 非运行值流',onEdgeClick:i=>{const r=rows.find(r=>r.id===view.edges[i]?.id);if(r)document.querySelector('tr[data-relation="'+CSS.escape(r.id)+'"] button')?.click();},onNodeClick:n=>{
+      if(!n)return;const host=$('cl-node-detail');if(!host)return;Array.from($('cl-details').children).forEach(p=>{p.hidden=true;});host.hidden=false;host.replaceChildren(el('h2',n.name),el('p',n.role));host.append(link('查看 Cube 结构','/explorer/cube/'+encodeURIComponent(n.name)+'?'+new URLSearchParams({model:snapshot})),button('以此 Cube 查看上下游',()=>{$('cl-name').value=n.name;return load();}));
+    }});
+    if(view.display_truncated)$('cl-diagram-host').append(el('p',`图内折叠 ${view.display_limits.nodes_hidden} 个 Cube / ${view.display_limits.edges_hidden} 条关系；报告及列表保留本次查询范围，可缩小层数继续研究。`,'muted'));
+  }
   function stopReview(){++reviewRun;reviewAbort?.abort();if(result?.report_run?.status==='RUNNING'){result.report_run.cancelled=true;result.report_run.status='CANCELLED';}$('cl-review-cancel').disabled=true;$('cl-review').disabled=!result;$('cl-report').disabled=!result?.report_run&&!inspected.size;}
   async function batch(){if(!result)return;stopReview();const run=reviewRun,token=generation;reviewAbort=new AbortController();const signal=reviewAbort.signal,budget=Math.max(1,Math.min(20,Math.floor(Number($('cl-review-budget').value)||8))),groups=new Map();
     rows.forEach(r=>{const names=r.kind==='TI_CANDIDATE'?[...new Set(r.process_names||[])]:[r.target_name];names.forEach(name=>{const isTI=r.kind==='TI_CANDIDATE',key=(isTI?'TI:':'Rule:')+name;if(inspected.has(isTI?r.id+'::'+name:r.id))return;if(!groups.has(key))groups.set(key,{isTI,name,rows:[]});groups.get(key).rows.push(r);});});
@@ -221,18 +223,18 @@
     $('cl-review-status').textContent=`分析结束；尝试 ${state.attempted} 项，失败 ${state.failures.length} 项${state.budget_truncated?'，预算截断':''}。可下载已分析范围的研究报告。`;updateCoverage();
   }
   async function load(){const name=$('cl-name').value.trim();if(!name)return;stopReview();const token=++generation;abort?.abort();detailAbort?.abort();detailAbort=null;abort=new AbortController();viewer?.destroy();viewer=null;result=null;inspected.clear();writeCache.clear();ruleCache.clear();$('cl-review').disabled=true;$('cl-report').disabled=true;$('cl-coverage').textContent='';$('cl-review-status').textContent='';$('cl-review-progress').hidden=true;$('cl-export').disabled=true;$('cl-table').replaceChildren();$('cl-details').replaceChildren();$('cl-summary').replaceChildren();$('cl-diagram-host').replaceChildren();$('cl-status').textContent='正在查询本地索引并核对 Rule 引用…';
-    try{const data=await get('/api/workbench/graph',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshot_id:root.dataset.model||'',objects:[{type:'cube',name}],direction:$('cl-direction').value,view:'cubes',depth:1,node_budget:40,edge_budget:100,relation_types:['TI_CANDIDATE','RULE_REFERENCE']})});if(token!==generation)return;snapshot=data.snapshot_id;result=data;resultName=name;rows=relations(data);render();draw();$('cl-export').disabled=false;
-      $('cl-status').textContent=data.limits.missing?.length?'入口 Cube 不在当前本地模型中。':`已完成直接关系查询。${data.limits.truncated?'预算已截断，结果不完整。':''}${data.rule_scope&&!data.rule_scope.complete?'部分 Rule 超出核对预算，结果不完整。':''}`;
+    try{const data=await get('/api/workbench/graph',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshot_id:root.dataset.model||'',objects:[{type:'cube',name}],direction:$('cl-direction').value,view:'cubes',depth:Number($('cl-depth')?.value)||1,node_budget:40,edge_budget:100,relation_types:['TI_CANDIDATE','RULE_REFERENCE']})});if(token!==generation)return;snapshot=data.snapshot_id;root.dataset.model=snapshot;result=data;resultName=name;rows=relations(data);render();draw();$('cl-export').disabled=false;
+      $('cl-status').textContent=data.limits.missing?.length?'入口 Cube 不在当前本地模型中。':`已完成所选层数的关系查询；虚线为候选/索引关系，静态值依赖按写入点确认。${data.limits.truncated?'预算已截断，结果不完整。':''}${data.rule_scope&&!data.rule_scope.complete?'部分 Rule 超出核对预算，结果不完整。':''}`;
       const moduleLink=$('cl-module');if(moduleLink){const selected=[...result.nodes.filter(n=>n.type==='cube').map(n=>({type:'cube',name:n.name})),...[...new Set(rows.flatMap(r=>r.process_names||[]))].map(name=>({type:'process',name}))];moduleLink.href='/module-reconstruction?'+new URLSearchParams({kind:'cube',name,model:snapshot,selection:JSON.stringify(selected.slice(0,24))});}
       $('cl-review').disabled=false;updateCoverage();history.replaceState(null,'','/graph?'+new URLSearchParams({cube:name,model:snapshot}));
     }catch(e){if(token===generation&&e.name!=='AbortError')$('cl-status').textContent=e.message;}}
-  $('cl-search').onsubmit=e=>{e.preventDefault();load();};$('cl-direction').onchange=load;
+  $('cl-search').onsubmit=e=>{e.preventDefault();load();};$('cl-direction').onchange=load;if($('cl-depth'))$('cl-depth').onchange=load;
   $('cl-cancel').onclick=()=>{++generation;abort?.abort();detailAbort?.abort();$('cl-status').textContent='已取消本次请求；未保存任何研究或设计资产。';};
-  $('cl-name').oninput=()=>{clearTimeout(searchTimer);const q=$('cl-name').value.trim();if(!q){$('cl-options').replaceChildren();return;}searchTimer=setTimeout(async()=>{try{const r=await fetch('/api/workbench/objects?'+new URLSearchParams({q,type:'cube',limit:20}));if(!r.ok)return;const data=await r.json();if($('cl-name').value.trim()===q)$('cl-options').replaceChildren(...data.objects.map(n=>new Option(n.name,n.name)));}catch(_){}},200);};
+  if(!$('cl-search').dataset.lineageSearch)$('cl-name').oninput=()=>{clearTimeout(searchTimer);const q=$('cl-name').value.trim();if(!q){$('cl-options').replaceChildren();return;}searchTimer=setTimeout(async()=>{try{const r=await fetch('/api/workbench/objects?'+new URLSearchParams({q,type:'cube',limit:20}));if(!r.ok)return;const data=await r.json();if($('cl-name').value.trim()===q)$('cl-options').replaceChildren(...data.objects.map(n=>new Option(n.name,n.name)));}catch(_){}},200);};
   $('cl-diagram').ontoggle=draw;
   $('cl-review').onclick=batch;$('cl-review-cancel').onclick=()=>{stopReview();$('cl-review-status').textContent='已停止；已取得的证据保留，可下载部分研究报告。';updateCoverage();};
   function download(summaryOnly){if(!result)return;const a=el('a');a.href=URL.createObjectURL(new Blob([markdownReport({...result,summary_only:summaryOnly},resultName,rows,[...inspected.values()],snapshot)],{type:'text/markdown;charset=utf-8'}));a.download=summaryOnly?'Cube-Lineage-Summary.md':'Cube-Research.md';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-  if($('cl-json'))$('cl-json').onclick=()=>{if(!result)return;const a=el('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({schema:'cube-lineage-review-1',snapshot_id:snapshot,target:resultName,scope:result,inspected:[...inspected.values()],runtime_verified:false},null,2)],{type:'application/json'}));a.download='Cube-Lineage-Technical.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
+  if($('cl-json'))$('cl-json').onclick=()=>{if(!result)return;const a=el('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({schema:'cube-lineage-review-1',snapshot_id:snapshot,target:resultName,scope:result,presentation:window.TM1LineageView.cubeModel(result,rows,resultName,[...inspected.values()]),inspected:[...inspected.values()],runtime_verified:false},null,2)],{type:'application/json'}));a.download='Cube-Lineage-Technical.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
   $('cl-export').onclick=()=>download(true);$('cl-report').onclick=()=>download(false);
   window.addEventListener('pagehide',()=>{stopReview();++generation;abort?.abort();clearTimeout(searchTimer);viewer?.destroy();});
   if($('cl-relations'))$('cl-relations').ontoggle=()=>{if($('cl-relations').open&&!result)load();};

@@ -2,24 +2,24 @@
 {% block title %}Cube 血缘 · TM1 Insight{% endblock %}
 {% block content %}
 <section id="cl-root" data-cube="{{ cube }}" data-model="{{ model|default('') }}">
-<header class="page-head"><div><h1>Cube 血缘</h1><p class="muted">目标形成答案：谁写入或计算它、形成哪个区域、值怎样得到。</p></div></header>
-<form id="cl-search" class="cl-toolbar"><label>查看模式<select class="input lineage-mode" aria-label="查看模式"><option value="cube" selected>Cube 上下游</option><option value="ti">TI 调用</option></select></label><label>Cube 名称<input id="cl-name" class="input" value="{{ cube }}" required maxlength="1000" autocomplete="off" placeholder="输入 Cube 名称" list="cl-options"></label><datalist id="cl-options"></datalist><label>方向<select id="cl-direction" class="input"><option value="both">上游与下游</option><option value="upstream">上游</option><option value="downstream">下游</option></select></label><button class="btn primary">分析</button><button id="cl-cancel" type="button" class="btn">取消</button><button id="cl-export" type="button" class="btn" disabled>导出关系摘要 Markdown</button><button id="cl-json" type="button" class="btn">技术完整版 JSON</button></form>
+<header class="page-head"><div><h1>Cube 血缘</h1><p class="muted">查看已有 Cube 的上下游；点击关系了解处理程序、规则和源目标切面。</p></div></header>
+{% set lineage_kind = 'cube' %}{% include 'lineage_search.html' %}
 <p id="cl-status" role="status" aria-live="polite">选择一个 Cube 开始；仅查询本地元数据。</p>
 <div id="cl-relations">
 <div id="cl-summary"></div>
-<div class="lineage-layout"><div class="lineage-main"><details id="cl-diagram" open><summary>Cube 关系图 · 可缩放、拖动和点击连线</summary><div id="cl-diagram-host"></div></details><div id="cl-table" class="cl-table-wrap" role="region" aria-label="Cube 关系表，可横向滚动" tabindex="0"></div>
-</div><aside class="lineage-side" aria-label="关系摘要"><h2>关系摘要</h2><p class="muted">点击连线或关系表，查看处理机制与切面。</p><div id="cl-details"></div></aside></div>
+<div class="lineage-layout"><div class="lineage-main"><details id="cl-diagram" open><summary>Cube 关系图 · 可缩放、拖动和点击连线</summary><div id="cl-diagram-host"></div></details><details class="lineage-secondary"><summary>查看关系列表</summary><div id="cl-table" class="cl-table-wrap" role="region" aria-label="Cube 关系表，可横向滚动" tabindex="0"></div></details>
+</div><aside class="lineage-side" aria-label="关系摘要"><h2>关系摘要</h2><p class="muted">点击连线或关系表，查看处理机制与切面。</p><div id="cl-node-detail" hidden></div><div id="cl-details"></div></aside></div>
 <details class="formation-secondary"><summary>目标 Cube 的形成答案与切面筛选</summary><section id="fa-root" aria-label="目标 Cube 形成答案"><div class="cl-toolbar"><label>切面维度（可选）<input id="fa-dimension" class="input" placeholder="例如 Measure"></label><label>固定成员<input id="fa-member" class="input" placeholder="例如 Member2"></label><label>TI 分析预算<input id="fa-budget" class="input" type="number" min="1" max="40" value="12"></label><button id="fa-cancel" type="button" class="btn" disabled>停止形成分析</button><button id="fa-export" type="button" class="btn" disabled>下载形成技术 JSON</button><button id="fa-retry" type="button" class="btn">继续 / 重试未完成项</button></div><p id="fa-status" role="status"></p><p id="fa-scope" class="muted"></p><div id="fa-answer"></div><details><summary id="fa-problem-title">影响当前理解的证据缺口</summary><div id="fa-problems"></div></details></section>
 </details>
 <details id="cl-advanced" class="cl-advanced"><summary>分析范围与技术说明（供深入审查）</summary>
-  <div class="cl-advanced-body">
+  <div class="cl-advanced-body"><div class="cl-toolbar"><label>方向<select id="cl-direction" class="input"><option value="both">上游与下游</option><option value="upstream">上游</option><option value="downstream">下游</option></select></label><label>关系层数<select id="cl-depth" class="input"><option value="1">直接关系</option><option value="2">展开两层</option><option value="3">展开三层</option></select></label><button id="cl-export" type="button" class="btn" disabled>摘要 Markdown</button><button id="cl-json" type="button" class="btn">技术 JSON</button></div>
     <div class="cl-toolbar"><label>研究预算（TI / Rule，最多 20 项）<input id="cl-review-budget" class="input" type="number" min="1" max="20" value="8"></label><button id="cl-review" class="btn" disabled>批量研究报告</button><button id="cl-review-cancel" class="btn" disabled>停止</button><button id="cl-report" class="btn" disabled>下载研究报告</button></div>
     <p id="cl-coverage" role="status" aria-live="polite"></p><p id="cl-review-status" role="status" aria-live="polite"></p><progress id="cl-review-progress" hidden></progress>
     <nav class="study-actions"><a id="cl-module" class="btn" href="/module-reconstruction">选取此局部范围生成模块规格</a><a class="btn" href="/graph?ti=">TI 调用与读写</a></nav>
-    <p class="muted small">当前仅展示直接上游 / 下游，最多 40 个 Cube、100 条关系。选中关系时软件会自动读取本地已保存的静态分析结果（有预算与取消保护）；"未确认"仅出现在确实无法确认之处，不作为用户待办。共同读写只证明候选处理关联；静态分析不代表运行结果。无源 Cube 证据的写入不补造来源。</p>
+    <p class="muted small">当前按所选层数展示上下游，最多 40 个 Cube、100 条关系。选中关系时软件会自动读取本地已保存的静态分析结果（有预算与取消保护）；"未确认"仅出现在确实无法确认之处，不作为用户待办。共同读写只证明候选处理关联；静态分析不代表运行结果。无源 Cube 证据的写入不补造来源。</p>
   </div>
 </details>
 </div>
 </section>
 {% endblock %}
-{% block scripts %}<link rel="stylesheet" href="/static/cube-lineage.css?v=6"><script src="/static/mermaid-viewer.js?v=7" defer></script><script src="/static/cube-lineage.js?v=15" defer></script><script src="/static/lineage-mode.js?v=1" defer></script><script src="/static/formation-answer.js?v=2" defer></script>{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/cube-lineage.css?v=7"><script src="/static/mermaid-viewer.js?v=8" defer></script><script src="/static/lineage-view.js?v=1" defer></script><script src="/static/cube-lineage.js?v=16" defer></script><script src="/static/lineage-search.js?v=1" defer></script><script src="/static/formation-answer.js?v=2" defer></script>{% endblock %}

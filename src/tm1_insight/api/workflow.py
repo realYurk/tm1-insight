@@ -149,14 +149,17 @@ def export(task:str,format:Literal['json','markdown']='json'):
 
 
 @router.get('/api/workflow/tasks/{task}/review')
-def review(task:str, format:Literal['json','markdown']='json', download:bool=False):
+def review(task:str, format:Literal['json','markdown']='json', download:bool=False, process:str=Query('',max_length=1000)):
     """Readable projection of the existing scoped artifact; no new parsing."""
     from tm1_insight import workflow_review
     artifact=path(task)
     header,_,_=workflow.page(artifact,limit=1)
+    selected=process or header['root']
+    if process and workflow.detail(artifact,selected) is None:
+        raise HTTPException(404,'该 TI 未在本次范围内完成源码分析；可显式以它为入口重新分析。')
     schedule_missing=False
     with closing(Store(get_settings()).connect(read_only=True)) as con:
-        declaration=workflow_review.source_declaration(con,header['root'])
+        declaration=workflow_review.source_declaration(con,selected)
         tables={r[0] for r in con.execute('SHOW TABLES').fetchall()}
         if 'chore_runs_process' not in tables:
             rows=[];schedule_missing=True
@@ -166,11 +169,11 @@ def review(task:str, format:Literal['json','markdown']='json', download:bool=Fal
             join='LEFT JOIN chores c ON c.name=r.chore_name' if 'name' in columns else ''
             rows=con.execute(f'''SELECT r.chore_name,r.step_order,{fields}
                 FROM chore_runs_process r {join}
-                WHERE r.process_name=? ORDER BY r.chore_name,r.step_order LIMIT 101''',[header['root']]).fetchall()
+                WHERE r.process_name=? ORDER BY r.chore_name,r.step_order LIMIT 101''',[selected]).fetchall()
     schedules=[dict(zip(('chore','step_order','active','start_time','frequency'),r)) for r in rows[:100]]
     for item in schedules:
-        item['evidence']=dict(table='chore_runs_process',chore=item['chore'],process=header['root'],step_order=item['step_order'])
-    try:report=workflow_review.build(artifact,schedules,declaration)
+        item['evidence']=dict(table='chore_runs_process',chore=item['chore'],process=selected,step_order=item['step_order'])
+    try:report=workflow_review.build(artifact,schedules,declaration,process=selected)
     except (sqlite3.Error,OSError,KeyError,ValueError) as exc:raise HTTPException(410,'局部报告不可用，请重新解析。') from exc
     if len(rows)>100:report['limitations'].append('直接调度仅展示前 100 项')
     if schedule_missing:report['limitations'].append('旧快照缺少 Chore 调度索引；未推断入口')

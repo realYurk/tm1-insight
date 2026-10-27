@@ -1,0 +1,18 @@
+{# Uses the object-browser input/button and existing global search result styles. #}
+{% set is_ti = lineage_kind == 'process' %}
+<nav class="study-actions lineage-modes" aria-label="血缘视角">
+  <a class="btn {{ 'ghost' if is_ti else 'primary' }}" href="/graph{% if model %}?model={{ model|urlencode }}{% endif %}" {% if not is_ti %}aria-current="page"{% endif %}>Cube 血缘</a>
+  <a class="btn {{ 'primary' if is_ti else 'ghost' }}" href="/graph?ti={% if model %}&amp;model={{ model|urlencode }}{% endif %}" {% if is_ti %}aria-current="page"{% endif %}>TI 调用链</a>
+</nav>
+<form id="{{ 'tr-search' if is_ti else 'cl-search' }}" class="chore-search lineage-search" data-lineage-search="{{ lineage_kind }}" data-model="{{ model|default('') }}">
+  <div class="lineage-search-field">
+    <label for="{{ 'ti-search' if is_ti else 'cl-name' }}">{{ 'TI 名称' if is_ti else 'Cube 名称' }}</label>
+    <input id="{{ 'ti-search' if is_ti else 'cl-name' }}" class="input" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lineage-search-results" value="{{ ti if is_ti else cube }}" required maxlength="1000" autocomplete="off" placeholder="{{ '按名称或关键词查找 TI' if is_ti else '按名称或关键词查找 Cube' }}">
+    <div id="lineage-search-results" class="search-results" role="listbox" aria-label="对象搜索结果" hidden></div>
+  </div>
+  <button id="lineage-clear" class="btn ghost" type="button">清空</button>
+  <button class="btn primary" type="submit">分析</button>
+  <button id="{{ 'tr-cancel' if is_ti else 'cl-cancel' }}" class="btn ghost" type="button" {% if is_ti %}disabled{% endif %}>取消</button>
+  <datalist id="{{ 'tr-options' if is_ti else 'cl-options' }}"></datalist>
+</form>
+<p id="lineage-search-status" class="muted small" role="status" aria-live="polite"></p>
