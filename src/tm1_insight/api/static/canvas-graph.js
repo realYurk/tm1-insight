@@ -155,7 +155,8 @@
     ];
     if (opt && opt.lineage) base.push(
       {selector:'node',style:{'height':'data(cardH)','label':'data(displayName)','background-width':'28px','background-height':'28px','background-position-x':'24px','text-margin-x':27,'text-max-width':'data(labelW)','text-wrap':'wrap','font-size':12,'border-color':'#d6e2f1','color':'#233955'}},
-      {selector:'node[type="process"]',style:{'background-image':ICON.lineageGear,'background-color':'#f7f8ff','border-color':'#d5dcf3'}},
+      {selector:'node[type="cube"]',style:{'background-color':'#edf5ff','border-color':'#8db7e6','color':'#163e70'}},
+      {selector:'node[type="process"]',style:{'background-image':ICON.lineageGear,'background-color':'#f3efff','border-color':'#b5a2e3','color':'#493b78','shape':'round-rectangle'}},
       {selector:'node[type="source"]',style:{'background-image':ICON.lineageFile,'background-color':'#f3fbf7','border-color':'#cce9d9','color':'#216245'}},
       {selector:'node[type="database"]',style:{'background-image':ICON.lineageDatabase,'background-color':'#faf8ff','border-color':'#e1daf3','color':'#554f8f'}},
       {selector:'node.cn-selected',style:{'border-width':2,'border-color':'#426acb','background-color':'#eff5ff'}},

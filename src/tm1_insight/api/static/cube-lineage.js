@@ -107,7 +107,7 @@
     w.source_reads.forEach(r=>sliceBox(coord,`来源：${r.cube}`,slices(r.coordinate_mapping)));
     w.source_data_rows.forEach(d=>sliceBox(coord,`来源：${d.source_cube} / ${d.source_view}`,w.source_row_slices));
     if(coord.childNodes.length)card.append(coord);
-    evidence(card,'技术详情',w);host.append(card);
+    host.append(card);
   }
   async function loadTI(row,process,token,signal){
     const data=await cached(writeCache,process,'/api/workbench/writes?'+new URLSearchParams({snapshot_id:snapshot,process}),signal);if(token!==generation||signal?.aborted)return;
@@ -149,7 +149,7 @@
         const coord=el('div',undefined,'cl-slices');
         (r.db_references||[]).filter(d=>d.cube_resolved&&d.cube===row.source_name).forEach(d=>{sliceBox(coord,'DB 源坐标（参数顺序，不冒充维度映射）',(d.coordinates||[]).map((c,i)=>({dimension:`坐标 ${i+1}`,kind:c.kind==='literal'?'固定':c.kind==='region'?'动态':'待确认',value:c.value||c.dimension||c.expression||c.raw||'待确认'})));});
         sliceBox(coord,'目标区域的维度归属',(r.lhs?.coordinates||[]).map(c=>({dimension:c.dimension||'维度待确认',kind:c.dimension?'区域声明':'待确认',value:c.member||c.value||c.raw||JSON.stringify(c.members||[])})));
-        p.append(coord);evidence(p,'Rule 原文、条件与未确认项',r);host.append(p);
+        p.append(coord);host.append(p);
       });
     }catch(e){
       if(token!==generation||e.name==='AbortError')return;

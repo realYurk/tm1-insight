@@ -23,7 +23,7 @@
    for(const g of gs){
     const coordinates=(g.coordinates||[]).filter(c=>['FIXED','DYNAMIC'].includes(c.kind)&&c.dimension&&c.expression!=null&&c.expression!=='').map(c=>({dimension:c.dimension,position:c.position,value:c.expression,expression:c.kind==='DYNAMIC'?c.expression:'',kind:c.kind}));
     const card=window.TM1WritePointCard.writePoint({operation:mode[g.operation]||g.operation,summary:slice(g),valueExpression:g.expression,valueLabel:g.kind==='RULE'?'计算表达式':'写入值',coordinateLabel:g.kind==='RULE'?'目标维度':'写入维度',coordinates,conditions:(g.conditions||[]).map(c=>c.condition||c.expression||c.raw||c.kind).filter(Boolean),open:gs.length<=3});
-    if(source(g))card.append(el('p',source(g)));proof(card,g);detail.append(card);
+    if(source(g))card.append(el('p',source(g)));detail.append(card);
    }
    box.append(detail);host.append(box);
   }

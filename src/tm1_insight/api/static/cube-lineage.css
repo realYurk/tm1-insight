@@ -103,3 +103,15 @@ body:has(#cl-root) .content {max-width:none;padding:22px 24px 36px}
 #cl-root #cl-canvas-limit:empty {display:none}
 #cl-root #cl-canvas-limit:not(:empty) {padding:8px 14px;margin:0}
 @media(max-width:1100px){#cl-root .lineage-layout:has(#cl-inspector:not([hidden])) {grid-template-columns:minmax(0,1fr)}#cl-root #cl-diagram-host.cn-canvas {height:60vh;min-height:400px}}
+
+/* Readable, compact relationship overview using the Cube writer visual language. */
+.lineage-secondary {border:1px solid #dce6f5;border-radius:14px;background:#fff;padding:0;overflow:hidden}
+.lineage-secondary > summary {padding:15px 18px;color:#203f68;font-size:14px;font-weight:600}
+.lineage-secondary[open] > summary {border-bottom:1px solid #e4eaf3;background:#f7faff}
+.lineage-secondary .cl-table-wrap {margin:0;padding:8px 14px 14px;box-sizing:border-box}
+.lineage-secondary .cl-table-wrap table {border-collapse:separate;border-spacing:0 8px}
+.lineage-secondary .cl-table-wrap th {background:transparent;border:0;color:#647995}
+.lineage-secondary .cl-table-wrap td {background:#f8faff;border-top:1px solid #e2eaf5;border-bottom:1px solid #e2eaf5;padding:12px 10px;vertical-align:middle}
+.lineage-secondary .cl-table-wrap td:first-child {border-left:1px solid #e2eaf5;border-radius:9px 0 0 9px;color:#285b92;font-weight:600}
+.lineage-secondary .cl-table-wrap td:last-child {border-right:1px solid #e2eaf5;border-radius:0 9px 9px 0}
+.lineage-secondary .cl-selected td {background:#edf4ff}

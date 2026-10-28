@@ -443,3 +443,6 @@ details summary { cursor: pointer; padding: 12px 0; }
 .mdx-focus label { display: grid; gap: 6px; flex: 1 1 220px; }
 .mdx-focus input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .workspace-start > summary { cursor: pointer; font-weight: 600; }
+
+.workflow-options button.sr-item {display:flex;align-items:center;gap:10px;border:0;background:transparent;cursor:pointer}
+.workflow-options button.sr-item:hover {background:var(--accent-soft)}

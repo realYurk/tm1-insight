@@ -106,15 +106,18 @@ impactInput.addEventListener('input', () => {
 });
 
 function renderImpactResults(cubes, processes) {
-  const items = [];
-  cubes.forEach(c => items.push(
-    `<a class="sr-item" href="/impact?source=${encodeURIComponent(c)}"><span class="sr-badge cube">C</span>${c}</a>`));
-  processes.forEach(p => items.push(
-    `<a class="sr-item" href="/impact?source=${encodeURIComponent(p)}"><span class="sr-badge ti">T</span>${p}</a>`));
-  if (!items.length) {
-    impactResults.innerHTML = '<div class="sr-empty">无匹配对象</div>';
-  } else {
-    impactResults.innerHTML = items.join('');
+  impactResults.replaceChildren();
+  for (const [kind, names] of [['cube', cubes], ['process', processes]]) {
+    names.forEach(name => {
+      const link = document.createElement('a');
+      link.className = 'sr-item';
+      link.href = '/impact?source=' + encodeURIComponent(name);
+      link.append(window.TM1ObjectBadge(kind), document.createTextNode(name));
+      impactResults.append(link);
+    });
+  }
+  if (!impactResults.childNodes.length) {
+    const empty = document.createElement('div'); empty.className = 'sr-empty'; empty.textContent = '无匹配对象'; impactResults.append(empty);
   }
   impactResults.hidden = false;
 }

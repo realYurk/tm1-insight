@@ -140,20 +140,20 @@ def test_picker_keyboard_clear_and_model_history():
     source=Path('src/tm1_insight/api/static/lineage-search.js').read_text(encoding='utf-8')
     harness=r'''
 const vm=require('vm');
-class E {constructor(){this.events={};this.children=[];this.value='';this.hidden=true;this.attrs={};this.dataset={};} addEventListener(k,f){this.events[k]=f;} removeEventListener(){} setAttribute(k,v){this.attrs[k]=v;} removeAttribute(k){delete this.attrs[k];} replaceChildren(){this.children=[];} append(x){this.children.push(x);} scrollIntoView(){} focus(){} }
+class E {constructor(){this.events={};this.children=[];this.value='';this.hidden=true;this.attrs={};this.dataset={};this._text='';} get textContent(){return this._text+this.children.map(c=>c.textContent||'').join('');} set textContent(v){this._text=v;} addEventListener(k,f){this.events[k]=f;} removeEventListener(){} setAttribute(k,v){this.attrs[k]=v;} removeAttribute(k){delete this.attrs[k];} replaceChildren(){this.children=[];} append(...x){this.children.push(...x);} scrollIntoView(){} focus(){} }
 const input=new E(), list=new E(), status=new E(), clear=new E(), form=new E();
 form.dataset={model:'model-1',lineageSearch:'cube'};form.querySelector=()=>input;form.contains=()=>true;
 let submits=0;form.requestSubmit=()=>{submits++;form.events.submit();};
 const storage={};const sessionStorage={getItem:k=>storage[k]||null,setItem:(k,v)=>storage[k]=v};
-const document={querySelector:()=>form,getElementById:id=>({'lineage-search-results':list,'lineage-search-status':status,'lineage-clear':clear}[id]),createElement:()=>new E(),addEventListener(){},removeEventListener(){}};
-const window={addEventListener(){}};const fetch=async()=>({ok:true,json:async()=>({snapshot_id:'model-1',objects:[{name:'Alpha'},{name:'Beta'}],total:2})});
+const document={querySelector:()=>form,getElementById:id=>({'lineage-search-results':list,'lineage-search-status':status,'lineage-clear':clear}[id]),createElement:()=>new E(),createTextNode:text=>({textContent:text}),addEventListener(){},removeEventListener(){}};
+const window={addEventListener(){},TM1ObjectBadge:()=>{const badge=new E();badge.textContent='C';return badge;}};const fetch=async()=>({ok:true,json:async()=>({snapshot_id:'model-1',objects:[{name:'Alpha'},{name:'Beta'}],total:2})});
 vm.runInNewContext(SOURCE,{window,document,fetch,sessionStorage,AbortController,URLSearchParams,setTimeout,clearTimeout});
 (async()=>{input.value='A';input.events.focus();await new Promise(r=>setImmediate(r));
  if(list.children.length!==2||input.value!=='A')throw Error('unexpected default selection');
  let prevented=0;input.events.keydown({key:'ArrowDown',preventDefault(){prevented++}});input.events.keydown({key:'ArrowDown',preventDefault(){prevented++}});input.events.keydown({key:'Enter',preventDefault(){prevented++}});
  if(input.value!=='Beta'||submits!==1||prevented!==3)throw Error('keyboard selection failed');
  if(!storage['tm1-lineage-search:model-1:cube'].includes('Beta'))throw Error('history not scoped');
- clear.events.click();await new Promise(r=>setImmediate(r));if(input.value!==''||list.children.length!==1||list.children[0].textContent!=='Beta')throw Error('clear/history failed');
+ clear.events.click();await new Promise(r=>setImmediate(r));if(input.value!==''||list.children.length!==1||!list.children[0].textContent.includes('Beta'))throw Error('clear/history failed');
  console.log('ok');})().catch(e=>{console.error(e);process.exitCode=1;});
 '''.replace('SOURCE',json.dumps(source))
     result=subprocess.run([node,'-e',harness],capture_output=True,text=True,encoding='utf-8',check=True)

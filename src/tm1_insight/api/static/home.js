@@ -80,7 +80,7 @@ function renderResults(j) {
     for (const name of items) {
       const link = document.createElement('a'); link.className = 'sr-item';
       link.href = searchInput.dataset.architectureDiscover === 'true' ? '/architecture?'+new URLSearchParams({kind:route,name,analyze:'1'}) : searchInput.dataset.workflow === 'true' ? (searchInput.dataset.architecture === 'true' ? '/architecture?name=' : '/workflow?name=')+encodeURIComponent(name)+'&analyze=1' : '/explorer/' + route + '/' + encodeURIComponent(name);
-      const badge = document.createElement('span'); badge.className = 'sr-badge ' + kind; badge.textContent = badgeText;
+      const badge = window.TM1ObjectBadge(kind);
       link.append(badge, document.createTextNode(name)); searchResults.append(link);
     }
   }
