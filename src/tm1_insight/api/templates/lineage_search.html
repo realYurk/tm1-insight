@@ -2,7 +2,7 @@
 {% set is_ti = lineage_kind == 'process' %}
 <nav class="study-actions lineage-modes" aria-label="血缘视角">
   <a class="btn {{ 'ghost' if is_ti else 'primary' }}" href="/graph{% if model %}?model={{ model|urlencode }}{% endif %}" {% if not is_ti %}aria-current="page"{% endif %}>Cube 血缘</a>
-  <a class="btn {{ 'primary' if is_ti else 'ghost' }}" href="/graph?ti={% if model %}&amp;model={{ model|urlencode }}{% endif %}" {% if is_ti %}aria-current="page"{% endif %}>TI 调用链</a>
+  <a hidden class="btn {{ 'primary' if is_ti else 'ghost' }}" href="/graph?ti={% if model %}&amp;model={{ model|urlencode }}{% endif %}" {% if is_ti %}aria-current="page"{% endif %}>TI 调用链</a>
 </nav>
 <form id="{{ 'tr-search' if is_ti else 'cl-search' }}" class="chore-search lineage-search" data-lineage-search="{{ lineage_kind }}" data-model="{{ model|default('') }}">
   <div class="lineage-search-field">

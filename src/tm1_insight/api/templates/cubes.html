@@ -11,17 +11,18 @@
 <div class="page-head">
   <div>
     <h1 class="page-title">Cube 浏览</h1>
-    <p class="page-sub">左侧选择 Cube，右侧查看维度结构、数据形成、写入 TI 与 Rule。</p>
+    <p class="page-sub">搜索 Cube，查看维度结构、写入 TI 与 Rule。</p>
   </div>
 </div>
 
-<div class="dimension-workspace object-workspace">
-  <aside class="card dimension-browser object-browser" aria-label="Cube 列表">
-    <h2>Cubes <span class="tag">{{ total }}</span></h2>
-    <form method="get" action="/cubes" class="chore-search">
+{% set object_selected = request.query_params.get("name", "") %}
+<div class="dimension-workspace object-workspace object-single">
+  <aside class="card dimension-browser object-browser" aria-label="Cube 列表" {% if object_selected %}hidden{% endif %}>
+    <div class="list-toolbar"><h2>Cubes <span class="tag">{{ total }}</span></h2>
+    <form method="get" action="/cubes" class="list-search process-list-search">
       <input class="input" type="search" name="q" value="{{ q }}" maxlength="1000" aria-label="搜索全部 Cube" placeholder="按名称搜索 Cube">
       <button class="btn ghost btn-sm" type="submit">搜索</button>{% if q %}<a href="/cubes">清除</a>{% endif %}
-    </form>
+    </form></div>
     <ul class="list dimension-list">
       {% for c in cubes %}
       <li><a href="/cubes?name={{ c.name|urlencode }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if page > 1 %}&amp;page={{ page }}{% endif %}" {% if cube and cube.name == c.name %}aria-current="page"{% endif %}><span>{{ c.name }}</span><small class="muted">{{ c.dimension_count }} 维{% if c.has_rules %} · 有规则{% endif %}</small></a></li>
@@ -36,7 +37,7 @@
     </nav>
   </aside>
 
-  <section class="card dimension-detail object-detail" aria-label="Cube 详情">
+  <section class="card dimension-detail object-detail" aria-label="Cube 详情" {% if not object_selected %}hidden{% endif %}>
     {% if cube %}
       {% include "_cube_detail.html" %}
     {% else %}
@@ -48,6 +49,7 @@
     {% endif %}
   </section>
 </div>
+{% if object_selected and cube %}{% set switch_kind="cube" %}{% set switch_label="Cube" %}{% set switch_list="/cubes" %}{% include "object_switcher.html" %}{% endif %}
 {% endblock %}
 
 {% block scripts %}

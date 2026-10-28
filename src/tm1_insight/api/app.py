@@ -361,7 +361,7 @@ def cubes_page(request: Request, q: str = "", page: int = 1, name: str = Query("
         offset = max(0, (page - 1)) * per_page
         result = queries.search_cubes(con, q, offset=offset, limit=per_page)
         # 双栏浏览：选中某个 Cube 时同时返回详情（复用 get_cube + cube_lineage）
-        selected = name or (result["items"][0]["name"] if result["items"] else "")
+        selected = name
         cube = queries.get_cube(con, selected) if selected else None
         lineage = queries.cube_lineage(con, selected) if cube else None
     finally:
@@ -426,7 +426,7 @@ def dimensions_page(request: Request, q: str = Query("", max_length=1000),
     con = store.connect(read_only=True)
     try:
         listing = dim_queries.search(con, q, page)
-        selected_name = name or (listing["items"][0]["name"] if listing["items"] else "")
+        selected_name = name
         indexed = dimension_index.cached(store.settings, selected_name, current_source) if selected_name else None
         dimension = indexed[0]["dimension"] if indexed else (dim_queries.metadata(con, selected_name) if selected_name else None)
         if name and not dimension:

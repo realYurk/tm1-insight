@@ -123,7 +123,6 @@
       if(!loaded||token!==generation||signal?.aborted)return;const {data,writes}=loaded;
       host.className='cl-process-card';host.replaceChildren(el('span','处理程序','cl-card-kicker'),el('h3',process),el('p',`${row.source_declared?'数据源声明：':''}${row.source_name ? row.source_name+' → ' : ''}${row.target_name}`,'cl-card-path'));
       host.append(link('查看 TI 源码','/explorer/process/'+encodeURIComponent(process)+'?'+new URLSearchParams({model:snapshot})));
-      host.append(link('研究此 TI 调用与读写','/graph?'+new URLSearchParams({ti:process,model:snapshot})));
       if(!writes.length)host.append(el('p','暂无可展示的写入切面。','muted'));
       writes.forEach(w=>writeDetail(host,w));
       if(data.total>data.writes.length||data.read_total>data.reads.length)host.append(el('p','已达到单 TI 80 个写入 / 160 个读取展示预算，结果不完整。','muted'));

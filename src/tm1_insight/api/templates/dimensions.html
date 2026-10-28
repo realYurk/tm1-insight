@@ -3,23 +3,24 @@
 {% block breadcrumb %}<nav class="breadcrumb"><a href="/">工作台</a><span class="sep">/</span><a href="/dimensions">Dimension</a>{% if dimension %}<span class="sep">/</span><span class="current">{{ dimension.name }}</span>{% endif %}</nav>{% endblock %}
 {% block content %}
 <div class="page-head"><div><h1 class="page-title">Dimension 维度浏览</h1><p class="page-sub">以 TreeGrid 浏览维度成员、层级、属性与子集，理解元素之间的父子关系。</p></div></div>
-<div class="dimension-workspace">
-  <aside class="card dimension-browser" aria-label="维度列表">
-    <h2>维度 <span class="tag">{{ listing.total }}</span></h2>
-    <form method="get" action="/dimensions" class="chore-search">
+{% set object_selected = request.query_params.get("name", "") %}
+<div class="dimension-workspace object-single">
+  <aside class="card dimension-browser" aria-label="维度列表" {% if object_selected %}hidden{% endif %}>
+    <div class="list-toolbar"><h2>维度 <span class="tag">{{ listing.total }}</span></h2>
+    <form method="get" action="/dimensions" class="list-search process-list-search">
       <input type="hidden" name="source" value="{{ source }}">
       <input class="input" type="search" name="q" value="{{ q }}" maxlength="1000" aria-label="搜索全部维度" placeholder="按名称搜索维度">
       <button class="btn ghost btn-sm" type="submit">搜索维度</button>{% if q %}<a href="/dimensions">清除</a>{% endif %}
-    </form>
+    </form></div>
     <ul class="list dimension-list">
       {% for item in listing['items'] %}<li><a href="/dimensions?name={{ item.name|urlencode }}&amp;source={{ source }}" {% if dimension and dimension.name == item.name %}aria-current="page"{% endif %}><span>{{ item.name }}</span><small class="muted">{{ item.element_count if item.element_count is not none else '?' }} 个元素{% if item.is_system %} · 系统{% endif %}</small></a></li>{% else %}<li class="muted">没有匹配维度，请修改搜索词或检查采集范围。</li>{% endfor %}
     </ul>
     <nav class="pagination" aria-label="维度列表分页"><span class="muted small">{{ listing.page }} / {{ listing.pages }}</span>{% if listing.page > 1 %}<a class="btn ghost btn-sm" href="/dimensions?page={{ listing.page-1 }}&amp;q={{ q|urlencode }}">上一页</a>{% endif %}{% if listing.page < listing.pages %}<a class="btn ghost btn-sm" href="/dimensions?page={{ listing.page+1 }}&amp;q={{ q|urlencode }}">下一页</a>{% endif %}</nav>
   </aside>
-  <section class="card dimension-detail" id="dimension-detail" aria-label="维度详情">
+  <section class="card dimension-detail" id="dimension-detail" aria-label="维度详情" {% if not object_selected %}hidden{% endif %}>
     {% if dimension %}
     <div class="dimension-head">
-      <h2>{{ dimension.name }}</h2>
+      <h2>{{ dimension.name }}</h2><button type="button" class="btn ghost btn-sm" data-open-object-switcher aria-haspopup="dialog">搜索 / 切换 Dimension</button>
       {% if dimension.is_system %}<span class="tag">系统</span>{% endif %}
       <span class="muted small" id="dimension-meta">加载中…</span>
     </div>
@@ -144,6 +145,7 @@
     {% else %}<div class="empty-state"><div class="empty-title">选择一个维度查看结构</div><p class="muted">左侧可以按名称搜索；也可从 Cube 的维度名称进入。</p></div>{% endif %}
   </section>
 </div>
+{% if object_selected and dimension %}{% set switch_kind="dimension" %}{% set switch_label="Dimension" %}{% set switch_list="/dimensions" %}{% include "object_switcher.html" %}{% endif %}
 {% endblock %}
 {% block scripts %}
 {% if needs_index %}<script src="/static/dimension-index.js" defer></script>{% else %}<script src="/static/dimension-tree.js" defer></script>{% endif %}

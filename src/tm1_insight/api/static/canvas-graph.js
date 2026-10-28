@@ -154,7 +154,7 @@
       { selector: 'edge.cn-dim', style: { opacity: 0.25 } },
     ];
     if (opt && opt.lineage) base.push(
-      {selector:'node',style:{'height':'data(cardH)','label':'data(displayName)','background-width':'28px','background-height':'28px','background-position-x':'24px','text-margin-x':27,'text-max-width':'data(labelW)','text-wrap':'wrap','font-size':12,'border-color':'#d6e2f1','color':'#233955'}},
+      {selector:'node',style:{'height':'data(cardH)','label':'data(displayName)','background-width':'28px','background-height':'28px','background-position-x':'24px','text-margin-x':27,'text-max-width':'data(labelW)','text-wrap':'wrap','font-size':16,'border-color':'#d6e2f1','color':'#233955'}},
       {selector:'node[type="cube"]',style:{'background-color':'#edf5ff','border-color':'#8db7e6','color':'#163e70'}},
       {selector:'node[type="process"]',style:{'background-image':ICON.lineageGear,'background-color':'#f3efff','border-color':'#b5a2e3','color':'#493b78','shape':'round-rectangle'}},
       {selector:'node[type="source"]',style:{'background-image':ICON.lineageFile,'background-color':'#f3fbf7','border-color':'#cce9d9','color':'#216245'}},
@@ -176,8 +176,8 @@
 
   function lineageLabel(name) {
     const chars=Array.from(String(name || '')), lines=[];
-    for(let i=0;i<chars.length;i+=18)lines.push(chars.slice(i,i+18).join(''));
-    return {text:lines.join('\n'),width:300,height:Math.max(54,lines.length*17+18)};
+    for(let i=0;i<chars.length;i+=16)lines.push(chars.slice(i,i+16).join(''));
+    return {text:lines.join('\n'),width:270,height:Math.max(48,lines.length*21+12)};
   }
 
   function edgeLabel(edge) {

@@ -6,7 +6,7 @@
   <title>{% block title %}TM1 Insight{% endblock %}</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/style.css">
-  <link rel="stylesheet" href="/static/workbench.css?v=mdx-focus-4">
+  <link rel="stylesheet" href="/static/workbench.css?v=object-browser-1">
   <link rel="stylesheet" href="/static/mermaid-viewer.css?v=1">
   <link rel="stylesheet" href="/static/human-workbench.css?v=2"><script src="/static/syntax.js?v=2"></script><script src="/static/object-badge.js?v=1"></script>
   <script>
@@ -56,8 +56,8 @@
 
         {{ nav('/graph','数据血缘','graph',path == '/graph') }}
         {{ nav('/architecture','业务架构','network',path == '/architecture') }}
-        {{ nav('/assets','工程资产','assets',path == '/assets') }}
-        {{ nav('/allocation','可配置分摊','network',path == '/allocation') }}
+
+
 
         <div class="nav-group-label">模型管理</div>
         {{ nav('/settings','连接设置','settings',path.startswith('/settings')) }}

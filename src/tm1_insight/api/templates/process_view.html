@@ -20,7 +20,7 @@
       {% if proc.calls_process %}| 调用 {{ proc.calls_process|length }} 个子进程{% endif %}
     </p>
   </div>
-  <div class="study-actions"><a class="btn" href="/graph?ti={{ proc.name|urlencode }}&amp;model={{ research_model() }}">TI 调用与读写</a><a class="btn primary" href="/architecture?kind=process&amp;name={{ proc.name|urlencode }}&amp;analyze=1&amp;view=functional_flow">业务流程图</a><a class="btn" href="/architecture?view=workbench&amp;kind=process&amp;name={{ proc.name|urlencode }}">连续探索工作台</a><a class="btn ghost" href="/calculation?name={{ proc.name|urlencode }}&amp;source={{ search_source }}">计算检查</a><button type="button" class="btn ghost" id="open-process-switcher" aria-haspopup="dialog">搜索 / 切换 TI</button></div>
+  <div class="study-actions"><a hidden class="btn" href="/graph?ti={{ proc.name|urlencode }}&amp;model={{ research_model() }}">TI 调用与读写</a><a class="btn primary" href="/architecture?kind=process&amp;name={{ proc.name|urlencode }}&amp;analyze=1&amp;view=functional_flow">业务流程图</a><a class="btn" href="/architecture?view=workbench&amp;kind=process&amp;name={{ proc.name|urlencode }}">连续探索工作台</a><a class="btn ghost" href="/calculation?name={{ proc.name|urlencode }}&amp;source={{ search_source }}">计算检查</a><button type="button" class="btn ghost" id="open-process-switcher" aria-haspopup="dialog">搜索 / 切换 TI</button></div>
 </div>
 {% include "process_switcher.html" %}
 

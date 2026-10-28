@@ -446,3 +446,7 @@ details summary { cursor: pointer; padding: 12px 0; }
 
 .workflow-options button.sr-item {display:flex;align-items:center;gap:10px;border:0;background:transparent;cursor:pointer}
 .workflow-options button.sr-item:hover {background:var(--accent-soft)}
+
+.object-single {grid-template-columns:minmax(0,1fr)}
+.object-single > [hidden] {display:none}
+.object-single .dimension-list {max-height:none}
