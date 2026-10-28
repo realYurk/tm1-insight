@@ -115,3 +115,11 @@ body:has(#cl-root) .content {max-width:none;padding:22px 24px 36px}
 .lineage-secondary .cl-table-wrap td:first-child {border-left:1px solid #e2eaf5;border-radius:9px 0 0 9px;color:#285b92;font-weight:600}
 .lineage-secondary .cl-table-wrap td:last-child {border-right:1px solid #e2eaf5;border-radius:0 9px 9px 0}
 .lineage-secondary .cl-selected td {background:#edf4ff}
+
+#cl-root .cl-flow-guide {display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+#cl-root .cl-flow-guide span {padding:4px 9px;border-radius:7px;font-weight:600;white-space:nowrap}
+#cl-root .cl-flow-guide b {color:#a5b4c8;font-weight:400}
+#cl-root .cl-flow-source {color:#26785a;background:#edf9f2}
+#cl-root .cl-flow-process {color:#634c9a;background:#f3efff}
+#cl-root .cl-flow-cube {color:#285d99;background:#edf5ff}
+#cl-root .cl-flow-guide small {margin-left:8px;color:#74869b}

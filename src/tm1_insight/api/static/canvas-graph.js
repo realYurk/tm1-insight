@@ -160,7 +160,7 @@
       {selector:'node[type="source"]',style:{'background-image':ICON.lineageFile,'background-color':'#f3fbf7','border-color':'#cce9d9','color':'#216245'}},
       {selector:'node[type="database"]',style:{'background-image':ICON.lineageDatabase,'background-color':'#faf8ff','border-color':'#e1daf3','color':'#554f8f'}},
       {selector:'node.cn-selected',style:{'border-width':2,'border-color':'#426acb','background-color':'#eff5ff'}},
-      {selector:'edge',style:{'label':'data(displayLabel)','text-rotation':'none','font-size':10,'color':'#536f8e','text-background-opacity':.96,'width':1.6}},
+      {selector:'edge',style:{'curve-style':'bezier','label':'data(displayLabel)','text-rotation':'none','font-size':10,'color':'#536f8e','text-background-opacity':.96,'width':1.6}},
       {selector:'edge[status="CANDIDATE"]',style:{'line-style':'dashed','line-color':'#8fa6c4','target-arrow-color':'#8fa6c4'}},
       {selector:'edge[kind="TI_WRITE"]',style:{'line-color':'#83a3ca','target-arrow-color':'#83a3ca'}},
       {selector:'edge.cn-hover, edge.cn-selected',style:{'label':'data(fullLabel)','width':2.2,'color':'#334e71'}}
@@ -176,7 +176,13 @@
 
   function lineageLabel(name) {
     const chars=Array.from(String(name || '')), lines=[];
-    for(let i=0;i<chars.length;i+=16)lines.push(chars.slice(i,i+16).join(''));
+    for(let i=0;i<chars.length;){
+      let end=Math.min(i+16,chars.length);
+      if(end<chars.length){
+        for(let j=end-1;j>=i+8;j--){if(chars[j]==='.'||chars[j]===' '){end=j+1;break;}}
+      }
+      lines.push(chars.slice(i,end).join(''));i=end;
+    }
     return {text:lines.join('\n'),width:270,height:Math.max(48,lines.length*21+12)};
   }
 
@@ -564,7 +570,7 @@
           const type = n.type || 'cube';
           // 卡片宽度与 canvas-layout.nodeWidth 同一公式：布局间距与视觉宽度一致。
           // 上限收紧到 210：避免长名称卡片右侧大片空白（文字 165px 内换行补齐）。
-          const fullName=String(n.name || ''), label=opt.lineage?lineageLabel(fullName):null;
+          const fullName=String(n.displayName || n.name || ''), label=opt.lineage?lineageLabel(fullName):null;
           const cardW = label ? label.width : Math.min(60 + fullName.length * 6.0, 210);
           const cardH = label ? label.height : 42;
           return {
@@ -676,7 +682,7 @@
               && nodeIds.has(e.source().id()) && nodeIds.has(e.target().id());
           }).map(function (e) { return { source: e.source().id(), target: e.target().id() }; });
           const result = window.TM1CanvasLayout
-            ? window.TM1CanvasLayout.compute(nodes, edges,{strategy:'layered',direction:direction,rowHeight:opt.lineage?Math.max(96,...nodes.map(n=>n.height+30)):undefined})
+            ? window.TM1CanvasLayout.compute(nodes, edges,{strategy:'layered',direction:direction,lineage:!!opt.lineage})
             : null;
           if (result) {
             lastStrategy = result.strategy;

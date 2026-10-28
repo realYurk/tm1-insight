@@ -67,3 +67,29 @@ def test_lineage_names_remain_complete_and_layout_reserves_height():
     nodes=[dict(id='a',name=name,type='process',width=label['width']),dict(id='b',name='B',type='process',width=300)]
     positions=layout(nodes,[],{'rowHeight':label['height']+30})['positions']
     assert abs(positions['a']['y']-positions['b']['y'])>=label['height']+30
+
+
+def test_lineage_sources_keep_left_column_and_wide_layers_do_not_wrap():
+    nodes=[dict(id='file',name='input.csv',type='source',width=270,height=48),
+           dict(id='source-less',name='independent TI',type='process',width=270,height=48),
+           dict(id='root',name='General Ledger',type='cube',width=270,height=48)]
+    nodes += [dict(id=f'ti{i}',name=f'Process {i}',type='process',width=270,height=60+i) for i in range(12)]
+    edges=[dict(source='file',target='ti0'),dict(source='ti0',target='root')]
+    edges += [dict(source='root',target=f'ti{i}') for i in range(1,12)]
+    edges += [dict(source='source-less',target='root')]
+    result=layout(nodes,edges,{'lineage':True});positions=result['positions']
+    assert positions['file']['x'] < positions['source-less']['x'] < positions['root']['x']
+    assert positions['file']['x'] < positions['ti0']['x'] < positions['root']['x']
+    downstream=[positions[f'ti{i}'] for i in range(1,12)]
+    assert len({p['x'] for p in downstream}) == 1
+    for a,b in zip(sorted(downstream,key=lambda p:p['y']),sorted(downstream,key=lambda p:p['y'])[1:]):
+        assert b['y']-a['y'] >= 90
+
+
+def test_lineage_layout_cycles_are_finite_and_input_order_stable():
+    nodes=[dict(id='file',name='input.csv',type='source',height=48),dict(id='a',name='A',type='cube',height=60),dict(id='b',name='B',type='process',height=80)]
+    edges=[dict(source='file',target='b'),dict(source='b',target='a'),dict(source='a',target='b')]
+    one=layout(nodes,edges,{'lineage':True})
+    assert one['positions']==layout(nodes[::-1],edges[::-1],{'lineage':True})['positions']
+    assert one['positions']['file']['x'] < one['positions']['a']['x']
+    assert one['positions']['a']['y'] != one['positions']['b']['y']

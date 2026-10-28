@@ -306,6 +306,17 @@ def test_dynamic_file_candidate_keeps_source_label_and_path_separate():
     data={'result':{'snapshot_id':'s','nodes':[{'id':'b','name':'B','type':'cube'}], 'limits':{}},
           'rows':[], 'inputs':[{'type':'file','name':'字符分隔文件（动态路径）','status':'DYNAMIC_FILE_CANDIDATE','process':'Load','target':'B'}], 'writers':[]}
     model=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'B',data.inputs,data.writers)")
-    assert any(n['name']=='字符分隔文件（动态路径）' for n in model['nodes'])
+    assert any(n.get('displayName')=='分隔文件 · 动态路径' for n in model['nodes'])
     assert any(e['label']=='可能的数据源' and e['state']=='CANDIDATE' for e in model['edges'])
     assert any(e['label']=='写入' for e in model['edges'])
+
+
+def test_file_labels_use_observed_extensions_without_guessing_dynamic_csv():
+    from test_lineage_view import view
+    data={'result':{'snapshot_id':'s','nodes':[{'id':'b','name':'B','type':'cube'}], 'limits':{}},'rows':[],
+          'inputs':[{'type':'file','name':'input.csv','status':'RECORDED_DECLARATION','process':'A','target':'B'},
+                    {'type':'file','name':'report.xlsx','status':'RECORDED_DECLARATION','process':'B','target':'B'},
+                    {'type':'file','name':'字符分隔文件（动态路径）','status':'DYNAMIC_FILE_CANDIDATE','process':'C','target':'B'}], 'writers':[]}
+    model=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'B',data.inputs,data.writers)")
+    names={n.get('displayName',n['name']) for n in model['nodes']}
+    assert {'CSV · input.csv','Excel · report.xlsx','分隔文件 · 动态路径'} <= names

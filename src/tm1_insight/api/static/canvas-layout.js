@@ -106,13 +106,13 @@
     if (starLike && opt.strategy === 'radial') {
       return radial(hub, list, links, adj, radj, sccs.length);
     }
-    var result=layered(list, links, adj, sccs, compOf, opt.rowHeight || ROW_H);
+    var result=layered(list, links, adj, sccs, compOf, opt.rowHeight || ROW_H, opt);
     if(opt.direction==='TB')Object.keys(result.positions).forEach(function(id){var p=result.positions[id];result.positions[id]={x:p.y,y:p.x};});
     return result;
   }
 
   /* ---------------- 分层布局 ---------------- */
-  function layered(list, links, adj, sccs, compOf, rowHeight) {
+  function layered(list, links, adj, sccs, compOf, rowHeight, opt) {
     var nc = sccs.length;                       // 分量数
     var cadj = [], indeg = [];
     for (var i = 0; i < nc; i++) { cadj.push([]); indeg.push(0); }
@@ -128,6 +128,16 @@
 
     // Kahn 拓扑序 + 最长路径分层
     var layer = new Array(nc).fill(0);
+    // Reserve the first column for actual source nodes only. Disconnected or
+    // source-less processes retain their own column; this changes placement,
+    // never creates an edge or asserts a source for them.
+    if (opt.lineage && list.some(function(n) { return n.type === 'source' || n.type === 'database'; })) {
+      var byId = new Map(list.map(function(n) { return [n.id,n]; }));
+      sccs.forEach(function(members, i) {
+        var sourceOnly = members.every(function(id) { var n=byId.get(id); return n && (n.type==='source' || n.type==='database'); });
+        if (!sourceOnly && indeg[i] === 0) layer[i] = 1;
+      });
+    }
     var queue = [];
     for (var k = 0; k < nc; k++) if (!indeg[k]) queue.push(k);
     var order = [];
@@ -192,6 +202,16 @@
         sccs[c].forEach(function (id) { maxW = Math.max(maxW, widthOf(id)); });
       });
       var colW = maxW + BASE_COL;
+      if (opt.lineage) {
+        // Keep the whole layer in one column and size rows to real card height.
+        var flat=[];
+        comp.forEach(function(c) { sccs[c].slice().sort().forEach(function(id) { flat.push(id); }); });
+        var sizes=flat.map(function(id) { var n=list.find(function(item){return item.id===id;}); return Math.max(48, n && n.height || 48) + 34; });
+        var total=sizes.reduce(function(sum,h){return sum+h;},0), y=-total/2;
+        flat.forEach(function(id,i){positions[id]={x:x,y:y+sizes[i]/2};y+=sizes[i];});
+        colWidths.push(colW);x+=colW;tallest=Math.max(tallest,flat.length);
+        return;
+      }
       var packed=[],heights=[0],column=0;
       comp.forEach(function(c){var size=sccs[c].length;if(heights[column]&&heights[column]+size>MAX_ROWS){column++;heights[column]=0;}packed.push({column:column,row:heights[column],size:size});heights[column]+=size;});
       var cols = heights.length;
