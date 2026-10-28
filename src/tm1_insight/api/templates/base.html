@@ -6,9 +6,9 @@
   <title>{% block title %}TM1 Insight{% endblock %}</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/style.css">
-  <link rel="stylesheet" href="/static/workbench.css?v=object-browser-1">
+  <link rel="stylesheet" href="/static/workbench.css?v=flow-slices-1">
   <link rel="stylesheet" href="/static/mermaid-viewer.css?v=1">
-  <link rel="stylesheet" href="/static/human-workbench.css?v=2"><script src="/static/syntax.js?v=2"></script><script src="/static/object-badge.js?v=1"></script>
+  <link rel="stylesheet" href="/static/human-workbench.css?v=2"><script src="/static/syntax.js?v=2"></script><script src="/static/object-badge.js?v=1"></script><script src="/static/copy-writer.js?v=1" defer></script><script src="/static/rule-slice.js?v=1" defer></script>
   <script>
     // 页面加载前应用主题，避免闪烁
     (function () {
@@ -61,7 +61,6 @@
 
         <div class="nav-group-label">模型管理</div>
         {{ nav('/settings','连接设置','settings',path.startswith('/settings')) }}
-        {{ nav('/settings#data-source','数据源管理','assets',false) }}
         {{ nav('/compare','快照与版本','assets',path.startswith('/compare')) }}
         {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
         <details hidden class="nav-advanced" {{ 'open' if path in ['/impact','/workflow','/knowledge','/learn','/experience'] else '' }}><summary aria-label="高级工具" title="高级工具"><span class="nav-icon">{% include "icons/assets.svg" %}</span><span class="nav-text">高级工具</span></summary>

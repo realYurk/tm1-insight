@@ -68,7 +68,7 @@
   for(const input of inputs){const target=nodes.find(n=>n.type==='cube'&&n.name===input.target);if(!target)continue;
    const ti='ti:'+JSON.stringify([input.process,target.id]), external='input:'+JSON.stringify([input.type,input.name,input.process,target.id]);addNode({id:ti,name:input.process,title:input.process,type:'process',role:'TI',process:input.process,target:input.target});
    addNode({id:external,name:input.name,title:input.name,type:input.type,role:input.type==='file'?'文件':'数据库'});
-   addEdge({source:external,target:ti,label:'数据源声明',state:'CANDIDATE',process:input.process});
+   addEdge({source:external,target:ti,label:input.status==='DYNAMIC_FILE_CANDIDATE'?'可能的数据源':input.status==='STATIC_CODE_ASSIGNMENT'?'源码设置（静态）':'数据源声明',state:'CANDIDATE',process:input.process});
    addEdge({source:ti,target:target.id,label:'写入',state:'SOURCE_CALL',process:input.process,target_name:input.target});
   }
   for(const writer of writers){const target=nodes.find(n=>n.type==='cube'&&n.name===writer.target);if(!target)continue;const ti='ti:'+JSON.stringify([writer.process,target.id]);

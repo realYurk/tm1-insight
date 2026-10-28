@@ -144,12 +144,7 @@
       if(!loaded||token!==generation||signal?.aborted)return;const {rules}=loaded;
       host.replaceChildren();
       if(!rules.length)host.append(el('p','当前 Rule 分析未保留此源 Cube 的引用；不能补造计算关系。'));
-      rules.forEach(r=>{const p=el('article',undefined,'cl-detail');p.append(el('h3','Rule 计算'));if(r.lhs?.raw)p.append(el('p',`目标区域：${r.lhs.raw}`));if(r.rhs?.expression)p.append(el('p',`计算表达式：${r.rhs.expression}`));
-        const coord=el('div',undefined,'cl-slices');
-        (r.db_references||[]).filter(d=>d.cube_resolved&&d.cube===row.source_name).forEach(d=>{sliceBox(coord,'DB 源坐标（参数顺序，不冒充维度映射）',(d.coordinates||[]).map((c,i)=>({dimension:`坐标 ${i+1}`,kind:c.kind==='literal'?'固定':c.kind==='region'?'动态':'待确认',value:c.value||c.dimension||c.expression||c.raw||'待确认'})));});
-        sliceBox(coord,'目标区域的维度归属',(r.lhs?.coordinates||[]).map(c=>({dimension:c.dimension||'维度待确认',kind:c.dimension?'区域声明':'待确认',value:c.member||c.value||c.raw||JSON.stringify(c.members||[])})));
-        p.append(coord);host.append(p);
-      });
+      rules.forEach(r=>host.append(window.TM1RuleSlice.render({target:r.lhs?.raw,href:'/explorer/cube/'+encodeURIComponent(row.target_name)+'?'+new URLSearchParams({model:snapshot})+'#rules'})));
     }catch(e){
       if(token!==generation||e.name==='AbortError')return;
       host.replaceChildren(el('p','自动分析未完成：'+e.message,'cl-hint'));

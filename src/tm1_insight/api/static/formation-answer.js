@@ -21,8 +21,9 @@
    const detail=el('div');detail.className='writer-detail';
    const sourceLink=el('a','查看 '+(gs[0].kind==='TI'?'TI':'Cube')+' 源码');sourceLink.className='btn ghost btn-sm';sourceLink.href='/explorer/'+(gs[0].kind==='TI'?'process/':'cube/')+encodeURIComponent(gs[0].owner)+'?'+new URLSearchParams({model:plan.snapshot_id});detail.append(sourceLink);
    for(const g of gs){
+    if(g.kind==='RULE'){detail.append(window.TM1RuleSlice.render({target:g.area,href:'/explorer/cube/'+encodeURIComponent(g.owner)+'?'+new URLSearchParams({model:plan.snapshot_id})+'#rules'}));continue;}
     const coordinates=(g.coordinates||[]).filter(c=>['FIXED','DYNAMIC'].includes(c.kind)&&c.dimension&&c.expression!=null&&c.expression!=='').map(c=>({dimension:c.dimension,position:c.position,value:c.expression,expression:c.kind==='DYNAMIC'?c.expression:'',kind:c.kind}));
-    const card=window.TM1WritePointCard.writePoint({operation:mode[g.operation]||g.operation,summary:slice(g),valueExpression:g.expression,valueLabel:g.kind==='RULE'?'计算表达式':'写入值',coordinateLabel:g.kind==='RULE'?'目标维度':'写入维度',coordinates,conditions:(g.conditions||[]).map(c=>c.condition||c.expression||c.raw||c.kind).filter(Boolean),open:gs.length<=3});
+    const card=window.TM1WritePointCard.writePoint({operation:mode[g.operation]||g.operation,summary:slice(g),valueExpression:g.kind==='RULE'?'':g.expression,valueLabel:g.kind==='RULE'?'计算表达式':'写入值',coordinateLabel:g.kind==='RULE'?'目标维度':'写入维度',coordinates,conditions:(g.conditions||[]).map(c=>c.condition||c.expression||c.raw||c.kind).filter(Boolean),open:gs.length<=3});
     if(source(g))card.append(el('p',source(g)));detail.append(card);
    }
    box.append(detail);host.append(box);

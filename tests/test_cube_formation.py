@@ -185,7 +185,8 @@ def test_cube_api_keeps_process_contract_and_exports(client):
     assert client.get(base+'/result?view=formation_relationships').status_code==200
     assert client.get(base+'/export?format=zip').status_code==200
     assert '入口 Cube' in client.get(base+'/export?format=markdown').text
-    assert '解析数据形成' in client.get('/cubes?name=Cube_B').text
+    html = client.get('/cubes?name=Cube_B').text
+    assert '查看上下游血缘' in html and '/graph?cube=Cube_B' in html
     assert client.get('/architecture?kind=cube&name=Cube_B').status_code==200
     assert client.get('/codegen').status_code==200
     assert hashlib.sha256(get_settings().db_path.read_bytes()).hexdigest()==before

@@ -178,7 +178,7 @@ def test_entry_links_prefix_discovery_and_local_assets(client):
     assert 'data-view="functional_flow"' in page.text and '按名称 / 前缀找入口' in page.text
     for path in ['/explorer/process/Load_Sales','/explorer/cube/Sales']:
         response = client.get(path)
-        assert response.status_code==200 and 'view=functional_flow' in response.text
+        assert response.status_code==200 and '/graph?' in response.text
     for path in ['/static/functional-flow.js','/static/functional-flow.css']:
         assert client.get(path).status_code==200
     js = client.get('/static/functional-flow.js').text

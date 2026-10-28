@@ -5,7 +5,7 @@
     <h1 class="page-title">{{ cube.name }}</h1>
     <p class="page-sub">Cube 概览 · 血缘与前端展示一览</p>
   </div>
-  <div class="study-actions"><button type="button" class="btn ghost" data-open-object-switcher aria-haspopup="dialog">搜索 / 切换 Cube</button><a class="btn primary" href="/architecture?kind=cube&amp;name={{ cube.name|urlencode }}&amp;analyze=1&amp;view=functional_flow">解析数据形成 · 业务流程图</a><a class="btn" href="/architecture?view=workbench&amp;kind=cube&amp;name={{ cube.name|urlencode }}">连续探索工作台</a><a class="btn ghost" href="/graph?cube={{ cube.name|urlencode }}&amp;model={{ research_model() }}">在血缘视图打开</a></div>
+  <div class="study-actions"><button type="button" class="btn ghost" data-open-object-switcher aria-haspopup="dialog">搜索 / 切换 Cube</button><a class="btn primary" href="/graph?cube={{ cube.name|urlencode }}&amp;model={{ research_model() }}">查看上下游血缘</a></div>
 </div>
 
 <div class="cube-overview">
@@ -74,8 +74,8 @@
     {% for s in lineage.source_details %}
     <div class="flow-level">
       <div class="wp-head" style="margin-bottom:6px;">
-        <span class="flow-step-label">源头 Cube</span>
-        <a class="cube-chip flow-source" href="/explorer/cube/{{ s.name }}">{{ s.name }}</a>
+        <span class="flow-step-label flow-kind-cube">Cube</span>
+        <a class="cube-chip flow-source flow-kind-cube" href="/explorer/cube/{{ s.name|urlencode }}">{{ s.name }}</a>
         <span class="tag rule">{{ s.dimension_count }} 维</span>
       </div>
       <div class="dim-tags">
@@ -86,19 +86,19 @@
       {% if lineage.upstream_of_sources.get(s.name) %}
       <div class="flow-path">
         <div class="flow-path-head">
-          <span class="flow-step-label">相关读写 TI</span>
+          <span class="flow-step-label flow-kind-ti">TI</span>
           <span class="muted small">同一 TI 的读取与写入观察；值依赖需在数据形成中核对</span>
         </div>
         <div class="flow-path-chain">
-          <a class="cube-chip flow-source" href="/explorer/cube/{{ s.name }}">{{ s.name }}</a>
+          <a class="cube-chip flow-source flow-kind-cube" href="/explorer/cube/{{ s.name|urlencode }}">{{ s.name }}</a>
           <svg class="flow-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           <span class="flow-tis">
             {% for w in lineage.upstream_of_sources[s.name] %}
-            <a class="cube-chip flow-target" href="/explorer/process/{{ w }}">{{ w }}</a>
+            <a class="cube-chip flow-target flow-kind-ti" href="/explorer/process/{{ w|urlencode }}">TI · {{ w }}</a>
             {% endfor %}
           </span>
           <svg class="flow-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-          <a class="cube-chip flow-dst" href="/explorer/cube/{{ cube.name }}">{{ cube.name }}</a>
+          <a class="cube-chip flow-dst flow-kind-cube" href="/explorer/cube/{{ cube.name|urlencode }}">{{ cube.name }}</a>
         </div>
       </div>
       {% endif %}
@@ -134,7 +134,7 @@
       </summary>
 
       <div class="writer-detail">
-        <a class="btn ghost btn-sm" href="/explorer/process/{{ w.process }}">查看 TI 源码</a>
+        <a class="btn ghost btn-sm" href="/explorer/process/{{ w.process|urlencode }}">查看 TI 源码</a><button type="button" class="btn ghost btn-sm copy-writer" data-name="{{ w.process }}">复制 TI 名称</button>
 
         {% for wp in w.write_points %}
         <details class="wp-item" {% if w.write_points|length <= 3 %}open{% endif %}>
@@ -301,22 +301,23 @@
 
     <div class="rule-semantics" style="margin-top:6px;">
       {% for r in rule_semantics.rules %}
-      <details class="rule-ir" >
+      <details class="rule-ir rule-slice-card" >
         <summary class="rule-ir-summary">
           <span class="mono-dim">L{{ r.line_start }}{% if r.line_end != r.line_start %}–{{ r.line_end }}{% endif %}</span>
           <span class="tag op">{{ r.qualifier or '计算' }}</span>
+          {% if r.lhs.raw %}<span class="rule-slice-target">{{ r.lhs.raw }}</span>{% endif %}
           {% if r.special %}<span class="tag" title="特殊语义">{{ r.special }}</span>{% endif %}
           {% if r.db_references %}
-            {% for d in r.db_references %}
-            <a class="cube-chip flow-source" href="/explorer/cube/{{ d.cube }}" onclick="event.stopPropagation();">{{ d.cube }}</a>
+            {% for d in r.db_references if d.cube_resolved %}
+            <a class="cube-chip flow-source" href="/explorer/cube/{{ d.cube|urlencode }}" onclick="event.stopPropagation();">{{ d.cube }}</a>
             {% endfor %}
           {% endif %}
           {% if r.conditions %}<span class="tag" title="含条件分支">条件 {{ r.conditions|length }}</span>{% endif %}
-          {% if r.status != 'PARSED' %}<span class="tag warn" title="未完全解析">{{ r.status }}</span>{% endif %}
+
         </summary>
         <div class="rule-ir-body">
           <div class="rule-ir-target">
-            <strong>目标区域：</strong>
+            <strong class="rule-slice-label">Rule · 目标切面：</strong>
             <code class="var-inline">{{ r.lhs.raw }}</code>
           </div>
           {% if r.lhs.coordinates %}
@@ -329,18 +330,7 @@
             {% endfor %}
           </div>
           {% endif %}
-          <div class="rule-ir-expr" style="margin-top:4px;">
-            <strong>计算表达式：</strong>
-            <code class="var-inline">{{ r.rhs.expression }}</code>
-          </div>
-          {% if r.attribute_calls %}
-          <div class="muted small" style="margin-top:4px;">属性查询：
-            {% for a in r.attribute_calls %}<code class="var-inline">{{ a.func }}({{ a.args|join(', ') }})</code>{% if not loop.last %} · {% endif %}{% endfor %}
-          </div>
-          {% endif %}
-          {% if r.unresolved_reasons %}
-          <div class="muted small" style="margin-top:4px;">⚠ {{ r.unresolved_reasons|join('；') }}</div>
-          {% endif %}
+
         </div>
       </details>
       {% endfor %}

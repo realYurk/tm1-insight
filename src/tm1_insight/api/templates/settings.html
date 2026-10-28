@@ -11,12 +11,15 @@
 <div class="page-head">
   <div>
     <h1 class="page-title">设置</h1>
-    <p class="page-sub">数据源、TM1 连接、前端资产扫描</p>
+    <p class="page-sub">管理当前模型、连接与前端资产。</p>
   </div>
 </div>
 
+<nav class="settings-nav" aria-label="设置分类"><a href="#settings-source">本地模型</a><a href="#settings-connection">服务器采集</a><a href="#settings-audit">前端资产</a><a href="#settings-about">版本信息</a></nav>
+
 <!-- ============ 数据源（Data Sources） ============ -->
-<div class="card">
+<span id="data-source" aria-hidden="true"></span>
+<div class="card" id="settings-source">
   <h2>数据源</h2>
   <div class="ds-current">
     <div class="ds-current-main">
@@ -62,24 +65,8 @@
   </div>
 </div>
 
-<!-- 关于 / 版本信息（Workbench 1.1） -->
-<div class="card">
-  <h2>关于 / 版本信息</h2>
-  <p class="muted small">用于核对当前实际运行的软件版本。若显示「开发版」，说明通过源码启动；若显示「Portable」，说明运行的是打包后的 EXE。</p>
-  {% set bi = build_info() %}
-  <table class="table">
-    <tbody>
-      <tr><td>产品版本</td><td><code>v{{ bi.version }}</code></td></tr>
-      <tr><td>Git 提交</td><td><code>{{ bi.git_sha or '不可取得（非 Git 环境）' }}</code></td></tr>
-      <tr><td>构建时间</td><td><code>{{ bi.build_time or '不可取得（未打包）' }}</code></td></tr>
-      <tr><td>运行模式</td><td>{% if bi.packaged %}<span class="tag ok">Portable（打包 EXE）</span>{% else %}<span class="tag violet">开发版（源码）</span>{% endif %}</td></tr>
-      <tr><td>当前数据源</td><td><span class="dot" id="ds-dot"></span> <span id="ds-current-name">{{ data_source.label }}</span></td></tr>
-    </tbody>
-  </table>
-</div>
-
 <!-- TM1 连接 -->
-<div class="card">
+<div class="card" id="settings-connection">
   <h2>TM1 服务器连接</h2>
   <p class="muted small">填写连接信息后点击「开始拉取」。采集进入独立新目录，校验成功后切换，原模型保留。密码留空则使用 <code>.env</code> 默认凭据。</p>
   <form id="scan-form" onsubmit="return false;">
@@ -112,7 +99,7 @@
 </div>
 
 <!-- 前端资产扫描 -->
-<div class="card">
+<div class="card" id="settings-audit">
   <h2>前端资产扫描</h2>
   <p class="muted small">只读本地 Excel（<code>applications/</code> 与 <code>externals/</code>），不访问 TM1，用于「前端文件 → 后端 Cube」映射。</p>
   <table class="table">
@@ -127,6 +114,22 @@
   </div>
   {% with job='audit', job_label='前端扫描', result_url='/audit', result_label='查看扫描结果' %}{% include "job_progress.html" %}{% endwith %}
 </div>
+<!-- 关于 / 版本信息（Workbench 1.1） -->
+<div class="card" id="settings-about">
+  <h2>关于 / 版本信息</h2>
+  <p class="muted small">用于核对当前实际运行的软件版本。若显示「开发版」，说明通过源码启动；若显示「Portable」，说明运行的是打包后的 EXE。</p>
+  {% set bi = build_info() %}
+  <table class="table">
+    <tbody>
+      <tr><td>产品版本</td><td><code>v{{ bi.version }}</code></td></tr>
+      <tr><td>Git 提交</td><td><code>{{ bi.git_sha or '不可取得（非 Git 环境）' }}</code></td></tr>
+      <tr><td>构建时间</td><td><code>{{ bi.build_time or '不可取得（未打包）' }}</code></td></tr>
+      <tr><td>运行模式</td><td>{% if bi.packaged %}<span class="tag ok">Portable（打包 EXE）</span>{% else %}<span class="tag violet">开发版（源码）</span>{% endif %}</td></tr>
+      <tr><td>当前数据源</td><td><span class="dot"></span> <span data-current-source-label>{{ data_source.label }}</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -143,6 +146,7 @@ function refreshDsStatus() {
     .then(r => r.json())
     .then(j => {
       document.getElementById('ds-current-name').textContent = j.label || '数据';
+      document.querySelectorAll('[data-current-source-label]').forEach(el => { el.textContent = j.label || '数据'; });
       document.getElementById('ds-current-location').textContent = j.location || '—';
       const meta = document.getElementById('ds-current-meta');
       if (j.counts && j.counts.cubes) {

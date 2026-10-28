@@ -127,7 +127,10 @@ def test_external_source_declaration_is_bounded_and_does_not_guess_dynamic(clien
     for name,code,source in [
         ('CsvLoad','',{'type':'CHARACTERDELIMITED','file':r'C:\private\inf_001.csv'}),
         ('DynamicFile',"DataSourceNameForServer = pFile;",{'type':'ASCII','file':'old.csv'}),
+        ('DynamicSource',"DataSourceType='CHARACTERDELIMITED';DataSourceNameForServer=pFile;",None),
+        ('StaticFile',"DataSourceNameForServer = 'C:\\private\\inf_002.csv';",{'type':'ASCII','file':'old.csv'}),
         ('SqlLoad','',{'type':'ODBC','query':'SELECT confidential FROM table'}),
+        ('SourceCodeOnly',"DataSourceType='ASCII';DataSourceNameForServer='d:/private/input.csv';",None),
     ]:
         con.execute('INSERT INTO processes(name,prolog,metadata,data,epilog,datasource) VALUES (?,?,?,?,?,?)',
                     [name,code,'','','',json.dumps(source)])
@@ -143,9 +146,10 @@ def test_external_source_declaration_is_bounded_and_does_not_guess_dynamic(clien
     result=client.get('/api/workbench/lineage-inputs',params={'snapshot_id':'synthetic','cube':'Cube_B'})
     assert result.status_code==200
     items=result.json()['items']
-    assert [(x['process'],x['type'],x['name']) for x in items]==[('CsvLoad','file','inf_001.csv'),('SqlLoad','database','数据库数据源')]
+    assert [(x['process'],x['type'],x['name']) for x in items]==[('CsvLoad','file','inf_001.csv'),('DynamicSource','file','字符分隔文件（动态路径）'),('SourceCodeOnly','file','input.csv'),('SqlLoad','database','数据库数据源'),('StaticFile','file','inf_002.csv')]
     assert 'DynamicFile' in result.json()['writers']
-    assert all(x['status']=='RECORDED_DECLARATION' for x in items)
+    assert [x['status'] for x in items]==['RECORDED_DECLARATION','DYNAMIC_FILE_CANDIDATE','STATIC_CODE_ASSIGNMENT','RECORDED_DECLARATION','STATIC_CODE_ASSIGNMENT']
+    assert items[-1]['evidence']['section']=='prolog' and items[-1]['evidence']['line']==1
     assert 'confidential' not in result.text and 'private' not in result.text and 'old.csv' not in result.text
 
 
@@ -295,3 +299,13 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
 '''
     completed=subprocess.run([node],input=harness.replace('SOURCE',json.dumps(source)),capture_output=True,text=True,encoding='utf-8',check=True)
     assert 'verified' in completed.stdout
+
+
+def test_dynamic_file_candidate_keeps_source_label_and_path_separate():
+    from test_lineage_view import view
+    data={'result':{'snapshot_id':'s','nodes':[{'id':'b','name':'B','type':'cube'}], 'limits':{}},
+          'rows':[], 'inputs':[{'type':'file','name':'字符分隔文件（动态路径）','status':'DYNAMIC_FILE_CANDIDATE','process':'Load','target':'B'}], 'writers':[]}
+    model=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'B',data.inputs,data.writers)")
+    assert any(n['name']=='字符分隔文件（动态路径）' for n in model['nodes'])
+    assert any(e['label']=='可能的数据源' and e['state']=='CANDIDATE' for e in model['edges'])
+    assert any(e['label']=='写入' for e in model['edges'])

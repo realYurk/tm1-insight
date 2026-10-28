@@ -450,3 +450,12 @@ details summary { cursor: pointer; padding: 12px 0; }
 .object-single {grid-template-columns:minmax(0,1fr)}
 .object-single > [hidden] {display:none}
 .object-single .dimension-list {max-height:none}
+
+.flow-kind-cube {background:#e8f2ff;color:#245c98;border-color:#b8d2ef}
+.flow-kind-ti {background:#f1edff;color:#58448e;border-color:#d2c7f4}
+.rule-slice-card {padding:14px;margin:10px 0;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.rule-slice-card summary {cursor:pointer}
+.rule-slice-label {font-size:12px;color:var(--muted);font-weight:600}
+.rule-slice-target {margin:7px 0;font-size:15px;overflow-wrap:anywhere}
+
+.settings-nav {display:flex;flex-wrap:wrap;gap:10px;margin:0 0 18px}.settings-nav a {padding:9px 14px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text)}.settings-nav a:hover {background:var(--accent-soft)}

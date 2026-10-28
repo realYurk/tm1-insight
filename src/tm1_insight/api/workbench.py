@@ -197,16 +197,53 @@ def lineage_inputs(snapshot_id: str, cube: str = Query(max_length=1000)):
             except (TypeError, ValueError):
                 continue
             if not isinstance(data, dict):
-                continue
+                data = {}
             kind = str(data.get('type') or data.get('Type') or '').casefold()
+            source = data.get('file') or data.get('cube') or data.get('name')
+            tokens = statements(tuple(x or '' for x in row[1:]), include_logging=True)
+            assignments = [t for t in tokens if len(t) > 1 and t[0]['value'].casefold() in
+                           {'datasourcetype', 'datasourcenameforserver', 'datasourcequery'} and t[1]['value'] == '=']
+            evidence = dict(table='processes', column='datasource', process=name)
+            status = 'RECORDED_DECLARATION'
+            # A literal source type combined with a dynamic path is only a
+            # possible file input; never expose a guessed file name or value.
+            name_sets = [t for t in assignments if t[0]['value'].casefold() == 'datasourcenameforserver']
+            file_types = [t for t in assignments if t[0]['value'].casefold() == 'datasourcetype'
+                          and t[0]['section'] == 'prolog' and len(t) == 4
+                          and t[2]['kind'] == 'string' and t[3]['value'] == ';'
+                          and t[2]['value'][1:-1].casefold() in {'ascii', 'characterdelimited'}]
+            if (len(name_sets) == 1 and file_types and name_sets[0][0]['section'] == 'prolog'
+                and len(name_sets[0]) == 4 and name_sets[0][2]['kind'] == 'id'
+                and name_sets[0][3]['value'] == ';'):
+                items.append(dict(process=name, target=cube, name='字符分隔文件（动态路径）', type='file',
+                                  evidence=dict(table='processes', column='prolog', process=name,
+                                                section='prolog', line=file_types[0][0]['line'],
+                                                path_line=name_sets[0][0]['line']),
+                                  status='DYNAMIC_FILE_CANDIDATE'))
+                continue
+            if assignments:
+                # Only single literal Prolog assignments are shown as static
+                # observations. Branch execution and final runtime values remain unknown.
+                by_name = {}
+                for assignment in assignments:
+                    field = assignment[0]['value'].casefold()
+                    if (field in by_name or field == 'datasourcequery'
+                        or assignment[0]['section'] != 'prolog' or len(assignment) != 4
+                        or assignment[2]['kind'] != 'string' or assignment[3]['value'] != ';'):
+                        by_name = None
+                        break
+                    by_name[field] = assignment
+                if by_name is None or 'datasourcenameforserver' not in by_name:
+                    continue
+                assignment = by_name['datasourcenameforserver']
+                source = assignment[2]['value'][1:-1].replace("''", "'")
+                if 'datasourcetype' in by_name:
+                    kind = by_name['datasourcetype'][2]['value'][1:-1].casefold()
+                evidence = dict(table='processes', column='prolog', process=name,
+                                line=assignment[0]['line'], section='prolog')
+                status = 'STATIC_CODE_ASSIGNMENT'
             if kind not in {'ascii', 'characterdelimited', 'odbc', 'oledb'}:
                 continue
-            # Runtime assignments could replace a recorded declaration. Do not
-            # display a stale file/database name as the effective input.
-            tokens = statements(tuple(x or '' for x in row[1:]), include_logging=True)
-            if any(len(t) > 1 and t[0]['value'].casefold() in {'datasourcetype', 'datasourcenameforserver', 'datasourcequery'} and t[1]['value'] == '=' for t in tokens):
-                continue
-            source = data.get('file') or data.get('cube') or data.get('name')
             if kind in {'ascii', 'characterdelimited'}:
                 if not isinstance(source, str) or not source.strip():
                     continue
@@ -218,8 +255,7 @@ def lineage_inputs(snapshot_id: str, cube: str = Query(max_length=1000)):
                 # Do not expose connection strings or SQL text.
                 label, source_type = '数据库数据源', 'database'
             items.append(dict(process=name, target=cube, name=label, type=source_type,
-                              evidence=dict(table='processes', column='datasource', process=name),
-                              status='RECORDED_DECLARATION'))
+                              evidence=evidence, status=status))
     guard(snapshot)
     return dict(snapshot_id=snapshot, items=items, writers=names[:12], truncated=len(names)>12, runtime_verified=False)
 
