@@ -8,7 +8,7 @@
   const operations={CellPutN:'覆盖数值',CellPutS:'覆盖文本',CellIncrementN:'累加数值'};
   function slices(mapping){return (mapping?.items||[]).map(c=>{
     const b=c.binding||{}, fixed=b.kind==='FIXED_MEMBER', dynamic=['PARAMETER','DATA_ROW_VARIABLE','LOOKUP_COORDINATE'].includes(b.kind);
-    return {dimension:c.dimension||`第 ${c.position} 个坐标（维度待确认）`,kind:fixed?'固定':dynamic?'动态':'待确认',value:fixed?b.value:b.expression||'待确认',reason:b.reason||'',evidence:b.evidence||[]};
+    return {position:c.position,dimension:c.dimension||`第 ${c.position} 个坐标（维度待确认）`,kind:fixed?'固定':dynamic?'动态':'待确认',value:fixed?b.value:b.expression||'待确认',reason:b.reason||'',evidence:b.evidence||[]};
   });}
   function writeRows(data,source,target){return (data.writes||[]).filter(w=>w.cube===target).map(w=>({
     ...w,target_slices:slices(w.coordinate_mapping),
@@ -100,13 +100,14 @@
   function sliceBox(parent,title,items){const visible=items.filter(c=>c.kind!=='待确认'&&c.dimension&&!String(c.dimension).includes('待确认')&&c.value&&c.value!=='待确认');if(!visible.length)return;
     const box=el('section');box.append(el('h3',title));visible.forEach(c=>{const p=el('p');p.append(el('span',c.kind,'cl-pill'),document.createTextNode(` ${c.dimension} = ${c.value}`));box.append(p);});parent.append(box);}
   function button(text,fn){const b=el('button',text,'btn');b.type='button';b.onclick=async()=>{b.disabled=true;try{await fn();}catch(e){if(e.name!=='AbortError')b.after(el('p',e.message,'err'));}finally{b.disabled=false;}};return b;}
-  function writeDetail(host,w){const part=el('article',undefined,'cl-write-card');part.append(el('h3',`${operations[w.operation]||w.operation}`));if(w.value_expression)part.append(el('p',`写入值：${w.value_expression}`));
+  function writeDetail(host,w){
+    const target=(w.target_slices||[]).filter(c=>c.kind==='固定'||c.kind==='动态').filter(c=>c.dimension&&!c.dimension.includes('待确认')&&c.value&&c.value!=='待确认');
+    const card=window.TM1WritePointCard.writePoint({operation:operations[w.operation]||w.operation,summary:target.slice(0,3).map(c=>`${c.dimension} = ${c.value}`).join('；'),valueExpression:w.value_expression,conditions:(w.control_context||[]).map(c=>c.condition).filter(Boolean),coordinates:target.map(c=>({position:c.position,dimension:c.dimension,value:c.value,expression:c.kind==='动态'?c.value:'',kind:c.kind==='固定'?'FIXED':'DYNAMIC'}))});
     const coord=el('div',undefined,'cl-slices');
     w.source_reads.forEach(r=>sliceBox(coord,`来源：${r.cube}`,slices(r.coordinate_mapping)));
     w.source_data_rows.forEach(d=>sliceBox(coord,`来源：${d.source_cube} / ${d.source_view}`,w.source_row_slices));
-    sliceBox(coord,'目标切面',w.target_slices);part.append(coord);
-    (w.control_context||[]).filter(c=>c.condition).forEach(c=>part.append(el('p',`条件：${c.condition}`)));
-    evidence(part,'技术详情',w);host.append(part);
+    if(coord.childNodes.length)card.append(coord);
+    evidence(card,'技术详情',w);host.append(card);
   }
   async function loadTI(row,process,token,signal){
     const data=await cached(writeCache,process,'/api/workbench/writes?'+new URLSearchParams({snapshot_id:snapshot,process}),signal);if(token!==generation||signal?.aborted)return;

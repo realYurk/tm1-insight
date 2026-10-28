@@ -17,19 +17,14 @@
   for(const [job,data] of results){truncated ||= data.truncated;for(const b of data.blockers){const old=blockers.get(b.id);if(old)old.affected.push(...b.affected);else blockers.set(b.id,{...b,affected:[...b.affected]});}
    if(!data.groups.length){const empty=el('p',job+'：本次保留范围内没有匹配的写入/Rule；不证明运行时没有影响。');host.append(empty);continue;}
    groups+=data.groups.length;const box=el('details');box.className='writer-row';const gs=data.groups;
-   const heading=el('summary');const name=el('span',gs[0].owner);name.className='writer-name';const count=el('span',gs.length+' 写入点');count.className='tag op';heading.append(name,count,el('span',gs[0].kind==='TI'?'TI 写入':'Rule 计算'));box.append(heading);
-   box.append(el('p',[...new Set(gs.map(g=>mode[g.operation]))].join('、')+' · '+gs.length+' 个独立区域 / 条件记录'));
-   const unique=xs=>[...new Set(xs)];
-   unique(gs.map(slice)).filter(Boolean).slice(0,2).forEach(s=>box.append(el('p',s)));
-   unique(gs.map(g=>source(g)?`${g.expression} ← ${source(g)}`:g.expression)).filter(Boolean).slice(0,2).forEach(s=>box.append(el('p',s)));
-   if(unique(gs.map(slice)).length>2||unique(gs.map(g=>g.expression)).length>2)box.append(el('p','另有不同切面或表达式，展开查看；未将它们合并为同一动作。'));
-   if(gs.some(g=>g.match==='POSSIBLE'))box.append(el('p','包含可能匹配项：动态坐标或区域归属不足，未认定命中具体单元格。'));
-   const ids=unique(gs.flatMap(g=>g.blocker_refs));if(ids.length){box.append(el('p','阻碍值解释：'+ids.slice(0,1).map(id=>blockers.get(id)?.reason||'见共享证据缺口').join('；')+(ids.length>1?'；其他根因见证据缺口':'')));}
-   const detail=el('details');detail.append(el('summary','展开切面、表达式与条件（'+gs.length+' 项）'));
-   for(const g of gs){const part=el('section');part.className='cl-detail';part.append(el('h3',mode[g.operation]+' · '+position(g)));if(slice(g))part.append(el('p',slice(g)));part.append(el('p','值表达式：'+g.expression));if(source(g))part.append(el('p',source(g)));part.append(el('p',states[g.evidence_state]));
-    if(g.conditions.length)part.append(el('p','条件（未求值）：'+g.conditions.map(c=>c.condition||c.expression||c.raw||c.kind||'见证据').join('；')));
-    else part.append(el('p','本记录未保留控制条件；不据此证明必然执行。'));
-    proof(part,g);detail.append(part);}
+   const heading=el('summary');const name=el('span',gs[0].owner);name.className='writer-name';const count=el('span',gs.length+(gs[0].kind==='TI'?' 写入点':' 条规则'));count.className='tag op';heading.append(name,count,el('span',gs[0].kind==='TI'?'TI 写入':'Rule 计算'));box.append(heading);
+   const detail=el('div');detail.className='writer-detail';
+   const sourceLink=el('a','查看 '+(gs[0].kind==='TI'?'TI':'Cube')+' 源码');sourceLink.className='btn ghost btn-sm';sourceLink.href='/explorer/'+(gs[0].kind==='TI'?'process/':'cube/')+encodeURIComponent(gs[0].owner)+'?'+new URLSearchParams({model:plan.snapshot_id});detail.append(sourceLink);
+   for(const g of gs){
+    const coordinates=(g.coordinates||[]).filter(c=>['FIXED','DYNAMIC'].includes(c.kind)&&c.dimension&&c.expression!=null&&c.expression!=='').map(c=>({dimension:c.dimension,position:c.position,value:c.expression,expression:c.kind==='DYNAMIC'?c.expression:'',kind:c.kind}));
+    const card=window.TM1WritePointCard.writePoint({operation:mode[g.operation]||g.operation,summary:slice(g),valueExpression:g.expression,valueLabel:g.kind==='RULE'?'计算表达式':'写入值',coordinateLabel:g.kind==='RULE'?'目标维度':'写入维度',coordinates,conditions:(g.conditions||[]).map(c=>c.condition||c.expression||c.raw||c.kind).filter(Boolean),open:gs.length<=3});
+    if(source(g))card.append(el('p',source(g)));proof(card,g);detail.append(card);
+   }
    box.append(detail);host.append(box);
   }
   for(const [name,message] of failures)host.append(el('p',name+'：'+message+'。成功结果已保留，可重试。'));
