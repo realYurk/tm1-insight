@@ -54,3 +54,16 @@ def test_large_bounded_hub_and_empty_layout():
 def test_input_order_does_not_change_direction_or_positions():
     nodes=objects(5);edges=[dict(source='n000',target='n001'),dict(source='n000',target='n002'),dict(source='n002',target='n004')]
     assert layout(nodes,edges)==layout(nodes[::-1],edges[::-1])
+
+
+def test_lineage_names_remain_complete_and_layout_reserves_height():
+    node=shutil.which('node')
+    if not node:pytest.skip('Node is required for presentation checks')
+    name='Cub.General Ledger.Data.Load.From.CSV.Long.中文坐标.测试名称'
+    code="const fs=require('fs'),vm=require('vm');global.window={};vm.runInThisContext(fs.readFileSync(process.argv[1],'utf8'));console.log(JSON.stringify(window.TM1Canvas.lineageLabel(process.argv[2])));"
+    p=subprocess.run([node,'-e',code,str(STATIC/'canvas-graph.js'),name],capture_output=True,text=True,encoding='utf-8',check=True)
+    label=json.loads(p.stdout)
+    assert label['text'].replace('\n','')==name and label['height']>54
+    nodes=[dict(id='a',name=name,type='process',width=label['width']),dict(id='b',name='B',type='process',width=300)]
+    positions=layout(nodes,[],{'rowHeight':label['height']+30})['positions']
+    assert abs(positions['a']['y']-positions['b']['y'])>=label['height']+30

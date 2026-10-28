@@ -120,7 +120,7 @@
     try{
       const loaded=await loadTI(row,process,token,signal);
       if(!loaded||token!==generation||signal?.aborted)return;const {data,writes}=loaded;
-      host.className='cl-process-card';host.replaceChildren(el('span','处理程序','cl-card-kicker'),el('h3',process),el('p',`${row.source_name ? row.source_name+' → ' : ''}${row.target_name}`,'cl-card-path'));
+      host.className='cl-process-card';host.replaceChildren(el('span','处理程序','cl-card-kicker'),el('h3',process),el('p',`${row.source_declared?'数据源声明：':''}${row.source_name ? row.source_name+' → ' : ''}${row.target_name}`,'cl-card-path'));
       host.append(link('查看 TI 源码','/explorer/process/'+encodeURIComponent(process)+'?'+new URLSearchParams({model:snapshot})));
       host.append(link('研究此 TI 调用与读写','/graph?'+new URLSearchParams({ti:process,model:snapshot})));
       if(!writes.length)host.append(el('p','暂无可展示的写入切面。','muted'));
@@ -197,7 +197,8 @@
     const key=JSON.stringify([view.nodes.map(n=>n.id),view.edges.map(e=>[e.source,e.target,e.label])]);
     const previous=viewer?.getPositions?.(),positions=viewer?._lineageKey===key?previous:undefined,saved=viewer?.getView?.();
     function selectProcess(name,target,relation){$('cl-inspector').hidden=false;viewer?.resize?.();const host=$('cl-node-detail');Array.from($('cl-details').children).forEach(p=>{p.hidden=true;});host.hidden=false;host.replaceChildren();detailAbort?.abort();detailAbort=new AbortController();
-      const row=rows.find(r=>r.id===relation)||rows.find(r=>(r.process_names||[]).includes(name)&&(!target||r.target_name===target))||{id:'input:'+name,source_name:'',target_name:target||resultName};
+      const input=externalInputs.find(x=>x.process===name&&(!target||x.target===target));
+      const row=rows.find(r=>r.id===relation)||rows.find(r=>(r.process_names||[]).includes(name)&&(!target||r.target_name===target))||{id:'input:'+name,source_name:input?.name||'',source_declared:!!input,target_name:target||input?.target||resultName};
       analyzeTI(host,row,name,generation,detailAbort.signal);}
     const onEdgeClick=id=>{viewer.select([],id);const edge=view.edges[Number(id.slice(5))];if(edge?.process){selectProcess(edge.process,edge.target_name||externalInputs.find(x=>x.process===edge.process)?.target,edge.relation);return;}const r=rows.find(r=>r.id===edge?.relation);if(r)document.querySelector('tr[data-relation="'+CSS.escape(r.id)+'"] button')?.click();};
     const onNodeClick=id=>{const n=view.nodes.find(x=>x.id===id);if(!n)return;viewer.select([id]);if(n.type==='process'){selectProcess(n.process,n.target,n.relation);return;}detailAbort?.abort();$('cl-inspector').hidden=false;viewer?.resize?.();const host=$('cl-node-detail');if(!host)return;Array.from($('cl-details').children).forEach(p=>{p.hidden=true;});host.hidden=false;host.replaceChildren(el('h2',n.name),el('p',n.role));if(n.type==='cube')host.append(link('查看 Cube 结构','/explorer/cube/'+encodeURIComponent(n.name)+'?'+new URLSearchParams({model:snapshot})),button('以此 Cube 查看上下游',()=>{$('cl-name').value=n.name;return load();}));};

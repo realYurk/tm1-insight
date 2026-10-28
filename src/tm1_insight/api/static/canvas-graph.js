@@ -154,7 +154,7 @@
       { selector: 'edge.cn-dim', style: { opacity: 0.25 } },
     ];
     if (opt && opt.lineage) base.push(
-      {selector:'node',style:{'height':54,'background-width':'28px','background-height':'28px','background-position-x':'24px','text-margin-x':27,'text-max-width':'data(labelW)','text-wrap':'ellipsis','font-size':12,'border-color':'#d6e2f1','color':'#233955'}},
+      {selector:'node',style:{'height':'data(cardH)','label':'data(displayName)','background-width':'28px','background-height':'28px','background-position-x':'24px','text-margin-x':27,'text-max-width':'data(labelW)','text-wrap':'wrap','font-size':12,'border-color':'#d6e2f1','color':'#233955'}},
       {selector:'node[type="process"]',style:{'background-image':ICON.lineageGear,'background-color':'#f7f8ff','border-color':'#d5dcf3'}},
       {selector:'node[type="source"]',style:{'background-image':ICON.lineageFile,'background-color':'#f3fbf7','border-color':'#cce9d9','color':'#216245'}},
       {selector:'node[type="database"]',style:{'background-image':ICON.lineageDatabase,'background-color':'#faf8ff','border-color':'#e1daf3','color':'#554f8f'}},
@@ -171,6 +171,12 @@
     const text = String(name == null ? '' : name);
     if (text.length <= max) return text;
     return text.slice(0, max - 1) + '…';
+  }
+
+  function lineageLabel(name) {
+    const chars=Array.from(String(name || '')), lines=[];
+    for(let i=0;i<chars.length;i+=18)lines.push(chars.slice(i,i+18).join(''));
+    return {text:lines.join('\n'),width:300,height:Math.max(54,lines.length*17+18)};
   }
 
   function edgeLabel(edge) {
@@ -557,7 +563,9 @@
           const type = n.type || 'cube';
           // 卡片宽度与 canvas-layout.nodeWidth 同一公式：布局间距与视觉宽度一致。
           // 上限收紧到 210：避免长名称卡片右侧大片空白（文字 165px 内换行补齐）。
-          const cardW = Math.min(60 + String(n.name || '').length * 6.0, 210);
+          const fullName=String(n.name || ''), label=opt.lineage?lineageLabel(fullName):null;
+          const cardW = label ? label.width : Math.min(60 + fullName.length * 6.0, 210);
+          const cardH = label ? label.height : 42;
           return {
             group: 'nodes',
             data: {
@@ -567,6 +575,8 @@
               short: shortName(n.name, type === 'source' ? 22 : 18),
               cardW: cardW,
               labelW: Math.max(36, cardW - 70),
+              cardH: cardH,
+              displayName: label ? label.text : fullName,
               type: type,
               provenance: n.provenance || '',
             },
@@ -658,14 +668,14 @@
           cy.layout({ name: 'grid', padding: 40, avoidOverlap: true, condense: true }).run();
         } else {
           // auto：分层 / 辐射 / 环分解由 TM1CanvasLayout 依据图形态决定
-          const nodes = visibleNodes.map(function (n) { return { id: n.id(), type: n.data('type'), name: n.data('name') }; });
+          const nodes = visibleNodes.map(function (n) { return { id: n.id(), type: n.data('type'), name: n.data('name'), width: n.data('cardW'), height: n.data('cardH') }; });
           const nodeIds = new Set(nodes.map(function (n) { return n.id; }));
           const edges = cy.edges().filter(function (e) {
             return e.target().id() !== e.source().id()
               && nodeIds.has(e.source().id()) && nodeIds.has(e.target().id());
           }).map(function (e) { return { source: e.source().id(), target: e.target().id() }; });
           const result = window.TM1CanvasLayout
-            ? window.TM1CanvasLayout.compute(nodes, edges,{strategy:'layered',direction:direction})
+            ? window.TM1CanvasLayout.compute(nodes, edges,{strategy:'layered',direction:direction,rowHeight:opt.lineage?Math.max(96,...nodes.map(n=>n.height+30)):undefined})
             : null;
           if (result) {
             lastStrategy = result.strategy;
@@ -788,5 +798,5 @@
     return api;
   }
 
-  window.TM1Canvas = { mount: mount, icons: ICON, TYPE_LABEL: TYPE_LABEL };
+  window.TM1Canvas = { mount: mount, icons: ICON, TYPE_LABEL: TYPE_LABEL, lineageLabel: lineageLabel };
 })();

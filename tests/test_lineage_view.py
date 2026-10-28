@@ -78,6 +78,22 @@ console.log(JSON.stringify(window.TM1CanvasLayout.compute(nodes,edges,{strategy:
     assert positions['file']['x'] < positions['ti']['x'] < positions['cube']['x']
 
 
+def test_large_fanout_keeps_complete_process_paths():
+    cubes=[{'id':'root','name':'Root','type':'cube'}]+[{'id':f'c{i}','name':f'Target{i}','type':'cube'} for i in range(40)]
+    rows=[{'id':f'r{i}','source':'root','target':f'c{i}','kind':'TI_CANDIDATE','process_names':[f'Load{i}']} for i in range(40)]
+    data={'result':{'snapshot_id':'s','nodes':cubes,'limits':{}},'rows':rows}
+    model=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'Root')")
+    assert model['display_truncated'] and len(model['nodes'])<=24 and len(model['edges'])<=30
+    processes=[n for n in model['nodes'] if n['type']=='process']
+    assert processes
+    for process in processes:
+        ins=[e for e in model['edges'] if e['target']==process['id']]
+        outs=[e for e in model['edges'] if e['source']==process['id']]
+        assert ins and outs and ins[0]['source']=='root'
+        assert any(n['id']==outs[0]['target'] and n['type']=='cube' for n in model['nodes'])
+        assert ins[0]['state']=='CANDIDATE'
+
+
 def test_calls_keep_direction_conditions_cycles_dynamic_and_index():
     c=lambda a,b,**extra:dict(process=a,target=b,**extra)
     data={'process':'A','snapshot_id':'s','analyzed_process_names':['A','B'],

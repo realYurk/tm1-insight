@@ -106,13 +106,13 @@
     if (starLike && opt.strategy === 'radial') {
       return radial(hub, list, links, adj, radj, sccs.length);
     }
-    var result=layered(list, links, adj, sccs, compOf);
+    var result=layered(list, links, adj, sccs, compOf, opt.rowHeight || ROW_H);
     if(opt.direction==='TB')Object.keys(result.positions).forEach(function(id){var p=result.positions[id];result.positions[id]={x:p.y,y:p.x};});
     return result;
   }
 
   /* ---------------- 分层布局 ---------------- */
-  function layered(list, links, adj, sccs, compOf) {
+  function layered(list, links, adj, sccs, compOf, rowHeight) {
     var nc = sccs.length;                       // 分量数
     var cadj = [], indeg = [];
     for (var i = 0; i < nc; i++) { cadj.push([]); indeg.push(0); }
@@ -189,7 +189,7 @@
     layers.forEach(function (comp) {
       var maxW = 64;
       comp.forEach(function (c) {
-        sccs[c].forEach(function (id) { maxW = Math.max(maxW, nodeWidth(nameOf(id))); });
+        sccs[c].forEach(function (id) { maxW = Math.max(maxW, widthOf(id)); });
       });
       var colW = maxW + BASE_COL;
       var packed=[],heights=[0],column=0;
@@ -202,7 +202,7 @@
         var rowInCol = packed[ci].row+(packed[ci].size-1)/2;
         var cellX = x + colIdx * colW;
         var columnCount = heights[colIdx];
-        var cellY = (rowInCol - (columnCount - 1) / 2) * ROW_H;
+        var cellY = (rowInCol - (columnCount - 1) / 2) * rowHeight;
         if (members.length === 1) {
           positions[members[0]] = { x: cellX, y: cellY };
         } else {
@@ -210,7 +210,7 @@
           // never an invented execution order within the strongly connected set.
           members.sort();
           members.forEach(function (id, mi) {
-            positions[id] = { x: cellX + (mi%2)*24, y: cellY + (mi-(members.length-1)/2)*ROW_H };
+            positions[id] = { x: cellX + (mi%2)*24, y: cellY + (mi-(members.length-1)/2)*rowHeight };
           });
         }
       });
@@ -220,10 +220,10 @@
     });
     return { positions: positions, strategy: 'layered', sccCount: nc, layerCount: layers.length };
 
-    function nameOf(id) {
+    function widthOf(id) {
       // canvas-graph 传入 nodes 带 name；这里通过闭包 list 查
-      for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].name;
-      return '';
+      for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].width || nodeWidth(list[i].name);
+      return 64;
     }
   }
 

@@ -29,25 +29,36 @@
  }
  function connectedFlow(model){
   const nodes=model.nodes,edges=model.edges;
-  const root=nodes.find(n=>n.current),selected=new Set(root?[root.id]:[]),chosen=new Set(),queue=root?[root.id]:[];
-  const adjacent=new Map(nodes.map(n=>[n.id,[]]));
-  edges.forEach((edge,i)=>{if(adjacent.has(edge.source)&&adjacent.has(edge.target)){adjacent.get(edge.source).push(i);if(edge.source!==edge.target)adjacent.get(edge.target).push(i);}});
-  const byId=new Map(nodes.map(n=>[n.id,n])),externalTI=new Set(edges.filter(e=>['file','database'].includes(byId.get(e.source)?.type)).map(e=>e.target));
-  while(queue.length&&chosen.size<30){const id=queue.shift();
-   const options=[...(adjacent.get(id)||[])].sort((a,b)=>{const other=i=>edges[i].source===id?edges[i].target:edges[i].source;return Number(!externalTI.has(other(a)))-Number(!externalTI.has(other(b)))||a-b;});
-   for(const i of options){if(chosen.size>=30)break;const e=edges[i],other=e.source===id?e.target:e.source;
-    if(!selected.has(other)){if(selected.size>=24||(id===root?.id&&externalTI.size&&selected.size>=18))continue;selected.add(other);queue.push(other);}chosen.add(i);
+  const root=nodes.find(n=>n.current),selected=new Set(root?[root.id]:[]),chosen=new Set();
+  const byId=new Map(nodes.map(n=>[n.id,n])),paths=[],incoming=new Map();
+  edges.forEach((e,i)=>{if(byId.has(e.source)&&byId.get(e.source).type!=='process'){
+   if(!incoming.has(e.target))incoming.set(e.target,[]);incoming.get(e.target).push({x:e,j:i});
+  }});
+  edges.forEach((e,i)=>{if(!byId.has(e.source)||!byId.has(e.target))return;
+   if(byId.get(e.source).type==='process'&&byId.get(e.target).type==='cube'){
+    const inbound=incoming.get(e.source)||[];
+    if(inbound.length)inbound.forEach(v=>paths.push({indices:[v.j,i],file:['file','database'].includes(byId.get(v.x.source).type)}));
+    else paths.push({indices:[i],file:false});
+   }else if(e.state==='RULE_REFERENCE')paths.push({indices:[i],file:false});
+  });
+  paths.sort((a,b)=>Number(b.file)-Number(a.file)||a.indices[0]-b.indices[0]);
+  let changed=true;while(changed){changed=false;
+   for(const path of paths){const all=new Set(path.indices.flatMap(i=>[edges[i].source,edges[i].target]));
+    if(![...all].some(id=>selected.has(id)))continue;
+    const newNodes=[...all].filter(id=>!selected.has(id)),newEdges=path.indices.filter(i=>!chosen.has(i));
+    if(!newNodes.length&&!newEdges.length)continue;
+    if(selected.size+newNodes.length>24||chosen.size+newEdges.length>30)continue;
+    newNodes.forEach(id=>selected.add(id));newEdges.forEach(i=>chosen.add(i));changed=true;
    }
   }
-  for(let i=0;i<edges.length&&chosen.size<30;i++){const e=edges[i];if(selected.has(e.source)&&selected.has(e.target))chosen.add(i);}
   model.nodes=nodes.filter(n=>selected.has(n.id));model.edges=edges.filter((e,i)=>chosen.has(i));
   model.display_limits={nodes_total:nodes.length,edges_total:edges.length,nodes_hidden:nodes.length-model.nodes.length,edges_hidden:edges.length-model.edges.length};
   model.display_truncated=!!(model.display_limits.nodes_hidden||model.display_limits.edges_hidden);return model;
  }
  function flowModel(result,rows,entry,inputs=[],writers=[]){
-  const base=cubeModel(result,rows,entry,[],false), nodes=[...base.nodes], edges=[], known=new Set(nodes.map(n=>n.id));
+  const base=cubeModel(result,rows,entry,[],false), nodes=[...base.nodes], edges=[], known=new Set(nodes.map(n=>n.id)),edgeKeys=new Set();
   const addNode=n=>{if(!known.has(n.id)){known.add(n.id);nodes.push(n);}};
-  const addEdge=e=>{if(!edges.some(x=>x.source===e.source&&x.target===e.target&&x.relation===e.relation))edges.push(e);};
+  const addEdge=e=>{const key=JSON.stringify([e.source,e.target,e.relation]);if(!edgeKeys.has(key)){edgeKeys.add(key);edges.push(e);}};
   for(const row of base.edges){
    if(row.kind==='RULE_REFERENCE'){addEdge({source:row.source,target:row.target,label:'Rule 引用',state:'RULE_REFERENCE',relation:row.id});continue;}
    for(const name of row.process_names||[]){const id='ti:'+JSON.stringify([name,row.target]);addNode({id,name,title:name,type:'process',role:'TI',process:name,relation:row.id});
