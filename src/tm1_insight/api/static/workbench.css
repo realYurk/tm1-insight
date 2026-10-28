@@ -434,3 +434,12 @@ details summary { cursor: pointer; padding: 12px 0; }
 /* ============ Workbench 1.1：跨对象「返回来源」入口 ============ */
 .ctx-back { margin-left: 8px; font-size: 12px; white-space: nowrap; }
 .page-head { flex-wrap: wrap; row-gap: 8px; }
+
+/* MDX is the primary workspace task. */
+.workspace-columns { display: block; }
+.workspace-mdx { border: 1px solid var(--border); border-radius: 16px; padding: 28px; background: var(--surface, #fff); }
+.workspace-mdx textarea { min-height: 170px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; font-family: monospace; }
+.mdx-focus { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0; }
+.mdx-focus label { display: grid; gap: 6px; flex: 1 1 220px; }
+.mdx-focus input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.workspace-start > summary { cursor: pointer; font-weight: 600; }

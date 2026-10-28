@@ -117,12 +117,19 @@ function hashColor(name) {
 async function traceMdx() {
   const mdx = mdxInput.value.trim();
   if (!mdx) { mdxInput.focus(); return; }
+  const focusDim = document.getElementById('mdx-focus-dimension').value.trim();
+  const focusMember = document.getElementById('mdx-focus-member').value.trim();
+  if (Boolean(focusDim) !== Boolean(focusMember)) { mdxResult.hidden = false; mdxResult.textContent = '请同时填写重点维度与成员，或留空。'; return; }
   mdxBtn.disabled = true;
   mdxBtn.textContent = '解析中…';
   mdxResult.hidden = false;
   mdxResult.innerHTML = '<div class="muted">正在解析 MDX 并匹配写入点…</div>';
   try {
-    const response = await fetch('/api/trace?mdx=' + encodeURIComponent(mdx));
+    const params = new URLSearchParams({mdx});
+    const dimension = document.getElementById('mdx-focus-dimension').value.trim();
+    const member = document.getElementById('mdx-focus-member').value.trim();
+    if (dimension && member) { params.set('focus_dimension', dimension); params.set('focus_member', member); }
+    const response = await fetch('/api/trace?' + params);
     if (!response.ok) throw new Error('反查暂不可用，请重试');
     const j = await response.json();
     renderTrace(j);
@@ -171,6 +178,8 @@ function renderTrace(j) {
   html += '</div>';
 
   const cands = j.candidates || [];
+  const focus = document.getElementById('mdx-focus-dimension').value.trim();
+  if (focus && !dims.some(d => d.toLowerCase() === focus.toLowerCase())) html += '<p class="muted">重点维度未出现在当前 Cube 的已采集维度中，请核对名称或模型元数据。</p>';
   html += `<div class="trace-count">匹配到 <b>${cands.length}</b> 个可能的写入 TI${j.relaxed ? '（宽松匹配）' : ''}</div>`;
 
   if (!cands.length) {
@@ -182,9 +191,9 @@ function renderTrace(j) {
   html += '<div class="trace-list">';
   cands.forEach(c => {
     const score = Number.isFinite(c.score) ? c.score : null;
-    const pct = score === null ? '' : `<span class="trace-score ${score >= 100 ? 'full' : score >= 60 ? 'high' : 'mid'}">${score}%</span>`;
+    const pct = ''; // Scores are ranking heuristics, not probabilities.
     const dimBadges = (c.matched_dims || []).map(d => `<span class="dim-badge hit">${escapeHtml(d)} 命中</span>`)
-      .concat((c.variable_dims || []).map(d => `<span class="dim-badge var">${escapeHtml(d)} 变量?</span>`)).join('');
+      .concat((c.variable_dims || []).map(d => `<span class="dim-badge var">${escapeHtml(d)} 动态或未记录</span>`)).join('');
     const srcs = (c.source_cubes || []).map(s => `<a class="cube-chip ${hashColor(s)}" href="/explorer/cube/${encodeURIComponent(s)}">${escapeHtml(s)}</a>`).join(' ');
     const wpCount = c.write_point_count > 1 ? `<span class="trace-wp-count">${escapeHtml(c.write_point_count)} 个写入点</span>` : '';
     html += `<div class="trace-item">

@@ -15,7 +15,7 @@
   function row(t,values){const tr=el('tr');values.forEach(x=>{const td=el('td');td.append(x instanceof Node?x:document.createTextNode(String(x??'待确认')));tr.append(td);});t.append(tr);return tr;}
   function source(parent,process,e,expandedCell){if(!e?.section)return;const d=el('details'),box=el('div');d.append(el('summary','查看源码 · '+loc(e)));if(expandedCell)expandedCell.append(box);else d.append(box);parent.append(d);const token=generation,selectedTask=task;d.ontoggle=async()=>{if(expandedCell)expandedCell.parentElement.hidden=!d.open;if(!d.open||d.dataset.loaded)return;d.dataset.loaded='1';box.textContent='正在读取本地源码片段…';try{const data=await get('/api/workflow/tasks/'+selectedTask+'/evidence?'+new URLSearchParams({process,section:e.section,start:Math.max(1,(e.line||1)-3),limit:20}));if(token!==generation)return;box.replaceChildren();window.tm1Source.mount(box,{code:data.lines.map(l=>l.code).join('\n'),start:data.start,mode:'ti'});}catch(err){if(token===generation)box.textContent=err.message;}};}
   function calls(parent,items){const t=table(parent,['调用方','被调用方','参数传递','条件','源码']);items.forEach(c=>{
-    const params=el('div');(c.bindings||[]).forEach(b=>params.append(el('p',`${b.parameter||'参数名待确认'} = ${b.expression||'待确认'} · ${b.binding_status==='EXPLICIT_NAME_BINDING'?'显式绑定（未求值）':'绑定待确认'}`)));
+    const params=el('details');params.append(el('summary','查看参数'));(c.bindings||[]).forEach(b=>params.append(el('p',`${b.parameter||'参数'} = ${b.expression||'未解析'}`)));
     if(!params.childNodes.length)params.append(el('p',(c.arguments||[]).length?'参数声明未核对':'未提供命名参数'));
     const proof=el('div'),expanded=el('tr'),cell=el('td');cell.colSpan=5;expanded.hidden=true;expanded.append(cell);source(proof,c.process,c,cell);raw(cell,'调用及绑定依据',c);
     row(t,[link(c.process,'/graph?'+new URLSearchParams({ti:c.process,model:report?.snapshot_id||''})),c.target?link(c.target,'/graph?'+new URLSearchParams({ti:c.target,model:report?.snapshot_id||''})):'动态目标待确认',params,condition(c),proof]);t.append(expanded);
@@ -55,7 +55,7 @@
   }
   function selectCall(edge){++selectionGeneration;const c=edge.evidence,host=$('tr-summary');host.replaceChildren(el('h2',c.process+' → '+c.target),el('p',edge.label));
     host.append(el('p',c.index_only?'仅为调用目录索引；未核对调用方此位置的条件。':'静态源码调用表达式；不证明实际发生或执行次数。'));
-    (c.bindings||[]).forEach(b=>host.append(el('p',(b.parameter||'参数名待确认')+' = '+(b.expression||'表达式待确认'))));
+    if(c.bindings?.length){const params=el('details');params.append(el('summary','查看参数'));c.bindings.forEach(b=>params.append(el('p',(b.parameter||'参数')+' = '+(b.expression||'未解析'))));host.append(params);}
     if(c.control_context?.length)host.append(el('p','条件：'+condition(c)));
     if(!c.index_only)source(host,c.process,c);raw(host,'调用参数与技术依据',c);
   }

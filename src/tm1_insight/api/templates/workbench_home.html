@@ -1,6 +1,6 @@
 <section class="workspace-home" aria-label="模型分析工作台">
   <header class="workspace-heading">
-    <div><p class="workspace-eyebrow">TM1 INSIGHT / WORKSPACE</p><h1>你想理解哪条 TM1 业务流程？</h1><p class="workspace-intro">从模型资产找到对象，从业务架构理解输入、处理和结果。</p></div>
+    <div><p class="workspace-eyebrow">TM1 INSIGHT / WORKSPACE</p><h1>从 MDX 找到可能的写入程序</h1><p class="workspace-intro">粘贴报表 MDX，按 Cube 与关键切面查找相关 TI。</p></div>
     <a class="workspace-source" href="/settings" data-type="{{ data_source.type }}"><span class="ds-dot"></span>{{ data_source.label }}<span aria-hidden="true"> ↗</span></a>
   </header>
 
@@ -14,7 +14,7 @@
   </section>
   {% endif %}
 
-  <section class="workspace-start" aria-labelledby="workspace-search-title">
+  <details class="workspace-start"><summary>按名称查找 Cube 或 TI</summary><section aria-labelledby="workspace-search-title">
     <p class="workspace-eyebrow">01 / 定位对象</p><h2 id="workspace-search-title">从 Cube 或 TI 理解业务架构</h2>
     <div class="search-hero">
       <label class="workspace-search-label" for="global-search">Cube、TI 名称或前缀</label>
@@ -23,10 +23,10 @@
     </div>
     <p class="workspace-search-note">按名称或前缀查找 Cube / TI；选定入口后先看流程、对象与关键切面，技术依据按需展开。</p>
     <div class="workspace-shortcuts"><a href="/processes">浏览 TI 进程 →</a><a href="/cubes">查看 Cube 结构 →</a><a href="/chores">检查 Chore 调度 →</a></div>
-  </section>
+  </section></details>
 
   <div class="workspace-columns">
-    <section class="workspace-route" aria-labelledby="workspace-route-title">
+    <section class="workspace-route" aria-labelledby="workspace-route-title" hidden>
       <p class="workspace-eyebrow">02 / 沿证据推进</p><h2 id="workspace-route-title">从数据模型到加工步骤</h2>
       <ul class="workspace-steps">
         <li><span>调用</span><div><strong>先理解输入与结果</strong><p>查看相关 Cube、加工 TI 和结果对象，技术辅助过程默认折叠。</p></div></li>
@@ -37,11 +37,11 @@
     </section>
     <section class="workspace-mdx" aria-label="MDX 反查">
       <p class="workspace-eyebrow">已有报表切面？</p>
-      <details id="mdx-card"><summary>用 MDX 查找候选写入进程</summary>
+      <details id="mdx-card" open><summary>用 MDX 查找候选写入进程</summary>
         <p class="muted small">按已解析的 Cube 和坐标匹配写入候选；匹配分数不能证明该值由谁产生。</p>
         <label for="mdx-input">MDX 表达式</label>
         <textarea id="mdx-input" rows="6" placeholder="SELECT … FROM [Cube] WHERE (…)" spellcheck="false"></textarea>
-        <div class="mdx-actions"><button id="mdx-btn" class="btn primary" onclick="traceMdx()">解析并反查</button><button class="btn ghost" onclick="fillExample()">填入示例</button><button class="btn ghost" onclick="clearMdx()">清空</button></div>
+        <div class="mdx-focus"><label>重点维度（可选）<input id="mdx-focus-dimension" placeholder="例如 Measure"></label><label>重点成员<input id="mdx-focus-member" placeholder="例如 Amount"></label></div><div class="mdx-actions"><button id="mdx-btn" class="btn primary" onclick="traceMdx()">解析并反查</button><button class="btn ghost" onclick="fillExample()">填入示例</button><button class="btn ghost" onclick="clearMdx()">清空</button></div>
         <div id="mdx-result" hidden></div>
       </details>
       <div class="workspace-utilities"><h3>准备数据与工具</h3><a href="/audit">前端资产与 Cube 引用 →</a><a href="/architecture">业务架构 →</a><a href="/codegen">代码生成 →</a><a href="/settings">连接与数据源设置 →</a></div>

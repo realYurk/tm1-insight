@@ -16,8 +16,8 @@
  function render(){const host=$('fa-answer');host.replaceChildren();const blockers=new Map();let groups=0,truncated=false;
   for(const [job,data] of results){truncated ||= data.truncated;for(const b of data.blockers){const old=blockers.get(b.id);if(old)old.affected.push(...b.affected);else blockers.set(b.id,{...b,affected:[...b.affected]});}
    if(!data.groups.length){const empty=el('p',job+'：本次保留范围内没有匹配的写入/Rule；不证明运行时没有影响。');host.append(empty);continue;}
-   groups+=data.groups.length;const box=el('article');box.className='cl-detail';const gs=data.groups;
-   box.append(el('h2',gs[0].owner+' · '+(gs[0].kind==='TI'?'TI 写入':'Rule 计算')));
+   groups+=data.groups.length;const box=el('details');box.className='writer-row';const gs=data.groups;
+   const heading=el('summary');const name=el('span',gs[0].owner);name.className='writer-name';const count=el('span',gs.length+' 写入点');count.className='tag op';heading.append(name,count,el('span',gs[0].kind==='TI'?'TI 写入':'Rule 计算'));box.append(heading);
    box.append(el('p',[...new Set(gs.map(g=>mode[g.operation]))].join('、')+' · '+gs.length+' 个独立区域 / 条件记录'));
    const unique=xs=>[...new Set(xs)];
    unique(gs.map(slice)).filter(Boolean).slice(0,2).forEach(s=>box.append(el('p',s)));

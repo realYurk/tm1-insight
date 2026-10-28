@@ -1344,7 +1344,7 @@ def api_search_all(q: str = Query(max_length=1000), limit: int = Query(20, ge=1,
 
 
 @app.get("/api/trace")
-def api_trace(cube: Optional[str] = None, mdx: Optional[str] = None) -> dict:
+def api_trace(cube: Optional[str] = None, mdx: Optional[str] = None, focus_dimension: Optional[str] = None, focus_member: Optional[str] = None) -> dict:
     """「值从哪里来」排查：给定 Cube（可选 MDX 反解交叉点），返回可能写入该交叉点的 TI。
 
     - 只传 mdx：从 MDX 反解 cube + 维度元素交叉点，返回命中的写入点。
@@ -1361,7 +1361,13 @@ def api_trace(cube: Optional[str] = None, mdx: Optional[str] = None) -> dict:
             members = parsed["members"] or None
         if not cube:
             return {"cube": None, "dimensions": [], "members": {}, "candidates": [], "matched_count": 0, "relaxed": False}
-        return queries.trace_cell_value(con, cube, members)
+        if focus_dimension and focus_member:
+            members = dict(members or {})
+            for key in list(members):
+                if key.lower() == focus_dimension.lower():
+                    del members[key]
+            members[focus_dimension] = [focus_member]
+        return queries.trace_cell_value(con, cube, members, strict=True, focus_dimension=focus_dimension)
     finally:
         con.close()
 

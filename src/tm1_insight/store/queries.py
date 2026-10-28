@@ -1193,7 +1193,7 @@ def parse_mdx(mdx: str) -> dict:
     return result
 
 
-def trace_cell_value(con: duckdb.DuckDBPyConnection, cube: str, dim_members: dict | None = None) -> dict:
+def trace_cell_value(con: duckdb.DuckDBPyConnection, cube: str, dim_members: dict | None = None, *, strict: bool = False, focus_dimension: str | None = None) -> dict:
     """「值从哪里来」排查：给定 Cube + 若干维度元素（交叉点），找出可能写入该交叉点的 TI。
 
     策略：
@@ -1261,7 +1261,10 @@ def trace_cell_value(con: duckdb.DuckDBPyConnection, cube: str, dim_members: dic
             dl = d["dim_name"].lower()
             if dl not in target:
                 continue  # 交叉点未指定此维度，通配（不参与打分）
-            val = d["value"].strip()
+            val = (d["value"] or "").strip()
+            if not val:
+                variable.append(d["dim_name"])
+                continue
             # 变量（<...>）视为可能命中；字面量需精确匹配（大小写不敏感）
             if val.startswith("<") and val.endswith(">"):
                 variable.append(d["dim_name"])
@@ -1275,13 +1278,16 @@ def trace_cell_value(con: duckdb.DuckDBPyConnection, cube: str, dim_members: dic
             else:
                 mismatched.append(f"{d['dim_name']}={val}")
 
+        # Missing coordinates are not evidence of an exact match.
+        present = {d["dim_name"].lower() for d in wp["dims"]}
+        variable.extend(d for d in target if d not in present)
         # 只要没有「明确不命中」的字面量，就作为候选（变量维度不阻断）
         if not mismatched:
             matched_wps.append({**wp, "matched_dims": matched, "variable_dims": variable,
                                 "match_mode": "exact" if not variable else "partial"})
 
     # 无「无冲突」候选时，降级为宽松匹配：只看维度名命中，忽略字面量不一致
-    if not matched_wps and target:
+    if not matched_wps and target and not strict:
         relaxed = True
         for wp in wps.values():
             matched = [d["dim_name"] for d in wp["dims"]
@@ -1351,6 +1357,14 @@ def trace_cell_value(con: duckdb.DuckDBPyConnection, cube: str, dim_members: dic
             key=lambda c: (c.get("score", 0), -len(c.get("variable_dims", []))),
             reverse=True,
         )
+
+    if focus_dimension:
+        focus = focus_dimension.lower()
+        candidates.sort(key=lambda c: (
+            -int(any(d.lower() == focus for d in c["matched_dims"])),
+            -int(any(d.lower() == focus for d in c["variable_dims"])),
+            c["process"].lower(),
+        ))
 
     return {
         "cube": cube,

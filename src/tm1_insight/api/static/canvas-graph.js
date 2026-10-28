@@ -352,7 +352,7 @@
         boxSelectionEnabled: false,
         selectionType: 'additive',
         autounselectify: true,
-        pixelRatio: 'auto',
+        pixelRatio: Math.min(2, Math.max(1.5, window.devicePixelRatio || 1)),
       });
 
       cy.on('tap', 'node', function (evt) {
