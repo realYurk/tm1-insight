@@ -71,7 +71,7 @@
   model.display_truncated=!!(model.display_limits.nodes_hidden||model.display_limits.edges_hidden);return model;
  }
  function fileLabel(input){
-  if(input.status==='DYNAMIC_FILE_CANDIDATE')return '分隔文件 · 动态路径';
+  if(input.status==='DYNAMIC_FILE_CANDIDATE' && input.name==='字符分隔文件（动态路径）')return '分隔文件 · 动态路径';
   const name=String(input.name||''),extension=(name.match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase();
   const type=extension==='csv'?'CSV':extension==='xlsx'||extension==='xlsm'||extension==='xls'?'Excel':'';
   return type?type+' · '+name:name;
@@ -88,7 +88,7 @@
   }
   for(const input of inputs){const target=nodes.find(n=>n.type==='cube'&&n.name===input.target);if(!target)continue;
    const ti='ti:'+JSON.stringify([input.process,target.id]), external='input:'+JSON.stringify([input.type,input.name,input.process,target.id]);addNode({id:ti,name:input.process,title:input.process,type:'process',role:'TI',process:input.process,target:input.target});
-   addNode({id:external,name:input.name,displayName:input.type==='file'?fileLabel(input):input.name,title:input.name,type:input.type,role:input.type==='file'?'文件':'数据库'});
+   addNode({id:external,name:input.name,displayName:input.type==='file'?fileLabel(input):input.name,title:input.name,type:input.type,role:input.type==='file'?'文件':'数据库',input});
    addEdge({source:external,target:ti,label:input.status==='DYNAMIC_FILE_CANDIDATE'?'可能的数据源':input.status==='STATIC_CODE_ASSIGNMENT'?'源码设置（静态）':'数据源声明',state:'CANDIDATE',process:input.process});
    addEdge({source:ti,target:target.id,label:'写入',state:'SOURCE_CALL',process:input.process,target_name:input.target});
   }

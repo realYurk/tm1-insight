@@ -197,7 +197,16 @@
       const row=rows.find(r=>r.id===relation)||rows.find(r=>(r.process_names||[]).includes(name)&&(!target||r.target_name===target))||{id:'input:'+name,source_name:input?.name||'',source_declared:!!input,target_name:target||input?.target||resultName};
       analyzeTI(host,row,name,generation,detailAbort.signal);}
     const onEdgeClick=id=>{viewer.select([],id);const edge=view.edges[Number(id.slice(5))];if(edge?.process){selectProcess(edge.process,edge.target_name||externalInputs.find(x=>x.process===edge.process)?.target,edge.relation);return;}const r=rows.find(r=>r.id===edge?.relation);if(r)document.querySelector('tr[data-relation="'+CSS.escape(r.id)+'"] button')?.click();};
-    const onNodeClick=id=>{const n=view.nodes.find(x=>x.id===id);if(!n)return;viewer.select([id]);if(n.type==='process'){selectProcess(n.process,n.target,n.relation);return;}detailAbort?.abort();$('cl-inspector').hidden=false;viewer?.resize?.();const host=$('cl-node-detail');if(!host)return;Array.from($('cl-details').children).forEach(p=>{p.hidden=true;});host.hidden=false;host.replaceChildren(el('h2',n.name),el('p',n.role));if(n.type==='cube')host.append(link('查看 Cube 结构','/explorer/cube/'+encodeURIComponent(n.name)+'?'+new URLSearchParams({model:snapshot})),button('以此 Cube 查看上下游',()=>{$('cl-name').value=n.name;return load();}));};
+    const onNodeClick=id=>{const n=view.nodes.find(x=>x.id===id);if(!n)return;viewer.select([id]);if(n.type==='process'){selectProcess(n.process,n.target,n.relation);return;}detailAbort?.abort();detailAbort=new AbortController();const signal=detailAbort.signal;$('cl-inspector').hidden=false;viewer?.resize?.();const host=$('cl-node-detail');if(!host)return;Array.from($('cl-details').children).forEach(p=>{p.hidden=true;});host.hidden=false;host.replaceChildren(el('h2',n.name),el('p',n.role));if(n.type==='cube')host.append(link('查看 Cube 结构','/explorer/cube/'+encodeURIComponent(n.name)+'?'+new URLSearchParams({model:snapshot})),button('以此 Cube 查看上下游',()=>{$('cl-name').value=n.name;return load();}));
+      const input=n.input, definition=input?.evidence?.definition;
+      if(n.type==='file' && input){host.append(el('p','处理程序：'+input.process));
+        if(definition){const detail=el('p','正在读取路径源码…','muted');host.append(detail);
+          get('/api/workbench/detail?'+new URLSearchParams({snapshot_id:snapshot,type:'process',name:input.process}),{signal}).then(data=>{
+            if(signal.aborted)return;const lines=String(data.object?.prolog||'').split(/\r?\n/);detail.replaceWith(el('p',`路径表达式 · Prolog 第 ${definition.line} 行`),el('pre',lines.slice(definition.line-1,definition.end_line).join('\n')),el('p','花括号内是运行时变量，实际文件名取决于执行参数。','muted'));
+          }).catch(e=>{if(e.name!=='AbortError')detail.textContent='路径源码暂时无法读取。';});
+        }
+      }
+    };
     const first=!viewer;if(first)viewer=window.TM1Canvas.mount($('cl-diagram-host'),{lineage:true,onNodeClick:id=>viewer._onNodeClick(id),onEdgeClick:id=>viewer._onEdgeClick(id)});
     viewer._onNodeClick=onNodeClick;viewer._onEdgeClick=onEdgeClick;
     viewer.setGraph({nodes:view.nodes.map(n=>({...n,type:n.type==='file'?'source':n.type})),edges:view.edges.map((e,i)=>({...e,id:'flow-'+i,kind:e.state==='RULE_REFERENCE'?'RULE_REFERENCE':e.label==='写入'?'TI_WRITE':'TI_READ',status:e.state==='CANDIDATE'?'CANDIDATE':''})),layout:'layered',positions,view:saved,fit:!manual});

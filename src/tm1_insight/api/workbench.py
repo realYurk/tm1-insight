@@ -200,7 +200,7 @@ def lineage_inputs(snapshot_id: str, cube: str = Query(max_length=1000)):
                 data = {}
             kind = str(data.get('type') or data.get('Type') or '').casefold()
             source = data.get('file') or data.get('cube') or data.get('name')
-            tokens = statements(tuple(x or '' for x in row[1:]), include_logging=True)
+            tokens = list(statements(tuple(x or '' for x in row[1:]), include_logging=True))
             assignments = [t for t in tokens if len(t) > 1 and t[0]['value'].casefold() in
                            {'datasourcetype', 'datasourcenameforserver', 'datasourcequery'} and t[1]['value'] == '=']
             evidence = dict(table='processes', column='datasource', process=name)
@@ -212,13 +212,54 @@ def lineage_inputs(snapshot_id: str, cube: str = Query(max_length=1000)):
                           and t[0]['section'] == 'prolog' and len(t) == 4
                           and t[2]['kind'] == 'string' and t[3]['value'] == ';'
                           and t[2]['value'][1:-1].casefold() in {'ascii', 'characterdelimited'}]
-            if (len(name_sets) == 1 and file_types and name_sets[0][0]['section'] == 'prolog'
+            if (len(name_sets) == 1 and (file_types or kind in {'ascii', 'characterdelimited'}) and name_sets[0][0]['section'] == 'prolog'
                 and len(name_sets[0]) == 4 and name_sets[0][2]['kind'] == 'id'
                 and name_sets[0][3]['value'] == ';'):
-                items.append(dict(process=name, target=cube, name='字符分隔文件（动态路径）', type='file',
+                path_set = name_sets[0]
+                variable = path_set[2]['value'].casefold()
+                # Restrict propagation to the same straight-line block. Earlier
+                # assignments are superseded; branches and loops stop the scan.
+                prior = [t for t in tokens if t[0]['section'] == 'prolog' and t[0]['offset'] < path_set[0]['offset']]
+                block = []
+                for statement in reversed(prior):
+                    if statement[0]['value'].casefold() in {'if','elseif','else','endif','while','endwhile'}:
+                        break
+                    block.append(statement)
+                definitions = [t for t in block if len(t) >= 4 and t[0]['kind'] == 'id'
+                               and t[0]['value'].casefold() == variable and t[1]['value'] == '=']
+                local_types = [t for t in block if len(t) >= 2 and t[0]['value'].casefold() == 'datasourcetype' and t[1]['value'] == '=']
+                type_confirmed = False
+                if local_types:
+                    current_type = local_types[0]
+                    if not (len(current_type) == 4 and current_type[2]['kind'] == 'string'
+                            and current_type[2]['value'][1:-1].casefold() in {'ascii','characterdelimited'}):
+                        continue
+                    type_confirmed = True
+                elif not any(t[0]['value'].casefold() == 'datasourcetype' for t in assignments):
+                    type_confirmed = kind in {'ascii','characterdelimited'}
+                label = '字符分隔文件（动态路径）'
+                path_evidence = None
+                if definitions and type_confirmed:
+                    definition = definitions[0]
+                    parts = definition[2:-1]
+                    if (definition[0]['section'] == 'prolog' and definition[0]['offset'] < path_set[0]['offset']
+                        and definition[-1]['value'] == ';' and parts
+                        and all((t['kind'] in {'string','id'} if i % 2 == 0 else t['value'] == '|')
+                                for i, t in enumerate(parts)) and len(parts) % 2 == 1):
+                        template = ''.join(t['value'][1:-1].replace("''", "'") if t['kind'] == 'string'
+                                           else '{' + t['value'] + '}' for t in parts if t['value'] != '|')
+                        basename = ntpath.basename(template.replace('/', '\\'))
+                        if (basename and any(t['kind'] == 'id' for t in parts)
+                            and any(t['kind'] == 'string' for t in parts)
+                            and basename.casefold().endswith(('.csv','.txt','.xlsx','.xls'))
+                            and not any(c in basename for c in '\r\n')):
+                            label = basename
+                            path_evidence = dict(section='prolog', line=definition[0]['line'],
+                                                 end_line=definition[-1]['line'])
+                items.append(dict(process=name, target=cube, name=label, type='file',
                                   evidence=dict(table='processes', column='prolog', process=name,
-                                                section='prolog', line=file_types[0][0]['line'],
-                                                path_line=name_sets[0][0]['line']),
+                                                section='prolog', line=(file_types[0][0]['line'] if file_types else path_set[0]['line']),
+                                                path_line=path_set[0]['line'], definition=path_evidence),
                                   status='DYNAMIC_FILE_CANDIDATE'))
                 continue
             if assignments:

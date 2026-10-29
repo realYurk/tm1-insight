@@ -146,11 +146,46 @@ def test_external_source_declaration_is_bounded_and_does_not_guess_dynamic(clien
     result=client.get('/api/workbench/lineage-inputs',params={'snapshot_id':'synthetic','cube':'Cube_B'})
     assert result.status_code==200
     items=result.json()['items']
-    assert [(x['process'],x['type'],x['name']) for x in items]==[('CsvLoad','file','inf_001.csv'),('DynamicSource','file','字符分隔文件（动态路径）'),('SourceCodeOnly','file','input.csv'),('SqlLoad','database','数据库数据源'),('StaticFile','file','inf_002.csv')]
+    assert [(x['process'],x['type'],x['name']) for x in items]==[('CsvLoad','file','inf_001.csv'),('DynamicFile','file','字符分隔文件（动态路径）'),('DynamicSource','file','字符分隔文件（动态路径）'),('SourceCodeOnly','file','input.csv'),('SqlLoad','database','数据库数据源'),('StaticFile','file','inf_002.csv')]
     assert 'DynamicFile' in result.json()['writers']
-    assert [x['status'] for x in items]==['RECORDED_DECLARATION','DYNAMIC_FILE_CANDIDATE','STATIC_CODE_ASSIGNMENT','RECORDED_DECLARATION','STATIC_CODE_ASSIGNMENT']
+    assert [x['status'] for x in items]==['RECORDED_DECLARATION','DYNAMIC_FILE_CANDIDATE','DYNAMIC_FILE_CANDIDATE','STATIC_CODE_ASSIGNMENT','RECORDED_DECLARATION','STATIC_CODE_ASSIGNMENT']
     assert items[-1]['evidence']['section']=='prolog' and items[-1]['evidence']['line']==1
     assert 'confidential' not in result.text and 'private' not in result.text and 'old.csv' not in result.text
+
+
+def test_dynamic_file_template_requires_a_source_link_and_safe_definition(client,monkeypatch,con):
+    import tm1_insight.api.workbench as api
+    samples={
+        'Template': "DataSourceType='CHARACTERDELIMITED';\ncSrcFile='C:\\private\\inf_007_'|cYear|'.csv';\nDataSourceNameForServer=cSrcFile;",
+        'Unrelated': "DataSourceType='ASCII';\nother='C:\\private\\wrong.csv';\nDataSourceNameForServer=pFile;",
+        'Branch': "DataSourceType='ASCII';\nIF(pFlag=1);\ncSrcFile='C:\\private\\inf_'|cYear|'.csv';\nENDIF;\nDataSourceNameForServer=cSrcFile;",
+        'Multiple': "DataSourceType='ASCII';\ncSrcFile='a_'|cYear|'.csv';\ncSrcFile='b_'|cYear|'.csv';\nDataSourceNameForServer=cSrcFile;",
+        'Function': "DataSourceType='ASCII';\ncSrcFile=SomeFunction(cYear)|'.csv';\nDataSourceNameForServer=cSrcFile;",
+    }
+    for name,code in samples.items():
+        con.execute('INSERT INTO processes(name,prolog,metadata,data,epilog,datasource) VALUES (?,?,?,?,?,?)',[name,code,'','','','{}'])
+        con.execute('INSERT INTO process_writes_cube VALUES (?,?)',[name,'Cube_B'])
+    class Lease:
+        def execute(self,*args):return con.execute(*args)
+        def close(self):pass
+    class Local:
+        def connect(self,read_only=False):
+            assert read_only
+            return Lease()
+    monkeypatch.setattr(api,'guard',lambda snapshot:(Local(),'synthetic'))
+    response=client.get('/api/workbench/lineage-inputs',params={'snapshot_id':'synthetic','cube':'Cube_B'})
+    assert response.status_code==200
+    items={item['process']:item for item in response.json()['items']}
+    assert items['Template']['name']=='inf_007_{cYear}.csv'
+    assert items['Template']['evidence']['definition']=={'section':'prolog','line':2,'end_line':2}
+    assert items['Multiple']['name']=='b_{cYear}.csv'
+    assert all(items[name]['name']=='字符分隔文件（动态路径）' for name in ('Unrelated','Branch','Function'))
+    assert 'private' not in response.text and 'wrong.csv' not in response.text
+    from test_lineage_view import view
+    data={'result':{'snapshot_id':'s','nodes':[{'id':'b','name':'Cube_B','type':'cube'}],'limits':{}},'inputs':[items['Template']]}
+    model=view(data,"window.TM1LineageView.flowModel(data.result,[],'Cube_B',data.inputs,[])")
+    assert any(n.get('displayName')=='CSV · inf_007_{cYear}.csv' and n['input']['evidence']['definition']['line']==2 for n in model['nodes'])
+    assert len(model['edges'])==2
 
 
 def test_flow_adds_process_and_external_nodes_without_value_claim():

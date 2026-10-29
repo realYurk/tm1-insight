@@ -30,6 +30,7 @@
 .cl-detail {background:var(--card,#fff);padding:16px;border:1px solid var(--border,#ddd);border-radius:10px;margin:12px 0}
 .cl-detail h3 {font-size:15px;margin:12px 0}
 .cl-detail pre {max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;background:var(--surface,#f4f6fa)}
+#cl-node-detail pre {max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border-radius:8px;background:var(--surface,#f4f6fa)}
 .cl-pill {display:inline-block;padding:3px 8px;border-radius:6px;background:#eef3ff;color:#365599;font-size:12px}
 .cl-unknown {color:#80612d;background:#fff7e7}
 #cl-diagram {max-width:100%;overflow:hidden;padding:14px;border:1px solid var(--border,#ddd);border-radius:10px}
