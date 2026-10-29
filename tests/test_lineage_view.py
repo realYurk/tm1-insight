@@ -172,3 +172,35 @@ def test_lineage_canvas_has_offline_distinct_icons():
     assert '<path' in file and 'M15 21h18' in file
     assert '<circle' in gear and 'cx=\'24\'' in gear and "width='192'" in gear
     assert all(value.startswith('data:image/svg+xml;utf8,') for value in (icons['cube'],icons['lineageFile'],icons['lineageGear']))
+
+
+def test_flow_viewport_budget_is_reversible_and_keeps_connected_paths():
+    data={'result':{'snapshot_id':'s','nodes':[{'id':'b','name':'B','type':'cube'}]+[{'id':f'c{i}','name':f'C{i}','type':'cube'} for i in range(16)],'limits':{}},
+          'rows':[{'id':f'r{i}','source':'b','target':f'c{i}','kind':'TI_CANDIDATE','process_names':[f'T{i}']} for i in range(16)]}
+    small=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'B',[],[],{maxNodes:14})")
+    large=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'B',[],[],{maxNodes:24})")
+    assert len(small['nodes'])<=14 and small['display_truncated']
+    assert len(large['nodes'])>len(small['nodes']) and len(large['nodes'])<=24
+    ids={n['id'] for n in small['nodes']}
+    assert all(e['source'] in ids and e['target'] in ids for e in small['edges'])
+
+
+def test_compact_view_balances_upstream_and_downstream():
+    root={'id':'root','name':'Root','type':'cube'}
+    upstream=[{'id':f'u{i}','name':f'U{i}','type':'cube'} for i in range(8)]
+    downstream=[{'id':f'd{i}','name':f'D{i}','type':'cube'} for i in range(8)]
+    rows=([{'id':f'u{i}','source':f'u{i}','target':'root','kind':'TI_CANDIDATE','process_names':[f'In{i}']} for i in range(8)]+
+          [{'id':f'd{i}','source':'root','target':f'd{i}','kind':'TI_CANDIDATE','process_names':[f'Out{i}']} for i in range(8)])
+    data={'result':{'snapshot_id':'s','nodes':[root]+upstream+downstream,'limits':{}},'rows':rows}
+    model=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'Root',[],[],{maxNodes:14})")
+    cubes={n['id'] for n in model['nodes'] if n['type']=='cube'}
+    assert any(c.startswith('u') for c in cubes) and any(c.startswith('d') for c in cubes)
+
+
+def test_show_more_also_increases_edge_budget():
+    data={'result':{'snapshot_id':'s','nodes':[{'id':'a','name':'A','type':'cube'},{'id':'b','name':'B','type':'cube'}],'limits':{}},
+          'rows':[{'id':f'r{i}','source':'a','target':'b','kind':'RULE_REFERENCE'} for i in range(40)]}
+    compact=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'B',[],[],{maxNodes:18,maxEdges:30})")
+    expanded=view(data,"window.TM1LineageView.flowModel(data.result,data.rows,'B',[],[],{maxNodes:24,maxEdges:45})")
+    assert len(compact['edges'])==30 and compact['display_truncated']
+    assert len(expanded['edges'])==40 and not expanded['display_truncated']

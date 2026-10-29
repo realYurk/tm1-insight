@@ -201,7 +201,7 @@
       comp.forEach(function (c) {
         sccs[c].forEach(function (id) { maxW = Math.max(maxW, widthOf(id)); });
       });
-      var colW = maxW + BASE_COL;
+      var colW = maxW + (opt.lineage ? 90 : BASE_COL);
       if (opt.lineage) {
         // Keep the whole layer in one column and size rows to real card height.
         var flat=[];

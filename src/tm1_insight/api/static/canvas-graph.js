@@ -659,8 +659,8 @@
           if (!payload.view) {
             settleUntil = Date.now() + 2500;
             api.fit();
-            window.requestAnimationFrame(function () { api.fit(); });
-            setTimeout(function () { api.fit(); }, 320);
+            window.requestAnimationFrame(function () { if (!userView) api.fit(); });
+            setTimeout(function () { if (!userView) api.fit(); }, 320);
           }
         }
         positionsCache = api.getPositions();
@@ -767,8 +767,13 @@
         });
       },
 
+      isUserView: function () { return userView; },
+      markUserView: function () { userView = true; },
+      resetUserView: function () { userView = false; },
+
       zoomBy: function (factor) {
         if (!cy) return;
+        userView = true;
         runProgrammatic(function () {
           cy.zoom({ level: cy.zoom() * factor, renderedPosition: { x: container.clientWidth / 2, y: container.clientHeight / 2 } });
         });

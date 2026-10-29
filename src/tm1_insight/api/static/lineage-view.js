@@ -27,8 +27,10 @@
    edges,truncated:!!result.limits?.truncated,runtime_verified:false};
   return limit?bounded(model):model;
  }
- function connectedFlow(model){
+ function connectedFlow(model,options={}){
   const nodes=model.nodes,edges=model.edges;
+  const nodeBudget=Math.max(1,Math.min(24,options.maxNodes||24));
+  const edgeBudget=Math.max(1,Math.min(45,options.maxEdges||30));
   const root=nodes.find(n=>n.current),selected=new Set(root?[root.id]:[]),chosen=new Set();
   const byId=new Map(nodes.map(n=>[n.id,n])),paths=[],incoming=new Map();
   edges.forEach((e,i)=>{if(byId.has(e.source)&&byId.get(e.source).type!=='process'){
@@ -42,12 +44,25 @@
    }else if(e.state==='RULE_REFERENCE')paths.push({indices:[i],file:false});
   });
   paths.sort((a,b)=>Number(b.file)-Number(a.file)||a.indices[0]-b.indices[0]);
+  // Keep file paths first, then alternate direct upstream and downstream paths
+  // so the compact initial view does not spend its whole budget on one side.
+  if(root){
+   const files=paths.filter(p=>p.file),up=[],down=[],other=[];
+   paths.filter(p=>!p.file).forEach(p=>{
+    const first=edges[p.indices[0]],last=edges[p.indices[p.indices.length-1]];
+    if(first.source===root.id)down.push(p);
+    else if(last.target===root.id)up.push(p);
+    else other.push(p);
+   });
+   const balanced=[];while(up.length||down.length){if(up.length)balanced.push(up.shift());if(down.length)balanced.push(down.shift());}
+   paths.splice(0,paths.length,...files,...balanced,...other);
+  }
   let changed=true;while(changed){changed=false;
    for(const path of paths){const all=new Set(path.indices.flatMap(i=>[edges[i].source,edges[i].target]));
     if(![...all].some(id=>selected.has(id)))continue;
     const newNodes=[...all].filter(id=>!selected.has(id)),newEdges=path.indices.filter(i=>!chosen.has(i));
     if(!newNodes.length&&!newEdges.length)continue;
-    if(selected.size+newNodes.length>24||chosen.size+newEdges.length>30)continue;
+    if(selected.size+newNodes.length>nodeBudget||chosen.size+newEdges.length>edgeBudget)continue;
     newNodes.forEach(id=>selected.add(id));newEdges.forEach(i=>chosen.add(i));changed=true;
    }
   }
@@ -61,7 +76,7 @@
   const type=extension==='csv'?'CSV':extension==='xlsx'||extension==='xlsm'||extension==='xls'?'Excel':'';
   return type?type+' · '+name:name;
  }
- function flowModel(result,rows,entry,inputs=[],writers=[]){
+ function flowModel(result,rows,entry,inputs=[],writers=[],options={}){
   const base=cubeModel(result,rows,entry,[],false), nodes=[...base.nodes], edges=[], known=new Set(nodes.map(n=>n.id)),edgeKeys=new Set();
   const addNode=n=>{if(!known.has(n.id)){known.add(n.id);nodes.push(n);}};
   const addEdge=e=>{const key=JSON.stringify([e.source,e.target,e.relation]);if(!edgeKeys.has(key)){edgeKeys.add(key);edges.push(e);}};
@@ -81,7 +96,7 @@
    addNode({id:ti,name:writer.process,title:writer.process,type:'process',role:'TI',process:writer.process,target:writer.target});
    if(!edges.some(e=>e.source===ti&&e.target===target.id))addEdge({source:ti,target:target.id,label:'写入',state:'SOURCE_CALL',process:writer.process,target_name:writer.target});
   }
-  return connectedFlow({...base,mode:'flow',nodes,edges});
+  return connectedFlow({...base,mode:'flow',nodes,edges},options);
  }
  function callModel(report){
   const source=(report.calls||[]).concat(report.downstream_calls||[]),pairs=new Set(source.filter(c=>c.target).map(c=>JSON.stringify([c.process,c.target])));
