@@ -27,6 +27,7 @@ if not defined PY if exist "C:\Python312\python.exe" set "PY=C:\Python312\python
 if not defined PY if exist "C:\Python311\python.exe" set "PY=C:\Python311\python.exe"
 if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
 if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+if not defined PY if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" set "PY=%CONDA_PREFIX%\python.exe"
 
 REM 1b. resolve "python" on PATH to its full path, reject WindowsApps stub
 if not defined PY (
@@ -49,8 +50,17 @@ if not defined PY (
     )
 )
 
+REM A side-by-side source download may not contain a venv. Reuse the adjacent
+REM tm1-suite environment only as a last resort; dependency checks still apply.
+if not defined PY if exist "%~dp0..\tm1-suite\.venv\Scripts\python.exe" (
+    set "PY=%~dp0..\tm1-suite\.venv\Scripts\python.exe"
+    echo  [TM1 Insight] Using the adjacent tm1-suite Python environment.
+)
+
 if not defined PY (
-    echo  [ERROR] No usable Python found. Please install Python 3.9+ and check "Add to PATH".
+    echo  [ERROR] No Python interpreter was found in this project, PATH, or known locations.
+    echo          Project folder: "%~dp0"
+    echo          Use the project with its existing .venv, or make Python available on PATH.
     set "START_EXIT=1"
     goto startup_failed
 )

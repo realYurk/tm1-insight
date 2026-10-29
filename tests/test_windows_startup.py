@@ -62,9 +62,11 @@ def launch(tmp_path):
     env=os.environ.copy()
     env.update(PYTHONPATH=str(shim),PYTHONUTF8='1',STARTUP_TEST_LOG=str(log),TM1_INSIGHT_HOME=str(tmp_path/'home'))
     env['PATH']=str(Path(sys.executable).parent)+os.pathsep+env.get('PATH','')
-    def run(version='3.13',mode='',args='--check'):
+    def run(version='3.13',mode='',args='--check',path=None):
         log.write_text('',encoding='utf8')
         selected=env.copy();selected.update(STARTUP_TEST_VERSION=version,STARTUP_TEST_MODE=mode)
+        if path is not None:selected['PATH']=path
+        selected.pop('CONDA_PREFIX',None)
         completed=subprocess.run(['cmd.exe','/d','/v:on','/c','start.bat '+args],cwd=root,
             env=selected,input=b'\n',capture_output=True,timeout=15,creationflags=subprocess.CREATE_NO_WINDOW)
         records=[json.loads(s) for s in log.read_text(encoding='utf8').splitlines()]
@@ -117,6 +119,18 @@ def test_missing_venv_uses_available_system_python(launch):
     rc,output,records=run()
     assert rc==0 and records,output
     assert all(Path(r['exe'])!=root/'.venv/Scripts/python.exe' for r in records)
+
+
+def test_source_download_can_use_adjacent_project_venv(launch):
+    root,run=launch
+    adjacent=root.parent/'tm1-suite/.venv'
+    (adjacent/'Scripts').mkdir(parents=True)
+    shutil.copyfile(root/'.venv/Scripts/python.exe',adjacent/'Scripts/python.exe')
+    shutil.copyfile(root/'.venv/pyvenv.cfg',adjacent/'pyvenv.cfg')
+    (root/'.venv/Scripts/python.exe').unlink()
+    rc,output,records=run(path=str(Path(os.environ['SystemRoot'])/'System32'))
+    assert rc==0 and 'Using the adjacent tm1-suite Python environment' in output
+    assert records and all(Path(r['exe']).resolve()==(adjacent/'Scripts/python.exe').resolve() for r in records)
 
 
 @pytest.mark.parametrize('mode,rc,message',[('dependencies',3,'Required dependencies'),('entry',4,'Project entry import')])
