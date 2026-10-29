@@ -69,6 +69,23 @@ def test_lineage_names_remain_complete_and_layout_reserves_height():
     assert abs(positions['a']['y']-positions['b']['y'])>=label['height']+30
 
 
+@pytest.mark.parametrize('name', [
+    'Cub.General Ledger.Data.COST.Load.From.CSV',
+    '含中文的维度名称和很长的程序名称及😀字符',
+    'WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+])
+def test_lineage_label_uses_available_width_without_losing_text(name):
+    node=shutil.which('node')
+    if not node:pytest.skip('Node is required for presentation checks')
+    code="const fs=require('fs'),vm=require('vm');global.window={};vm.runInThisContext(fs.readFileSync(process.argv[1],'utf8'));console.log(JSON.stringify(window.TM1Canvas.lineageLabel(process.argv[2])));"
+    result=subprocess.run([node,'-e',code,str(STATIC/'canvas-graph.js'),name],capture_output=True,text=True,encoding='utf-8',check=True)
+    label=json.loads(result.stdout)
+    assert label['text'].replace('\n','')==name
+    assert label['height'] >= len(label['text'].split('\n'))*21+12
+    if name.startswith('Cub.General'):
+        assert len(label['text'].split('\n')) <= 3
+
+
 def test_lineage_sources_keep_left_column_and_wide_layers_do_not_wrap():
     nodes=[dict(id='file',name='input.csv',type='source',width=270,height=48),
            dict(id='source-less',name='independent TI',type='process',width=270,height=48),

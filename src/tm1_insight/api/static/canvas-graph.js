@@ -154,7 +154,7 @@
       { selector: 'edge.cn-dim', style: { opacity: 0.25 } },
     ];
     if (opt && opt.lineage) base.push(
-      {selector:'node',style:{'height':'data(cardH)','label':'data(displayName)','background-width':'28px','background-height':'28px','background-position-x':'24px','text-margin-x':27,'text-max-width':'data(labelW)','text-wrap':'wrap','font-size':16,'border-color':'#d6e2f1','color':'#233955'}},
+      {selector:'node',style:{'height':'data(cardH)','label':'data(displayName)','background-width':'26px','background-height':'26px','background-position-x':'16px','text-margin-x':22,'text-max-width':'data(labelW)','text-wrap':'wrap','font-size':16,'border-color':'#d6e2f1','color':'#233955'}},
       {selector:'node[type="cube"]',style:{'background-color':'#edf5ff','border-color':'#8db7e6','color':'#163e70'}},
       {selector:'node[type="process"]',style:{'background-image':ICON.lineageGear,'background-color':'#f3efff','border-color':'#b5a2e3','color':'#493b78','shape':'round-rectangle'}},
       {selector:'node[type="source"]',style:{'background-image':ICON.lineageFile,'background-color':'#f3fbf7','border-color':'#cce9d9','color':'#216245'}},
@@ -174,12 +174,25 @@
     return text.slice(0, max - 1) + '…';
   }
 
+  let lineageMeasureContext;
+  function lineageTextWidth(text) {
+    if (lineageMeasureContext === undefined) {
+      lineageMeasureContext = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+      if (lineageMeasureContext) lineageMeasureContext.font = '16px system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif';
+    }
+    return lineageMeasureContext ? lineageMeasureContext.measureText(text).width : Array.from(text).reduce((sum, char) => sum + (char.codePointAt(0) > 255 ? 16 : 9), 0);
+  }
+
   function lineageLabel(name) {
-    const chars=Array.from(String(name || '')), lines=[];
+    const chars=Array.from(String(name || '')), lines=[], maxWidth=214;
     for(let i=0;i<chars.length;){
-      let end=Math.min(i+16,chars.length);
+      let end=i;
+      while(end<chars.length && lineageTextWidth(chars.slice(i,end+1).join(''))<=maxWidth) end++;
+      if(end===i) end++;
       if(end<chars.length){
-        for(let j=end-1;j>=i+8;j--){if(chars[j]==='.'||chars[j]===' '){end=j+1;break;}}
+        for(let j=end-1;j>i;j--){
+          if((chars[j]==='.'||chars[j]===' ') && lineageTextWidth(chars.slice(i,j+1).join(''))>=maxWidth*.7){end=j+1;break;}
+        }
       }
       lines.push(chars.slice(i,end).join(''));i=end;
     }
@@ -581,7 +594,7 @@
               fullName: n.name,
               short: shortName(n.name, type === 'source' ? 22 : 18),
               cardW: cardW,
-              labelW: Math.max(36, cardW - 70),
+              labelW: Math.max(36, cardW - (opt.lineage ? 56 : 70)),
               cardH: cardH,
               displayName: label ? label.text : fullName,
               type: type,
