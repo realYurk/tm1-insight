@@ -326,6 +326,17 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
   const status=get('cl-status').textContent;assert.equal(cancelled.options.signal.aborted,true);
   cancelled.reject(new Error('late cancellation failure'));await tick();
   assert.equal(get('cl-status').textContent,status);assert.equal(get('cl-export').disabled,true);
+  for(const count of [25,60,61]){
+    const request=start('Cube_B');
+    const nodes=Array.from({length:count},(_,i)=>({id:'c'+i,name:i?'Cube_'+i:'Cube_B',type:'cube'}));
+    request.resolve({ok:true,json:async()=>({snapshot_id:'synthetic',nodes,edges:[],limits:{},query:{depth:1}})});await tick();
+    const link=get('cl-module');
+    if(count<=60){const params=new URLSearchParams(link.href.split('?')[1]);assert.equal(JSON.parse(params.get('selection')).length,count);assert.equal(link.attrs['aria-disabled'],'false');}
+    else {assert.equal(link.attrs['aria-disabled'],'true');link.onclick({preventDefault(){}});assert.match(get('cl-status').textContent,/61/);}
+  }
+  const longNames=start('Cube_B');
+  longNames.resolve({ok:true,json:async()=>({snapshot_id:'synthetic',nodes:Array.from({length:25},(_,i)=>({id:'long'+i,name:i?'长'.repeat(100)+i:'Cube_B',type:'cube'})),edges:[],limits:{},query:{depth:1}})});await tick();
+  assert.equal(get('cl-module').attrs['aria-disabled'],'true');
   assert(requests.every(r=>r.url.startsWith('/api/workbench/')
     &&(r.url.endsWith('/api/workbench/graph')?r.options.method==='POST':r.options.method===undefined)),
     'read-only local endpoints only');

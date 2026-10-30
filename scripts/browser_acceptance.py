@@ -44,7 +44,7 @@ def main():
             # 1. 进入架构页面
             page.goto(f"{BASE}/architecture", wait_until="networkidle", timeout=30000)
             page.screenshot(path=f"{OUT}/01_architecture_home.png")
-            assert_true(page.title() or True, "架构页面应加载")
+            assert_true(bool(page.title()), "架构页面应有标题")
             print("[1] 架构页面加载 OK")
 
             # 2. 找一个真实 cube 名

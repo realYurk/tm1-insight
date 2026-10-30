@@ -95,49 +95,6 @@ def query_graph(index, query: GraphQuery, snapshot, *, discovery=False):
     if not query.include_technical:
         hidden = {k for k,n in nodes.items() if n['name'].startswith('}')}
         raw = [e for e in raw if e['source'] not in hidden and e['target'] not in hidden]
-    edges = raw
-    # Cube-first projection only aggregates actual indexed co-access. This is
-    # deliberately called CANDIDATE and never a confirmed transfer / value flow.
-    if query.view == 'cubes' and not any(o.type != 'cube' for o in query.objects):
-        readers, writers = {}, {}
-        for e in raw:
-            if e['kind'] == 'TI_READ': readers.setdefault(e['target'], []).append(e)
-            if e['kind'] == 'TI_WRITE': writers.setdefault(e['source'], []).append(e)
-        candidates = {}
-        # Build only candidates touching bounded query scope later: each process
-        # pair is capped; large fan-out is reported as a limit, never materialized.
-        candidate_cut = False
-        for process in sorted(readers.keys() & writers.keys()):
-            for read in readers[process]:
-                for write in writers[process]:
-                    if len(candidates) >= 50000:
-                        candidate_cut = True
-                        break
-                    key=(read['source'],write['target'])
-                    edge=candidates.setdefault(key,dict(id=stable_id(snapshot, *key, 'TI_CANDIDATE'),
-                        source=read['source'], target=write['target'], kind='TI_CANDIDATE',
-                        label='共同读写 · 待核对值流', process_ids=[], process_names=[], provenance='STATIC_ANALYSIS',
-                        status='CANDIDATE', runtime_verified=False,
-                        evidence=[], unresolved_reasons=['同一 TI 读取并写入；尚未证明源值与目标值一一对应。']))
-                    edge['process_ids'].append(process);edge['process_names'].append(nodes[process]['name'])
-                    edge['evidence'] += read['evidence'] + write['evidence']
-                if candidate_cut: break
-            if candidate_cut: break
-        for edge in candidates.values():
-            if len(edge['process_ids']) == 1:
-                edge.update(process_id=edge['process_ids'][0],process_name=edge['process_names'][0])
-            else: edge['label']=str(len(edge['process_ids']))+' 个 TI 共同读写 · 值流待核对'
-        edges = [e for e in raw if e['kind'] in ({'RULE_SOURCE_REFERENCE','RULE_REFERENCE','FEEDER_REFERENCE'} if discovery else {'RULE_REFERENCE','FEEDER_REFERENCE'})] + list(candidates.values())
-    else:
-        candidate_cut = False
-        if not query.relation_types:
-            edges = [e for e in edges if e['kind'] != 'STRUCTURE']
-    if not discovery:
-        edges = [e for e in edges if e['kind'] != 'RULE_SOURCE_REFERENCE']
-    if not query.include_technical and 'FEEDER_REFERENCE' not in query.relation_types:
-        edges = [e for e in edges if e['kind'] != 'FEEDER_REFERENCE']
-    if query.relation_types:
-        edges = [e for e in edges if e['kind'] in query.relation_types]
     seeds = [stable_id(snapshot, o.type, o.name) for o in query.objects]
     missing = [o.model_dump() for o, key in zip(query.objects, seeds) if key not in nodes]
     seeds = [s for s in seeds if s in nodes]
@@ -148,6 +105,83 @@ def query_graph(index, query: GraphQuery, snapshot, *, discovery=False):
         return dict(schema=VERSION, snapshot_id=snapshot, nodes=[], edges=[], query=query.model_dump(),
                     limits=dict(truncated=False, missing=missing, prefix_matches=len(matches)), paths=[],
                     limitations=['未找到入口；名称前缀不构成关系证据。'])
+    edges = raw
+    candidate_count = 0
+    candidate_scanned = 0
+    # Cube-first projection only aggregates actual indexed co-access. This is
+    # deliberately called CANDIDATE and never a confirmed transfer / value flow.
+    if query.view == 'cubes' and not any(o.type != 'cube' for o in query.objects):
+        readers, writers = {}, {}
+        for e in raw:
+            if e['kind'] == 'TI_READ': readers.setdefault(e['target'], []).append(e)
+            if e['kind'] == 'TI_WRITE': writers.setdefault(e['source'], []).append(e)
+        candidates = {}
+        candidate_cut = False
+        by_read, by_write = {}, {}
+        for process in sorted(readers.keys() & writers.keys()):
+            for read in readers[process]: by_read.setdefault(read['source'], []).append((process, read))
+            for write in writers[process]: by_write.setdefault(write['target'], []).append((process, write))
+        rules = [e for e in raw if e['kind'] in ({'RULE_SOURCE_REFERENCE','RULE_REFERENCE','FEEDER_REFERENCE'} if discovery else {'RULE_REFERENCE','FEEDER_REFERENCE'})]
+        if query.relation_types:
+            rules = [e for e in rules if e['kind'] in query.relation_types]
+        outgoing = bool(query.target_prefix) or query.direction in {'downstream', 'both'}
+        incoming = not query.target_prefix and query.direction in {'upstream', 'both'}
+        frontier = set(seeds)
+        visited = set()
+        for _ in range(max(1, query.depth)):
+            frontier -= visited
+            if not frontier: break
+            visited.update(frontier)
+            next_frontier = set()
+            def scoped_pairs():
+                if query.relation_types and 'TI_CANDIDATE' not in query.relation_types: return
+                for cube in sorted(frontier):
+                    if outgoing:
+                        for process, read in by_read.get(cube, []):
+                            for write in writers[process]: yield process, read, write
+                    if incoming:
+                        for process, write in by_write.get(cube, []):
+                            for read in readers[process]: yield process, read, write
+            for process, read, write in scoped_pairs():
+                candidate_scanned += 1
+                if candidate_scanned > 200000:
+                    candidate_cut = True
+                    break
+                key=(read['source'],write['target'])
+                if key not in candidates and len(candidates) >= 50000:
+                    candidate_cut = True
+                    break
+                edge=candidates.setdefault(key,dict(id=stable_id(snapshot, *key, 'TI_CANDIDATE'),
+                    source=read['source'], target=write['target'], kind='TI_CANDIDATE',
+                    label='共同读写 · 待核对值流', process_ids=[], process_names=[], provenance='STATIC_ANALYSIS',
+                    status='CANDIDATE', runtime_verified=False,
+                    evidence=[], unresolved_reasons=['同一 TI 读取并写入；尚未证明源值与目标值一一对应。']))
+                if process not in edge['process_ids']:
+                    edge['process_ids'].append(process);edge['process_names'].append(nodes[process]['name'])
+                    edge['evidence'] += read['evidence'] + write['evidence']
+                if outgoing and read['source'] in frontier: next_frontier.add(write['target'])
+                if incoming and write['target'] in frontier: next_frontier.add(read['source'])
+            for e in rules:
+                if outgoing and e['source'] in frontier: next_frontier.add(e['target'])
+                if incoming and e['target'] in frontier: next_frontier.add(e['source'])
+            frontier = next_frontier
+            if candidate_cut: break
+        for edge in candidates.values():
+            if len(edge['process_ids']) == 1:
+                edge.update(process_id=edge['process_ids'][0],process_name=edge['process_names'][0])
+            else: edge['label']=str(len(edge['process_ids']))+' 个 TI 共同读写 · 值流待核对'
+        candidate_count = len(candidates)
+        edges = rules + list(candidates.values())
+    else:
+        candidate_cut = False
+        if not query.relation_types:
+            edges = [e for e in edges if e['kind'] != 'STRUCTURE']
+    if not discovery:
+        edges = [e for e in edges if e['kind'] != 'RULE_SOURCE_REFERENCE']
+    if not query.include_technical and 'FEEDER_REFERENCE' not in query.relation_types:
+        edges = [e for e in edges if e['kind'] != 'FEEDER_REFERENCE']
+    if query.relation_types:
+        edges = [e for e in edges if e['kind'] in query.relation_types]
     deps = [Dependency(DependencyKind.OTHER, e['source'], e['target'], metadata={'edge_id':e['id']}) for e in edges]
     forward = build_adjacency(deps)
     reverse = build_adjacency([Dependency(d.kind, d.target, d.source, metadata=d.metadata) for d in deps])
@@ -172,6 +206,13 @@ def query_graph(index, query: GraphQuery, snapshot, *, discovery=False):
                and (not target or e['id'] in path_ids)]
     visible.sort(key=lambda e:(e['source'],e['target'],e['kind'],e['id']))
     boundary = any((e['source'] in selected) != (e['target'] in selected) for e in edges)
+    # Local projection does not materialize every edge outside the requested
+    # depth; inspect the existing access indexes before declaring no boundary.
+    if query.view == 'cubes' and not any(o.type != 'cube' for o in query.objects) and (not query.relation_types or 'TI_CANDIDATE' in query.relation_types):
+        boundary = boundary or any(
+            any(write['target'] not in selected for process, _ in by_read.get(cube, []) for write in writers[process])
+            or any(read['source'] not in selected for process, _ in by_write.get(cube, []) for read in readers[process])
+            for cube in selected)
     # 「预算截断」与「局部视图边界」是两件事：边界外仍有对象是局部探索的常态，
     # 只有真正因预算丢弃了结果才标记 truncated，否则该标志将恒为真而失去意义。
     truncated = bool(candidate_cut or len(matches)>query.seed_offset+20
@@ -180,6 +221,9 @@ def query_graph(index, query: GraphQuery, snapshot, *, discovery=False):
     return dict(schema=VERSION, snapshot_id=snapshot, nodes=[nodes[k] for k in sorted(selected)],
                 edges=visible[:query.edge_budget], query=query.model_dump(), paths=paths,
                 limits=dict(truncated=truncated,
+                            candidate_budget=50000, candidate_retained=candidate_count,
+                            candidate_scan_budget=200000, candidate_scanned=min(candidate_scanned, 200000),
+                            candidate_budget_exhausted=candidate_cut,
                             next_seed_offset=query.seed_offset+20 if len(matches)>query.seed_offset+20 else None,
                             paths_truncated=len(paths)>=100,
                             missing=missing, prefix_matches=len(matches), boundary=boundary),
