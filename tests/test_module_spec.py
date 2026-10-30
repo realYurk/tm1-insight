@@ -66,6 +66,43 @@ def test_missing_variables_does_not_invent_and_notes_are_separate(model,tmp_path
     assert not other['runtime_verified']
 
 
+def test_dynamic_cube_read_is_not_confirmed_value_source(model,tmp_path):
+    data="n=CellGetN(pCube, vYear, vProduct);CellPutN(n,'Cube_B',vYear,'Member1','Member2');"
+    model.execute("INSERT INTO processes(name,prolog,metadata,data,epilog,parameters) VALUES ('DynamicRead','','',?,'','[]')",[data])
+    d=definition().model_copy(update={'members':definition().members+[ms.Ref(type='process',name='DynamicRead')]})
+    result=build(model,tmp_path,d)
+    calc=next(c for c in result['calculations'] if c['process']=='DynamicRead')
+    assert calc['status']=='NO_CONFIRMED_SOURCE_VALUE_DEPENDENCY'
+    assert not calc.get('confirmed_source_reads')
+    assert not calc['runtime_verified']
+    assert 'None' not in ms.markdown(result).split('## 计算与映射')[1].split('## TI 调用与调度')[0]
+    from tm1_insight.store.calculation import inspect
+    from tm1_insight.workflow import reconstruct
+    worksheet=inspect(model,'DynamicRead')
+    assert reconstruct(worksheet,worksheet['writes'][0])['value_dependencies']==[]
+    # Old artifacts retain their original status but lack the new evidence
+    # contract; Markdown must not promote that historical status to a fact.
+    calc.pop('confirmed_source_reads');calc.pop('confirmed_data_row_dependencies')
+    calc['status']='STATIC_VALUE_DEPENDENCY'
+    row=next(line for line in ms.markdown(result).splitlines() if 'DynamicRead →' in line)
+    assert '存在静态值依赖' not in row and '未确认源值依赖' in row
+
+
+def test_confirmed_sources_require_resolved_reads_and_confirmed_view_value():
+    from tm1_insight.workflow import confirmed_write_sources
+    reads={1:dict(id=1,cube='Cube_A',resolution='resolved'),2:dict(id=2,cube=None,resolution='dynamic')}
+    row=dict(source_cube='Cube_A',source_field=dict(kind='CELL_VALUE'))
+    write=dict(trace_status='PARTIAL',read_nodes=[1,2],data_row_value_dependencies=[row],data_row_binding_status='UNKNOWN')
+    confirmed,view=confirmed_write_sources(write,reads)
+    assert confirmed==[reads[1]] and view==[]
+    write['data_row_binding_status']='STATIC_CELL_VALUE_DEPENDENCY'
+    assert confirmed_write_sources(write,reads)==([reads[1]],[row])
+    write['trace_status']='UNKNOWN'
+    assert confirmed_write_sources(write,reads)==([],[])
+    write.pop('trace_status')
+    assert confirmed_write_sources(write,reads)==([],[])
+
+
 def test_deterministic_versioned_export_and_no_raw_source(model,tmp_path):
     d=definition();a=build(model,tmp_path,d)
     b=build(model,tmp_path,d.model_copy(update={'members':list(reversed(d.members))}))

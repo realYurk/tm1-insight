@@ -172,7 +172,14 @@ def writes(snapshot_id: str, process: str = Query(max_length=1000)):
     # other reads remain standalone observations, never implied source slices.
     read_fields = ('id','cube','operation','resolution','coordinate_mapping','evidence')
     reads = [n for n in report['nodes'] if n['kind'] == 'read']
-    return dict(snapshot_id=snapshot, process=process, data_row_lineage=report.get('data_row_lineage'),writes=[{k:w.get(k) for k in fields} for w in report['writes'][:80]],
+    from tm1_insight.workflow import confirmed_write_sources
+    reads_by_id={n['id']:n for n in reads}
+    writes=[]
+    for w in report['writes'][:80]:
+        confirmed_reads,confirmed_rows=confirmed_write_sources(w,reads_by_id)
+        writes.append({**{k:w.get(k) for k in fields},'confirmed_source_read_ids':[n['id'] for n in confirmed_reads],
+                       'confirmed_data_row_dependencies':confirmed_rows})
+    return dict(snapshot_id=snapshot, process=process, data_row_lineage=report.get('data_row_lineage'),writes=writes,
                 reads=[{k:n.get(k) for k in read_fields} for n in reads[:160]], read_total=len(reads),
                 read_scope='CALCULATION_RETAINED_NODES_NOT_ALL_PROCESS_READS',
                 total=len(report['writes']), limitations=report.get('limits',[]), runtime_verified=False)

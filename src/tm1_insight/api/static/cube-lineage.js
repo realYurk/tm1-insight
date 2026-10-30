@@ -14,8 +14,8 @@
     ...w,target_slices:slices(w.coordinate_mapping),
     // Only read_nodes belonging to this value expression may supply source slices.
     // All other process reads remain observations, not this write's source.
-    source_reads:(data.reads||[]).filter(r=>r.cube===source&&r.resolution==='resolved'&&(w.read_nodes||[]).includes(r.id)),
-    source_data_rows:(w.data_row_binding_status==='STATIC_CELL_VALUE_DEPENDENCY'?(w.data_row_value_dependencies||[]):[]).filter(d=>d.source_cube===source&&d.source_field?.kind==='CELL_VALUE'),
+    source_reads:(data.reads||[]).filter(r=>r.cube===source&&r.resolution==='resolved'&&(w.confirmed_source_read_ids||((['STATIC','PARTIAL'].includes(w.trace_status))?(w.read_nodes||[]):[])).includes(r.id)),
+    source_data_rows:(w.confirmed_data_row_dependencies||((['STATIC','PARTIAL'].includes(w.trace_status)&&w.data_row_binding_status==='STATIC_CELL_VALUE_DEPENDENCY')?(w.data_row_value_dependencies||[]):[])).filter(d=>d.source_cube===source&&d.source_field?.kind==='CELL_VALUE'),
     source_row_slices:data.data_row_lineage?.source_view_binding?.cube===source?(data.data_row_lineage.source_coordinate_mapping||[]).map(c=>({dimension:c.dimension,kind:'动态',value:c.variable})):[],
     source_observations:(data.reads||[]).filter(r=>r.cube===source&&!(w.read_nodes||[]).includes(r.id))
   }));}
@@ -73,7 +73,15 @@
   let snapshot='',resultName='',generation=0,abort=null,result=null,rows=[],viewer=null,inspected=new Map(),searchTimer,externalInputs=[],indexedWriters=[];
   let reviewAbort=null,reviewRun=0,detailAbort=null;const writeCache=new Map(),ruleCache=new Map();
   async function get(url,opts={}){let r;try{r=await fetch(url,{...opts,signal:opts.signal||abort?.signal});}catch(e){if(e.name==='AbortError')throw e;throw new Error('本地服务不可达或连接已中断，请检查启动窗口后重新分析。');}if(!r.ok){const e=new Error(r.status===409?'本地模型已变化，停止分析；未按名称重新绑定。':`本地分析请求失败 (${r.status})`);e.status=r.status;throw e;}return r.json();}
-  function cached(cache,key,url,signal){if(!cache.has(key)){const pending=get(url,{signal}).catch(e=>{if(cache.get(key)===pending)cache.delete(key);throw e;});cache.set(key,pending);}return cache.get(key);}
+  function cached(cache,key,url,signal){
+    if(signal?.aborted){const e=new Error('已取消');e.name='AbortError';return Promise.reject(e);}
+    if(!cache.has(key)){
+      let pending;const discard=()=>{if(cache.get(key)===pending)cache.delete(key);};
+      pending=get(url,{signal}).then(value=>{signal?.removeEventListener('abort',discard);return value;},error=>{signal?.removeEventListener('abort',discard);discard();throw error;});
+      cache.set(key,pending);signal?.addEventListener('abort',discard,{once:true});
+    }
+    return cache.get(key);
+  }
   function analyzedCount(row){const records=[...inspected.values()].filter(x=>x.relation===row.id);
     return row.kind==='TI_CANDIDATE'?new Set(records.map(x=>x.process)).size:records.length;}
   function updateRow(row){const records=[...inspected.values()].filter(x=>x.relation===row.id);let cell=null;try{cell=document.querySelector('tr[data-relation="'+CSS.escape(row.id)+'"]')?.children[3]||null;}catch(_){return;}if(!cell)return;cell.replaceChildren();

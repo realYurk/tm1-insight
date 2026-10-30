@@ -96,7 +96,13 @@ def build(path, schedules=(), declaration=None, *, process=None):
     write_fields = ('id','cube','operation','value_expression','formula_expression','evidence','coordinate_mapping',
                     'read_nodes','control_context','trace_status','data_row_binding_status',
                     'unresolved_binding_reasons','value_definition_chain','data_row_value_dependencies')
-    scoped = dict(process=root, writes=[{k:w.get(k) for k in write_fields} for w in retained],
+    reads_by_id={r['id']:r for r in source_reads}
+    projected=[]
+    for w in retained:
+        confirmed_reads,confirmed_rows=workflow.confirmed_write_sources(w,reads_by_id)
+        projected.append({**{k:w.get(k) for k in write_fields},'confirmed_source_read_ids':[r['id'] for r in confirmed_reads],
+                          'confirmed_data_row_dependencies':confirmed_rows})
+    scoped = dict(process=root, writes=projected,
                   total=len(all_writes), reads=source_reads[:160], read_total=len(source_reads),
                   read_scope='CALCULATION_RETAINED_NODES_NOT_ALL_PROCESS_READS')
     if len(source_reads)>160:limits.append('值依赖读取仅显示前 160 项')
@@ -173,13 +179,14 @@ def markdown(report):
     for w in report['writes']['writes']:
         lines += [f"#### {text(w['operation'])} → {text(w['cube'])} · {location(w['evidence'])}", '',
                   '值表达式：'+text(w['value_expression']), '', '目标坐标：'+text(coordinates(w['coordinate_mapping'])), '']
-        sources=[read_by_id[i] for i in (w.get('read_nodes') or []) if i in read_by_id]
-        if not sources and not (w.get('data_row_binding_status')=='STATIC_CELL_VALUE_DEPENDENCY' and w.get('data_row_value_dependencies')):
+        sources=[read_by_id[i] for i in (w.get('confirmed_source_read_ids') or []) if i in read_by_id]
+        confirmed_rows=w.get('confirmed_data_row_dependencies') or []
+        if not sources and not confirmed_rows:
             lines+=['源值切面：未确认；共同读写不能补足值绑定。', '']
         for r in sources:lines += ['静态表达式读取：'+text(r.get('cube'))+' · '+text(coordinates(r.get('coordinate_mapping')))+' · '+location(r.get('evidence')), '']
         for d in w.get('data_row_value_dependencies') or []:
             field=(d.get('source_field') or {}).get('kind')
-            lines+=['数据行值参数依赖：'+text(d.get('variable'))+'；来源 Cube：'+text(d.get('source_cube'))+'；来源字段：'+('单元格值列' if field=='CELL_VALUE' else '维度成员' if field=='DIMENSION_MEMBER' else '待确认')+'；绑定：'+('静态单元格值列依赖' if w.get('data_row_binding_status')=='STATIC_CELL_VALUE_DEPENDENCY' else '仅变量依赖，完整值来源待确认')+'（非运行验证）','']
+            lines+=['数据行值参数依赖：'+text(d.get('variable'))+'；来源 Cube：'+text(d.get('source_cube'))+'；来源字段：'+('单元格值列' if field=='CELL_VALUE' else '维度成员' if field=='DIMENSION_MEMBER' else '待确认')+'；绑定：'+('静态单元格值列依赖' if d in confirmed_rows else '仅变量依赖，完整值来源待确认')+'（非运行验证）','']
         for c in w.get('control_context') or []:lines += ['条件（未求值）：'+text(c.get('condition',c['kind'])), '']
     lines+=['### 重构前应验证', '', '- 覆盖 / 累加与重复执行；清空范围及调用先后。', '- 参数缺省值、条件、循环与未确认的行变量来源。', '- Rule / Feeder、汇总权重与运行环境副作用；本报告未验证这些行为。', '', '## 证据与范围附录', '',
             '调用方仅有索引时不推断入口条件；调度记录不证明实际执行。原始源码按本地链接查看，不在每条关系重复复制。', '',

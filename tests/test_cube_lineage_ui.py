@@ -119,6 +119,7 @@ def test_writes_api_preserves_old_fields_and_adds_read_evidence(client,monkeypat
     data=client.get('/api/workbench/writes',params={'snapshot_id':'synthetic','process':'Multiple'}).json()
     assert data['total']==2 and data['read_total']==1 and not data['runtime_verified']
     assert {'coordinate_mapping','value_expression','evidence','read_nodes','control_context'}<=data['writes'][0].keys()
+    assert {'confirmed_source_read_ids','confirmed_data_row_dependencies'}<=data['writes'][0].keys()
     assert {'coordinate_mapping','evidence','resolution'}<=data['reads'][0].keys()
 
 
@@ -314,8 +315,10 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
   // Opening a detail auto-issues the bounded local analysis fetch (no per-TI buttons).
   assert(requests.some(r=>r.url.startsWith('/api/workbench/writes?')), 'TI detail auto-analyzes');
   const initial=panels[0].children.length;
+  const readsBeforeClose=requests.filter(r=>r.url.startsWith('/api/workbench/writes?')).length;
   await first.onclick();assert.equal(panels[0].hidden,true);
   await first.onclick();assert.equal(panels[0].children.length,initial); // No duplicate panel content.
+  assert.equal(requests.filter(r=>r.url.startsWith('/api/workbench/writes?')).length,readsBeforeClose+1,'reopening starts a fresh request immediately');
   await second.onclick();assert.equal(panels[0].hidden,true);assert.equal(panels[1].hidden,false);
   assert(requests.some(r=>r.url.startsWith('/api/workbench/rules?')), 'Rule detail auto-analyzes');
   await panels[1].children[0].children[1].onclick();assert.equal(panels[1].hidden,true);

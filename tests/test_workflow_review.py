@@ -49,6 +49,19 @@ def test_unknown_source_does_not_get_reconstructed_from_co_read(con,tmp_path):
     finally:a.cleanup()
 
 
+def test_dynamic_cube_read_not_exported_as_confirmed_source(con,tmp_path):
+    data="n=CellGetN(pCube,vYear,vProduct);CellPutN(n,'Cube_B',vYear,'Member1','Member2');"
+    con.execute("INSERT INTO processes(name,prolog,metadata,data,epilog,parameters) VALUES ('DynamicRead','','',?,'','[]')",[data])
+    a=artifact(con,tmp_path,'DynamicRead')
+    try:
+        report=workflow_review.build(a.path)
+        write=report['writes']['writes'][0]
+        assert write['read_nodes'] and not write['confirmed_source_read_ids']
+        md=workflow_review.markdown(report)
+        assert '静态表达式读取：' not in md and '源值切面：未确认' in md
+    finally:a.cleanup()
+
+
 def test_caller_index_stays_unverified_and_budgets_are_visible(con,tmp_path):
     a=artifact(con,tmp_path,'Load',max_depth=0)
     try:

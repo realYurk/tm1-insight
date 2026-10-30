@@ -16,7 +16,7 @@ from tm1_insight.store.calculation import inspect, node_label
 from tm1_insight.tasks import ResultArtifact
 
 VERSION = 'workflow-1'
-CACHE_REVISION = 3
+CACHE_REVISION = 4
 MAX_CODE_TOTAL = 5_000_000
 MAX_NODES_TOTAL = 50_000
 MAX_RECORDS = 10_000
@@ -133,19 +133,16 @@ def reconstruct(report, write):
         formula='UNKNOWN · 展开表达式超过 6000 字符预算';unresolved.append('显示预算')
     expression_complete=not unresolved and not write['unknown_nodes']
     value_dependencies=[]
-    if write['trace_status']!='UNKNOWN':
-        for index in write['read_nodes']:
-            read=nodes[index]
-            if read['cube'] and read['resolution']=='resolved':
-                value_dependencies.append(dict(kind='value_dependency',status='STATIC_EXPRESSION_DEPENDENCY' if write['cube'] else 'PARTIAL_EXPRESSION_DEPENDENCY',
-                    source_cube=read['cube'],target_cube=write['cube'],read_evidence=read['evidence'],
-                    write_evidence=write['evidence'],runtime_verified=False))
-        for dep in write.get('data_row_value_dependencies',[]):
-            if dep['source_cube'] and dep['source_field'] and dep['source_field']['kind']=='CELL_VALUE':
-                value_dependencies.append(dict(kind='value_dependency',status='STATIC_VIEW_ROW_DEPENDENCY',
-                    source_cube=dep['source_cube'],target_cube=write['cube'],source_kind='VIEW_ROW',
-                    read_evidence={k:v for k,v in dep['metadata_evidence'].items() if k!='process'},
-                    row_use_evidence=dep['use_location'],write_evidence=write['evidence'],runtime_verified=False))
+    confirmed_reads,confirmed_rows=confirmed_write_sources(write,nodes)
+    for read in confirmed_reads:
+        value_dependencies.append(dict(kind='value_dependency',status='STATIC_EXPRESSION_DEPENDENCY' if write['cube'] else 'PARTIAL_EXPRESSION_DEPENDENCY',
+            source_cube=read['cube'],target_cube=write['cube'],read_evidence=read['evidence'],
+            write_evidence=write['evidence'],runtime_verified=False))
+    for dep in confirmed_rows:
+        value_dependencies.append(dict(kind='value_dependency',status='STATIC_VIEW_ROW_DEPENDENCY',
+            source_cube=dep['source_cube'],target_cube=write['cube'],source_kind='VIEW_ROW',
+            read_evidence={k:v for k,v in dep['metadata_evidence'].items() if k!='process'},
+            row_use_evidence=dep['use_location'],write_evidence=write['evidence'],runtime_verified=False))
     return dict(write_id=write['id'], operation=write['operation'],cube=write['cube'], evidence=write['evidence'],
         expression=write['formula_expression'],reconstructed=formula,control_context=write['control_context'],
         expression_status='STATIC_EXPRESSION' if expression_complete else 'PARTIAL',
@@ -153,6 +150,18 @@ def reconstruct(report, write):
         reasons=list(dict.fromkeys(unresolved)),value_dependencies=value_dependencies,
         definition_nodes=write['definition_nodes'],read_nodes=write['read_nodes'],unknown_nodes=write['unknown_nodes'],
         coordinate_mapping=write['coordinate_mapping'],shared_coordinate_binding=compact,runtime_verified=False)
+
+
+def confirmed_write_sources(write, reads_by_id):
+    """Source-backed value dependencies only; declarations remain separate facts."""
+    if write.get('trace_status') not in {'STATIC', 'PARTIAL'}:
+        return [], []
+    reads = [reads_by_id[i] for i in write.get('read_nodes', []) if i in reads_by_id
+             and reads_by_id[i].get('cube') and reads_by_id[i].get('resolution') == 'resolved']
+    rows = [d for d in write.get('data_row_value_dependencies', [])
+            if d.get('source_cube') and (d.get('source_field') or {}).get('kind') == 'CELL_VALUE'
+            and write.get('data_row_binding_status') == 'STATIC_CELL_VALUE_DEPENDENCY']
+    return reads, rows
 
 
 def build(con, root, *, max_processes=200, max_depth=32, progress=None, cache_root=None, cache_source=None, expand_calls=None, roots=None, accept_root=None):

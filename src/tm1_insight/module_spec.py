@@ -17,7 +17,7 @@ from tm1_insight.store import dimensions as dimension_store
 from tm1_insight.store.queries import cube_rule_semantics
 
 VERSION = 'module-reconstruction-1'
-REVISION = 1
+REVISION = 2
 
 
 def canonical(value):
@@ -233,9 +233,10 @@ def build(con, d: Definition, index, scratch: Path, progress=None):
                     outputs.append(row)
                     reads=[read_by_id[k] for k in w.get('read_nodes',[]) if k in read_by_id]
                     deps=w.get('data_row_value_dependencies') or []
-                    confirmed_rows=[x for x in deps if x.get('source_cube') and w.get('data_row_binding_status')=='STATIC_CELL_VALUE_DEPENDENCY']
+                    confirmed_reads,confirmed_rows=workflow.confirmed_write_sources(w,read_by_id)
                     calculations.append(dict(write_id=row['id'],process=name,target_cube=target,formula=w.get('formula_expression'),value_definition_chain=w.get('value_definition_chain'),
-                        source_reads=reads,data_row_dependencies=deps,status='STATIC_VALUE_DEPENDENCY' if reads or confirmed_rows else 'NO_CONFIRMED_SOURCE_VALUE_DEPENDENCY',evidence_refs=refs,runtime_verified=False))
+                        source_reads=reads,data_row_dependencies=deps,confirmed_source_reads=confirmed_reads,confirmed_data_row_dependencies=confirmed_rows,
+                        status='STATIC_VALUE_DEPENDENCY' if confirmed_reads or confirmed_rows else 'NO_CONFIRMED_SOURCE_VALUE_DEPENDENCY',evidence_refs=refs,runtime_verified=False))
                     if w.get('unresolved_binding_reasons'):
                         unknown(name,'；'.join(map(str,w['unresolved_binding_reasons'])),'写入值或坐标存在静态缺口','核对此写入的变量定义链、来源字段和对应成员',refs)
                     if target not in cubes:unknown(name,'写入目标未纳入核心 Cube：'+str(target),'输出结构不完整','显式纳入该 Cube 以核对维度顺序',refs)
@@ -347,7 +348,7 @@ def markdown(spec):
     table('输入契约',['来源','使用者','来源类型','确定性与结构','证据'],[[r.get('name'),r.get('process'),labels.get(r['kind'],r['kind']),('View '+str(r.get('view') or '待确认')+'；已记录变量 '+str(len(r.get('variables',[])))+' 个；字段与值依赖见附录') if r['kind']=='DATASOURCE' else r.get('grain','参数值或坐标详见结构化附录'),r['evidence_refs']] for r in spec['inputs']])
     table('输出契约',['目标','处理机制','值/Rule表达式','切面/条件','证据'],[[r.get('target_cube'),r.get('process',r['kind']),r.get('value_expression',r.get('expression')),r.get('coordinates',r.get('area')),r['evidence_refs']] for r in spec['outputs']])
     table('处理步骤（解释分组）',['程序','动作','实现观察','证据'],[[r['process'],r['behaviors'],r['effects'],r['evidence_refs']] for r in spec['transformation_steps']])
-    table('计算与映射',['程序/目标','表达式','来源（变量链详见附录）','确认边界'],[[r['process']+' → '+str(r['target_cube']),r['formula'],'；'.join(sorted({str(x.get('cube')) for x in r['source_reads']}|{str(x.get('source_cube')) for x in r['data_row_dependencies'] if x.get('source_cube')})) or '未确认源值依赖','存在静态值依赖，运行未验证' if r['status']=='STATIC_VALUE_DEPENDENCY' else '未确认源值依赖；可能为常量或未知表达式'] for r in spec['calculations']])
+    table('计算与映射',['程序/目标','表达式','来源（变量链详见附录）','确认边界'],[[r['process']+' → '+str(r['target_cube']),r['formula'],'；'.join(sorted({str(x['cube']) for x in r.get('confirmed_source_reads',[]) if x.get('cube')}|{str(x['source_cube']) for x in r.get('confirmed_data_row_dependencies',[]) if x.get('source_cube')})) or '未确认源值依赖','存在静态值依赖，运行未验证' if r.get('confirmed_source_reads') or r.get('confirmed_data_row_dependencies') else '未确认源值依赖；可能为常量、未知表达式或旧报告缺少核对字段'] for r in spec['calculations']])
     table('TI 调用与调度',['调用方/Chore','被调用方','参数/步骤','条件与证据'],[[r['caller'],r['callee'],r['parameters'],dict(conditions=r['conditions'],evidence_refs=r['evidence_refs'])] for r in spec['process_calls']]+[[r['chore'],r['process'],r['step_order'],r['evidence_refs']] for r in spec['schedules']])
     table('核心 Cube 数据模型',['Cube','维度顺序','完整性','证据'],[[r['name'],r['dimension_order'],r['complete_order'],r['evidence_refs']] for r in spec['data_models']])
     states={'PARSED':'当前结构已解析；非运行验证','PARTIAL':'存在未确认计算或坐标','UNKNOWN':'关键结构未确认'}
