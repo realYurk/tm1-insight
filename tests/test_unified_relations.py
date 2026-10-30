@@ -160,7 +160,7 @@ def test_new_api_paging_filters_evidence_and_context_on_existing_workbench(clien
     assert client.get(base+'/relation-context',params={'ref':'/details/secret'}).status_code==422
     assert client.get(base+'/export?format=relations').json()['schema']=='calculation-relations-1'
     page=client.get('/architecture').text
-    assert '关系与计算' in page and '当前运行版本与模型' in page and '架构 r14' in page
+    assert '关系与计算' in page and '当前运行版本与模型' in page and f'架构 r{architecture.REVISION}' in page
     summaries=client.get(base+'/result?view=rule_summaries').json()['items']
     assert summaries and all('rule_semantics' not in r for r in summaries)
     assert client.get(base+'/relation-context',params={'ref':'/rules/99999/rule_semantics/0'}).status_code==404

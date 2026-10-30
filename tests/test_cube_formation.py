@@ -66,6 +66,16 @@ def test_read_and_constant_write_do_not_make_value_flow(con):
     assert r['dimension_comparisons'][0]['basis']=='STRUCTURE_ONLY_NOT_VALUE_MAPPING'
 
 
+def test_dynamic_read_never_becomes_confirmed_architecture_source(con):
+    con.execute("UPDATE processes SET data=? WHERE name='Load'", ["n=CellGetN(pCube,cScenario,pProduct);CellPutN(n,'Cube_B',pProduct,cScenario);"])
+    r=architecture.build(con,'Cube_B',entry_kind='cube')
+    write=next(x for x in r['write_explanations'] if x['process']=='Load')
+    assert write['source_reads']==[]
+    assert write['coordinate_correspondences']==[]
+    assert not any(x['relation_type']=='STATIC_VALUE_DEPENDENCY' for x in r['formation_relationships'])
+    assert write['location']['section']=='data' and not write['runtime_verified']
+
+
 def test_view_binding_and_data_variable_are_distinct_from_value_dependency(con):
     con.execute("UPDATE processes SET prolog=?,data=? WHERE name='Load'",["cScenario='ACT';DataSourceType='VIEW';DataSourceNameForServer='Cube_A';DataSourceCubeView='SourceView';", "CellIncrementN(vValue,'Cube_B',pProduct,cScenario);"])
     r=architecture.build(con,'Cube_B',entry_kind='cube');x=r['write_explanations'][0]

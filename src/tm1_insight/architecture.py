@@ -12,7 +12,7 @@ from tm1_insight.store import dimensions as dimension_store
 from tm1_insight.learning.rule_semantics import parse_rule_semantics
 
 VERSION='architecture-1'
-REVISION=14
+REVISION=15
 SECTIONS={'cubes','dimensions','processes','rules','chores','execution_relationships','data_relationships',
           'transformation_steps','evidence','unresolved_dependencies','transformation_summaries','dimension_comparisons','module_objects','downstream_consumers','diagnostics','formation_relationships','write_explanations','external_sources',
           'relation_objects','unified_relations','relation_evidence','business_steps','rule_summaries'}

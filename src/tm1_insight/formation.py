@@ -5,6 +5,7 @@ No TM1 execution, naming-based business purpose, read/write join or new parser.
 from __future__ import annotations
 import hashlib
 import json
+from tm1_insight.workflow import confirmed_write_sources
 
 VERSION='cube-formation-1'
 
@@ -63,9 +64,12 @@ def enrich(r,wf,progress=None):
             coords.append(dict(dimension=item['dimension'],position=item['position'],kind=b['kind'],expression=b['expression'],
                 value=b.get('value'),evidence_refs=refs,member_catalog_evidence=b.get('member_evidence')))
         source_reads=[];correspondences=[]
+        confirmed_reads,_=confirmed_write_sources(w,nodes)
+        confirmed_ids={read['id'] for read in confirmed_reads}
         for index in w['read_nodes']:
             read=nodes[index];used_reads.add((name,read['evidence']['section'],read['evidence']['line'],read['evidence']['column']))
             key=(name,read['evidence']['section'],read['evidence']['line'],read['evidence']['column']);usage_refs.setdefault(key,[]).extend(ids)
+            if index not in confirmed_ids:continue
             rid=proof(name,read['evidence'],'value_source')
             source_coords=[]
             for item in read['coordinate_mapping']['items']:
