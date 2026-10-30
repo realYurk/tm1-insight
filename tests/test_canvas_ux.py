@@ -110,3 +110,15 @@ def test_lineage_layout_cycles_are_finite_and_input_order_stable():
     assert one['positions']==layout(nodes[::-1],edges[::-1],{'lineage':True})['positions']
     assert one['positions']['file']['x'] < one['positions']['a']['x']
     assert one['positions']['a']['y'] != one['positions']['b']['y']
+
+
+def test_lineage_readback_retains_separate_file_ti_cube_layers():
+    nodes=[dict(id='file',name='input.csv',type='source'),dict(id='load',name='Load',type='process'),
+           dict(id='root',name='Root',type='cube',current=True),dict(id='next',name='Next',type='process'),
+           dict(id='result',name='Result',type='cube')]
+    edges=[dict(source='file',target='load'),dict(source='load',target='root'),
+           dict(source='root',target='load'),dict(source='root',target='next'),dict(source='next',target='result')]
+    result=layout(nodes,edges,{'lineage':True})
+    positions=result['positions']
+    assert all(positions[a]['x'] < positions[b]['x'] for a,b in [('file','load'),('load','root'),('root','next'),('next','result')])
+    assert result['positions']==layout(nodes[::-1],edges[::-1],{'lineage':True})['positions']

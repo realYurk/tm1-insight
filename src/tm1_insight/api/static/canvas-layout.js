@@ -85,11 +85,25 @@
     if (list.length === 0) return { positions: {}, strategy: 'empty', sccCount: 0 };
     if (list.length === 1) return { positions: (function () { var p = {}; p[list[0].id] = { x: 0, y: 0 }; return p; })(), strategy: 'single', sccCount: 1 };
 
+    // A process may both read and write the focused Cube. Keep both edges in
+    // the rendered graph, but treat the read-back edge as a return arc for
+    // placement so file → process → focused Cube can occupy distinct columns.
+    // Other cycles retain the existing SCC treatment.
+    var placementLinks = links;
+    var focus = opt.lineage && list.find(function(n) { return n.current && n.type === 'cube'; });
+    if (focus) {
+      var incomingProcesses = new Set(links.filter(function(e) { return e.target === focus.id; }).map(function(e) { return e.source; }));
+      var byId = new Map(list.map(function(n) { return [n.id,n]; }));
+      placementLinks = links.filter(function(e) {
+        var target = byId.get(e.target);
+        return !(e.source === focus.id && incomingProcesses.has(e.target) && target && target.type === 'process');
+      });
+    }
     var adj = {}, radj = {};
     list.forEach(function (n) { adj[n.id] = []; radj[n.id] = []; });
     var degree = {};
     list.forEach(function (n) { degree[n.id] = 0; });
-    links.forEach(function (e) {
+    placementLinks.forEach(function (e) {
       adj[e.source].push(e.target);
       radj[e.target].push(e.source);
       degree[e.source] += 1; degree[e.target] += 1;
@@ -106,7 +120,7 @@
     if (starLike && opt.strategy === 'radial') {
       return radial(hub, list, links, adj, radj, sccs.length);
     }
-    var result=layered(list, links, adj, sccs, compOf, opt.rowHeight || ROW_H, opt);
+    var result=layered(list, placementLinks, adj, sccs, compOf, opt.rowHeight || ROW_H, opt);
     if(opt.direction==='TB')Object.keys(result.positions).forEach(function(id){var p=result.positions[id];result.positions[id]={x:p.y,y:p.x};});
     return result;
   }
@@ -172,7 +186,7 @@
         comp.forEach(function (c) {
           var neigh = [];
           sccs[c].forEach(function (id) {
-            (forward ? adj[id] : predecessors(links, id)).forEach(function (other) {
+            (forward ? predecessors(links, id) : adj[id]).forEach(function (other) {
               var oc = compOf[other];
               if (oc !== c && sccs[oc]._ord !== undefined) neigh.push(sccs[oc]._ord);
             });

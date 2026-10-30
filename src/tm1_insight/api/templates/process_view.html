@@ -309,7 +309,7 @@
   a.className = 'btn ghost btn-sm ctx-back';
   a.href = '/cubes?' + params.toString();
   a.textContent = '← 返回来源 Cube：' + jump.cube;
-  head.appendChild(a);
+  (head.querySelector('.study-actions') || head).appendChild(a);
 })();
 </script>
 {% endblock %}

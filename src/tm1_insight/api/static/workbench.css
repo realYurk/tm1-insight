@@ -246,9 +246,11 @@ details summary { cursor: pointer; padding: 12px 0; }
 .experience-form{display:grid;gap:16px;max-width:900px}.experience-form label{display:grid;gap:6px}.experience-form .input{width:100%;box-sizing:border-box}.experience-form textarea{resize:vertical}.experience-form label:has(input[type="checkbox"]){display:flex;align-items:center;gap:8px}.study-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 
 /* TI evidence navigation occupies space only when opened. */
-.process-page-head > div { min-width: 0; flex: 1; }
+.process-page-head { flex-direction: column; align-items: stretch; gap: 12px; }
+.process-page-head > div { min-width: 0; width: 100%; }
+.process-page-head > .study-actions { flex: 0 1 auto; }
 .process-page-head .page-title { overflow-wrap: anywhere; }
-.process-page-head .btn { flex-shrink: 0; }
+.process-page-head .btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .proc-main pre.code-fixed { height: var(--process-code-height, calc(100dvh - 245px)); min-height: 240px; margin-bottom: 0; }
 .semvar-table { table-layout: fixed; width: 100%; }
 .semvar-table th:first-child { width: 30%; }

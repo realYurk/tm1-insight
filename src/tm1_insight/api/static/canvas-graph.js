@@ -160,7 +160,7 @@
       {selector:'node[type="source"]',style:{'background-image':ICON.lineageFile,'background-color':'#f3fbf7','border-color':'#cce9d9','color':'#216245'}},
       {selector:'node[type="database"]',style:{'background-image':ICON.lineageDatabase,'background-color':'#faf8ff','border-color':'#e1daf3','color':'#554f8f'}},
       {selector:'node.cn-selected',style:{'border-width':2,'border-color':'#426acb','background-color':'#eff5ff'}},
-      {selector:'edge',style:{'curve-style':'bezier','label':'data(displayLabel)','text-rotation':'none','font-size':10,'color':'#536f8e','text-background-opacity':.96,'width':1.6}},
+      {selector:'edge',style:{'curve-style':'unbundled-bezier','control-point-weights':0.5,'control-point-distances':'data(cpd)','label':'data(displayLabel)','text-rotation':'none','font-size':10,'color':'#536f8e','text-background-opacity':.96,'width':1.6}},
       {selector:'edge[status="CANDIDATE"]',style:{'line-style':'dashed','line-color':'#8fa6c4','target-arrow-color':'#8fa6c4'}},
       {selector:'edge[kind="TI_WRITE"]',style:{'line-color':'#83a3ca','target-arrow-color':'#83a3ca'}},
       {selector:'edge.cn-hover, edge.cn-selected',style:{'label':'data(fullLabel)','width':2.2,'color':'#334e71'}}
@@ -598,6 +598,7 @@
               cardH: cardH,
               displayName: label ? label.text : fullName,
               type: type,
+              current: !!n.current,
               provenance: n.provenance || '',
             },
           };
@@ -632,7 +633,7 @@
         Object.keys(pairCount).forEach(function (k) {
           const list = pairCount[k];
           const n = list.length;
-          list.forEach(function (e, i) { e.data.cpd = n === 1 ? 0 : (i - (n - 1) / 2) * 36; });
+          list.forEach(function (e, i) { e.data.cpd = n === 1 ? (opt.lineage && e.data.kind === 'TI_READ' ? 18 : 0) : (i - (n - 1) / 2) * 36; });
         });
         elementsIndex = new Map((payload.edges || []).map(function (e) { return [e.id, e]; }));
 
@@ -688,7 +689,7 @@
           cy.layout({ name: 'grid', padding: 40, avoidOverlap: true, condense: true }).run();
         } else {
           // auto：分层 / 辐射 / 环分解由 TM1CanvasLayout 依据图形态决定
-          const nodes = visibleNodes.map(function (n) { return { id: n.id(), type: n.data('type'), name: n.data('name'), width: n.data('cardW'), height: n.data('cardH') }; });
+          const nodes = visibleNodes.map(function (n) { return { id: n.id(), type: n.data('type'), name: n.data('name'), current: n.data('current'), width: n.data('cardW'), height: n.data('cardH') }; });
           const nodeIds = new Set(nodes.map(function (n) { return n.id; }));
           const edges = cy.edges().filter(function (e) {
             return e.target().id() !== e.source().id()
