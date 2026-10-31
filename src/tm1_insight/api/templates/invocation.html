@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% macro evidence(process, e) -%}<a href="/explorer/process/{{ process|urlencode }}?source={{ report.model_fingerprint }}#{{ e.section }}-L{{ e.line }}">{{ e.section }}:{{ e.line }}:{{ e.column }}</a>{%- endmacro %}
 {% block title %}子 TI 参数检查 · TM1 Insight{% endblock %}
+{% from "_scope_bar.html" import scope_bar %}
 {% block content %}
 <nav class="breadcrumb"><a href="/calculation?name={{ report.process|urlencode }}&amp;source={{ report.model_fingerprint }}">{{ report.process }}</a><span>/</span><span>子 TI 参数检查</span></nav>
 <div class="page-head"><div><h1 class="page-title">这次调用传递了什么？</h1><p class="page-sub">{{ report.process }} → {{ report.call.target or 'UNKNOWN · 动态目标' }} · {{ report.call.operation }} · {{ evidence(report.process, report.call) }}</p></div></div>
 <p class="knowledge-disclaimer">一个源码调用点与一个子 TI，参数绑定和子 TI 计算分别展示。未执行、未替换公式，不证明调用成功、完成次序或数值贡献。</p>
+{% set scope_visible = scope.visible_writes ~ ' 条子 TI 写入点 · ' ~ scope.visible_uses ~ ' 条参数使用位置' %}
+{% set scope_hidden = ('另有 ' ~ scope.writes ~ ' 条写入点、' ~ scope.uses ~ ' 条使用位置指向 } 前缀立方体') if scope.hidden else ('' if system else '未发现指向 } 前缀立方体的记录') %}
+{{ scope_bar(scope, system, url(system=(0 if system else 1)), scope_visible, scope_hidden) }}
 {% for c in report.call.control_context %}<p class="chore-warning">条件边界 · {{ c.kind }} · {{ c.section }}:{{ c.line }} · {{ c.condition }}，未验证可达性或迭代次数。</p>{% endfor %}
 {% if report.child %}
 <div class="study-actions"><a class="btn primary" href="/calculation?name={{ report.child.process|urlencode }}&amp;source={{ report.model_fingerprint }}">检查子 TI 的计算定义 →</a></div>
@@ -30,5 +34,5 @@
 </section>
 {% endif %}
 <section class="calculation-step"><h2>未知项与验证边界</h2>{% for d in report.diagnostics %}<p class="chore-warning">{{ d }}</p>{% endfor %}</section>
-<section class="card"><h2>保存核对材料</h2><p class="muted small">导出当前可见的内容{% if scope.hidden %}（{{ scope.writes }} 条子 TI 写入点、{{ scope.uses }} 条参数使用位置因 } 前缀被排除，文件正文会写明取回方式）{% endif %}，含私有对象名称与静态证据，仅供本地保管。不是运行结果或迁移等价声明。</p><div class="study-actions"><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;system={{ 1 if system else 0 }}">下载私有 JSON</a><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;format=markdown&amp;system={{ 1 if system else 0 }}">下载 Markdown</a>{% if scope.system_count %}<a class="btn ghost" href="{{ url(system=0 if system else 1) }}">{{ '只看业务对象' if system else '包含 } 前缀内容' }}</a>{% endif %}</div></section>
+<section class="card"><h2>保存核对材料</h2><p class="muted small">导出当前可见的内容{% if scope.hidden %}（{{ scope.writes }} 条子 TI 写入点、{{ scope.uses }} 条参数使用位置因 } 前缀被排除，文件正文会写明取回方式）{% endif %}，含私有对象名称与静态证据，仅供本地保管。不是运行结果或迁移等价声明。</p><div class="study-actions"><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;system={{ 1 if system else 0 }}">下载私有 JSON</a><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;format=markdown&amp;system={{ 1 if system else 0 }}">下载 Markdown</a>{% if scope.hidden and not system %}<a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;system=1">全量 JSON（含 } 前缀）</a>{% endif %}</div></section>
 {% endblock %}

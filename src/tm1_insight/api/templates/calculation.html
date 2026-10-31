@@ -8,16 +8,19 @@
 </tbody></table></div>{% if mapping.actual > 50 %}<p class="chore-warning">PARTIAL · 仅展示前 50 个坐标，完整记录见 JSON。</p>{% endif %}
 {%- endmacro %}
 {% block title %}计算检查 · {{ report.process }}{% endblock %}
+{% from "_scope_bar.html" import scope_bar %}
 {% block breadcrumb %}<nav class="breadcrumb"><a href="/processes">TI 进程</a><span class="sep">/</span><a href="/explorer/process/{{ report.process|urlencode }}?source={{ report.model_fingerprint }}">{{ report.process }}</a><span class="sep">/</span><span class="current">计算检查</span></nav>{% endblock %}
 {% block content %}
 <div class="page-head"><div><h1 class="page-title">这次写入的值怎样定义？</h1><p class="page-sub">{{ report.process }} · 单 TI 静态计算检查 · 源码定义 → 读取依赖 → 目标坐标</p></div><a class="btn ghost" href="/explorer/process/{{ report.process|urlencode }}?source={{ report.model_fingerprint }}">返回 TI 源码</a></div>
 <p class="knowledge-disclaimer">沿源码中可解析的定义链核对计算。所有链路都未经过运行验证；字符串常量已隐藏，原值需点源码位置核对。子进程调用单独列出，未将调用当作数据流。</p>
 {% for diagnostic in report.diagnostics %}<p class="chore-warning">PARTIAL · {{ diagnostic.reason|default(diagnostic) }}</p>{% endfor %}
+{% set scope_visible = total ~ ' 条写入点' %}
+{% set scope_hidden = ('另有 ' ~ hidden ~ ' 条 } 前缀写入点未显示') if hidden else ('' if system else '这个 TI 没有 } 前缀写入点') %}
+{{ scope_bar(scope, system, url(system=(0 if system else 1), write=none, page=1), scope_visible, scope_hidden) }}
 <div class="calculation-workspace">
   <aside class="card calculation-browser" aria-label="写入点列表">
     <h2>选择写入点 <span class="tag">{{ total }}</span></h2>
     <p class="muted small">按源码位置排列，包含条件路径，不代表执行次序。</p>
-    <p class="muted small">{% if system %}<a href="{{ url(system=false, write=none, page=1) }}">隐藏 } 前缀目标</a>{% elif hidden %}已隐藏 {{ hidden }} 条 } 前缀写入 · <a href="{{ url(system=true, write=none, page=1) }}">包含它们</a>{% else %}这个 TI 没有 } 前缀写入点。{% endif %}</p>
     <ul class="list calculation-list">{% for w in writes %}<li><a href="{{ url(write=w.id) }}" {% if selected and selected.id == w.id %}aria-current="page"{% endif %}><strong>{{ w.cube or 'UNKNOWN · 动态目标' }}</strong><small>{{ w.operation }} · {{ w.evidence.section }}:{{ w.evidence.line }}:{{ w.evidence.column }}</small><small class="muted">{{ w.trace_status }} · {{ w.value_expression }}</small></a></li>{% else %}<li class="muted">当前范围没有可展示的 CellPutN/S 或 CellIncrementN 写入点；其他写入机制未覆盖。</li>{% endfor %}</ul>
     {% if pages > 1 %}<nav class="pagination" aria-label="写入点分页"><span>{{ page }} / {{ pages }}</span>{% if page > 1 %}<a href="{{ url(page=page-1, write=none) }}">上一页</a>{% endif %}{% if page < pages %}<a href="{{ url(page=page+1, write=none) }}">下一页</a>{% endif %}</nav>{% endif %}
   </aside>

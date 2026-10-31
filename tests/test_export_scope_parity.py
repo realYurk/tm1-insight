@@ -91,6 +91,41 @@ def test_hidden_rows_keep_their_original_numbers(client):
     assert '## 写入 2' in md and '## 写入 1' not in md
 
 
+def _scope_bar(page):
+    match = re.search(r'<div class="scope-bar" data-mode="(\w+)"[^>]*>(.*?)</div>', page, re.S)
+    assert match, '页面没有范围状态条'
+    return match[1], match[2]
+
+
+def test_scope_bar_marks_a_clipped_view(client):
+    """被裁剪过就要在页面第一屏看得见，不能只写在侧栏小字里。"""
+    seed(client)
+    mode, body = _scope_bar(client.get('/calculation', params={'name': 'Compute'}).text)
+    assert mode == 'business'
+    assert '当前范围：1 条写入点' in body
+    assert '另有 1 条 } 前缀写入点未显示' in body
+    assert 'system=1' in body and '看全部（含 } 前缀）' in body
+
+
+def test_scope_bar_says_none_instead_of_offering_a_dead_switch(client):
+    seed(client)
+    con = Store(get_settings()).connect()
+    con.execute('UPDATE processes SET data=? WHERE name=?',
+                ["v=CellGetN('Input',pDept);\nCellPutN(v,'Result',pDept);", 'Compute'])
+    con.close()
+    mode, body = _scope_bar(client.get('/calculation', params={'name': 'Compute'}).text)
+    assert mode == 'none' and '这个 TI 没有 } 前缀写入点' in body
+    assert '看全部' not in body
+
+
+def test_scope_bar_flips_to_all_and_keeps_a_way_back(client):
+    seed(client)
+    mode, body = _scope_bar(client.get('/calculation', params={'name': 'Compute', 'system': 1}).text)
+    assert mode == 'all' and '当前范围：2 条写入点' in body
+    assert '只看业务对象' in body and 'system=0' in body
+    assert '另有' not in body
+
+
 def test_nothing_hidden_is_stated_plainly(client):
     seed(client)
     con = Store(get_settings()).connect()
@@ -139,10 +174,12 @@ def test_invocation_hides_system_usage_and_warns_about_it(client):
 def test_invocation_page_can_switch_back_to_full(client):
     source = prepare_invocation(client)
     page = client.get('/invocation', params=dict(name='Entry', call=0, source=source))
-    assert 'system=1' in page.text and '包含 } 前缀内容' in page.text
+    assert 'class="scope-bar" data-mode="business"' in page.text
+    assert '另有 1 条写入点、2 条使用位置指向 } 前缀立方体' in page.text
+    assert '看全部（含 } 前缀）' in page.text
     wide = client.get('/invocation', params=dict(name='Entry', call=0, source=source, system=1))
     assert wide.status_code == 200 and '}Audit' in wide.text
-    assert '只看业务对象' in wide.text
+    assert 'data-mode="all"' in wide.text and '只看业务对象' in wide.text
 
 
 @pytest.mark.parametrize('url', [

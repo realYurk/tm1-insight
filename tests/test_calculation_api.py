@@ -27,7 +27,10 @@ def test_selected_ti_page_exports_and_original_source_unchanged(client):
     response=client.get('/calculation?name=Compute')
     assert response.status_code==200
     assert 'base * rate / 100' in response.text and '读取依赖' in response.text
-    assert '已隐藏 1 条 } 前缀写入' in response.text
+    assert '另有 1 条 } 前缀写入点未显示' in response.text
+    assert 'class="scope-bar" data-mode="business"' in response.text
+    assert '当前范围：1 条写入点' in response.text
+    assert '看全部（含 } 前缀）' in response.text
     assert 'UNKNOWN' in response.text
     source=re.search(r'source=([a-f0-9]{64})',response.text)[1]
     exported=client.get('/api/calculation/export',params=dict(name='Compute',source=source))

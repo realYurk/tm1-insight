@@ -504,3 +504,36 @@ details summary { cursor: pointer; padding: 12px 0; }
 .scope-switch .tag { margin-left: 4px; }
 .call-tree-scope { margin: 8px 0 0; font-size: 12px; line-height: 1.6; }
 .call-tree-scope code { padding: 0 3px; border-radius: 3px; background: rgba(127, 127, 127, .12); }
+
+/* ==== 范围状态条：被裁剪过就要一直看得见 ====
+   三态：business（有排除，琥珀）/ all（全量，蓝）/ none（无系统对象，灰）。
+   之前范围只写在侧栏一行小字里，进全量视图后毫无标记。 */
+.scope-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 0 0 14px; padding: 9px 14px;
+  border: 1px solid var(--border); border-left: 3px solid #b45309;
+  border-radius: 8px; background: rgba(180, 83, 9, .06);
+  font-size: 13px; line-height: 1.5; color: var(--text-2);
+}
+.scope-bar[data-mode="all"] { border-left-color: var(--accent); background: var(--accent-soft); }
+.scope-bar[data-mode="none"] { border-left-color: var(--border-strong); background: transparent; }
+.scope-bar-tag {
+  flex: none; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  color: #92400e; background: rgba(180, 83, 9, .14);
+}
+.scope-bar[data-mode="all"] .scope-bar-tag { color: var(--accent-strong); background: var(--accent-glow); }
+.scope-bar[data-mode="none"] .scope-bar-tag { color: var(--muted); background: rgba(127, 127, 127, .12); }
+.scope-bar-main { color: var(--text); }
+.scope-bar-note { color: #92400e; }
+.scope-bar[data-mode="none"] .scope-bar-note { color: var(--muted); }
+.scope-bar-link { margin-left: auto; white-space: nowrap; font-weight: 600; text-decoration: none; }
+.scope-bar-link:hover { text-decoration: underline; }
+[data-theme="dark"] .scope-bar { background: rgba(180, 83, 9, .16); }
+[data-theme="dark"] .scope-bar[data-mode="all"] { background: var(--accent-soft); }
+[data-theme="dark"] .scope-bar[data-mode="none"] { background: transparent; }
+[data-theme="dark"] .scope-bar-tag,
+[data-theme="dark"] .scope-bar-note { color: #f6c177; }
+[data-theme="dark"] .scope-bar[data-mode="all"] .scope-bar-tag { color: var(--accent); }
+[data-theme="dark"] .scope-bar[data-mode="none"] .scope-bar-tag,
+[data-theme="dark"] .scope-bar[data-mode="none"] .scope-bar-note { color: var(--muted); }

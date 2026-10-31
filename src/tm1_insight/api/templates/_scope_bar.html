@@ -1,0 +1,20 @@
+{# 范围状态条：当前视图被裁剪过，这件事要一直看得见。
+
+   之前范围只体现在「已隐藏 N 条」这一行小字和导出卡的说明里，位置分散，
+   进了全量视图也没有任何标记。现在两页共用这一条，三态分明：
+     data-mode="business"  业务对象，有东西被排除（琥珀）
+     data-mode="all"       全量，含系统对象（蓝）
+     data-mode="none"      没有系统对象，排不排都一样（灰）
+
+   文案由调用方算好再传：两页的计量单位不同（写入点 / 使用位置），
+   在宏里猜只会猜错。 #}
+{% macro scope_bar(scope, system, toggle_url, visible_text, hidden_text) -%}
+{% if scope %}
+<div class="scope-bar" data-mode="{{ 'all' if system else ('business' if scope.system_count else 'none') }}" role="status">
+  <span class="scope-bar-tag">{{ '全部对象' if system else '业务对象' }}</span>
+  <span class="scope-bar-main">当前范围：{{ visible_text }}</span>
+  {% if hidden_text %}<span class="scope-bar-note">{{ hidden_text }}</span>{% endif %}
+  {% if scope.system_count %}<a class="scope-bar-link" href="{{ toggle_url }}">{{ '只看业务对象 →' if system else '看全部（含 } 前缀）→' }}</a>{% endif %}
+</div>
+{% endif %}
+{%- endmacro %}
