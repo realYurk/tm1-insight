@@ -839,6 +839,7 @@ def calculation_page(request: Request, name: str = Query(..., min_length=1, max_
         return '/calculation?'+urlencode({k:v for k,v in params.items() if v is not None})
     return templates.TemplateResponse(request, "calculation.html", dict(report=report, selected=selected,
         writes=items[(page-1)*50:page*50], hidden=scope['hidden'], scope=scope,
+        scope_note=scope_view.hidden_text(scope, '写入点'),
         total=len(items), pages=pages, page=page,
         system=system, url=url, nodes={n['id']:n for n in report['nodes']}, node_label=node_label))
 
@@ -874,6 +875,7 @@ def invocation_page(request: Request, name: str = Query(..., min_length=1, max_l
         params.update(updates)
         return '/invocation?'+urlencode({k:v for k,v in params.items() if v is not None})
     return templates.TemplateResponse(request, 'invocation.html', dict(report=report, scope=scope, system=system,
+        scope_note=scope_view.hidden_text(scope, '记录'),
         url=url, nodes={n['id']:n for n in report['nodes']}, node_label=node_label))
 
 

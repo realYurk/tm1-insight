@@ -53,13 +53,13 @@ def test_calculation_export_is_the_list_on_screen(client):
     data = client.get('/api/calculation/export', params=dict(name='Compute', source=source)).json()
     assert _shown(page) == len(data['writes']) == 1
     assert data['writes'][0]['cube'] == 'Result'
-    assert data['scope_view'] == dict(scope='business', visible=1, hidden=1,
-                                      cubes=['}Audit'], write_ids=[1], system_count=1)
+    assert data['scope_view'] == dict(scope='business', visible=1, hidden=1, log=0, system=1,
+                                      cubes=['}Audit'], log_cubes=[], write_ids=[1], system_count=1)
     full = client.get('/api/calculation/export',
                       params=dict(name='Compute', source=source, system=1)).json()
     assert [w['cube'] for w in full['writes']] == ['Result', '}Audit']
-    assert full['scope_view'] == dict(scope='all', visible=2, hidden=0, cubes=[], write_ids=[],
-                                      system_count=1)
+    assert full['scope_view'] == dict(scope='all', visible=2, hidden=0, log=0, system=0, cubes=[],
+                                      log_cubes=[], write_ids=[], system_count=1)
 
 
 def test_export_explains_the_difference_in_its_own_text(client):
@@ -73,7 +73,7 @@ def test_export_explains_the_difference_in_its_own_text(client):
     assert '会出现跳号' in md
     full = client.get('/api/calculation/export',
                       params=dict(name='Compute', source=source, format='markdown', system=1)).text
-    assert '范围：全量（含 } 前缀系统对象）' in full and '另有' not in full
+    assert '范围：全量（含 } 前缀与日志立方体）' in full and '另有' not in full
 
 
 def test_hidden_rows_keep_their_original_numbers(client):
@@ -103,7 +103,7 @@ def test_scope_bar_marks_a_clipped_view(client):
     mode, body = _scope_bar(client.get('/calculation', params={'name': 'Compute'}).text)
     assert mode == 'business'
     assert '当前范围：1 条写入点' in body
-    assert '另有 1 条 } 前缀写入点未显示' in body
+    assert '另有 1 条写入点未显示（1 条指向系统立方体）：}Audit' in body
     assert 'system=1' in body and '看全部（含 } 前缀）' in body
 
 
@@ -114,7 +114,7 @@ def test_scope_bar_says_none_instead_of_offering_a_dead_switch(client):
                 ["v=CellGetN('Input',pDept);\nCellPutN(v,'Result',pDept);", 'Compute'])
     con.close()
     mode, body = _scope_bar(client.get('/calculation', params={'name': 'Compute'}).text)
-    assert mode == 'none' and '这个 TI 没有 } 前缀写入点' in body
+    assert mode == 'none' and '这个 TI 没有日志或系统写入点' in body
     assert '看全部' not in body
 
 
@@ -133,7 +133,7 @@ def test_nothing_hidden_is_stated_plainly(client):
                 ["v=CellGetN('Input',pDept);\nCellPutN(v,'Result',pDept);", 'Compute'])
     con.close()
     page = client.get('/calculation', params={'name': 'Compute'})
-    assert '这个 TI 没有 } 前缀写入点' in page.text and '已隐藏 0 条' not in page.text
+    assert '这个 TI 没有日志或系统写入点' in page.text and '已隐藏 0 条' not in page.text
     source = _source(page)
     md = client.get('/api/calculation/export',
                     params=dict(name='Compute', source=source, format='markdown')).text
@@ -146,13 +146,14 @@ def test_invocation_hides_system_usage_and_warns_about_it(client):
     source = prepare_invocation(client)
     page = client.get('/invocation', params=dict(name='Entry', call=0, source=source))
     assert page.status_code == 200
-    assert page.text.count('范围 · 还有 1 条使用位置指向 } 前缀立方体') == 2
+    assert page.text.count('范围 · 还有 1 条使用位置指向日志或系统立方体') == 2
     narrow = client.get('/api/invocation/export',
                         params=dict(name='Entry', call=0, source=source)).json()
     # 被波及的不止目标参数：pDept 作为 }Audit 的坐标也少了一条，
     # 所以这里记 2 条使用位置 + 1 条子 TI 写入点。
-    assert narrow['scope_view'] == dict(scope='business', hidden=3, cubes=['}Audit'], uses=2, writes=1,
-                                        bindings_affected=2, system_count=3, visible_uses=3, visible_writes=1)
+    assert narrow['scope_view'] == dict(scope='business', hidden=3, log=0, system=3, cubes=['}Audit'],
+                                        log_cubes=[], uses=2, writes=1, bindings_affected=2,
+                                        system_count=3, visible_uses=3, visible_writes=1)
     by_name = {b['parameter']: b for b in narrow['bindings']}
     assert [u['cube'] for u in by_name['pAmount']['uses']] == ['Result']
     assert [b['uses_hidden'] for b in narrow['bindings'] if b.get('uses_hidden')] == [1, 1]
@@ -175,7 +176,7 @@ def test_invocation_page_can_switch_back_to_full(client):
     source = prepare_invocation(client)
     page = client.get('/invocation', params=dict(name='Entry', call=0, source=source))
     assert 'class="scope-bar" data-mode="business"' in page.text
-    assert '另有 1 条写入点、2 条使用位置指向 } 前缀立方体' in page.text
+    assert '另有 3 条记录未显示（3 条指向系统立方体）：}Audit' in page.text
     assert '看全部（含 } 前缀）' in page.text
     wide = client.get('/invocation', params=dict(name='Entry', call=0, source=source, system=1))
     assert wide.status_code == 200 and '}Audit' in wide.text
@@ -189,3 +190,35 @@ def test_invocation_page_can_switch_back_to_full(client):
 def test_scope_flag_rejects_garbage(client, url):
     seed(client)
     assert client.get(url).status_code == 422
+
+
+def test_target_kind_splits_logs_from_other_system_objects():
+    """日志优先于系统：日志 cube 也带 } 前缀，但对使用者是两个完全不同的解释。"""
+    from tm1_insight.store.scope_view import target_kind
+    assert target_kind('Result') == 'plain'
+    assert target_kind('}APQ Process Response Message') == 'log'
+    assert target_kind('}APQProcessExecutionLog') == 'log'
+    assert target_kind('Sys Process Execution Log') == 'log'
+    assert target_kind('}Audit') == 'system'
+    assert target_kind(None) == 'plain'
+
+
+def test_log_writes_are_named_as_logs_not_as_system_objects(client):
+    seed(client)
+    con = Store(get_settings()).connect()
+    con.execute("INSERT INTO cubes (name,dimension_count) VALUES ('}APQ Process Response Message',1)")
+    con.execute("INSERT INTO cube_has_dimension VALUES ('}APQ Process Response Message','Dept',0)")
+    con.execute('UPDATE processes SET data=? WHERE name=?', [
+        "v=CellGetN('Input',pDept);\nCellPutN(v,'Result',pDept);\n"
+        "CellPutN(1,'}APQ Process Response Message',pDept);", 'Compute'])
+    con.close()
+    page = client.get('/calculation', params={'name': 'Compute'})
+    assert '另有 1 条写入点未显示（1 条日志写入）' in page.text
+    assert '}APQ Process Response Message' in page.text
+    assert '血缘图同样不追踪日志写入' in page.text
+    source = _source(page)
+    md = client.get('/api/calculation/export',
+                    params=dict(name='Compute', source=source, format='markdown')).text
+    assert '日志写入是每跑一次就写一条的执行记录' in md
+    data = client.get('/api/calculation/export', params=dict(name='Compute', source=source)).json()
+    assert data['scope_view']['log'] == 1 and data['scope_view']['system'] == 0

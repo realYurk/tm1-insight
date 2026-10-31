@@ -7,8 +7,7 @@
 <div class="page-head"><div><h1 class="page-title">这次调用传递了什么？</h1><p class="page-sub">{{ report.process }} → {{ report.call.target or 'UNKNOWN · 动态目标' }} · {{ report.call.operation }} · {{ evidence(report.process, report.call) }}</p></div></div>
 <p class="knowledge-disclaimer">一个源码调用点与一个子 TI，参数绑定和子 TI 计算分别展示。未执行、未替换公式，不证明调用成功、完成次序或数值贡献。</p>
 {% set scope_visible = scope.visible_writes ~ ' 条子 TI 写入点 · ' ~ scope.visible_uses ~ ' 条参数使用位置' %}
-{% set scope_hidden = ('另有 ' ~ scope.writes ~ ' 条写入点、' ~ scope.uses ~ ' 条使用位置指向 } 前缀立方体') if scope.hidden else ('' if system else '未发现指向 } 前缀立方体的记录') %}
-{{ scope_bar(scope, system, url(system=(0 if system else 1)), scope_visible, scope_hidden) }}
+{{ scope_bar(scope, system, url(system=(0 if system else 1)), scope_visible, scope_note or ('' if system else '未发现日志或系统立方体的记录')) }}
 {% for c in report.call.control_context %}<p class="chore-warning">条件边界 · {{ c.kind }} · {{ c.section }}:{{ c.line }} · {{ c.condition }}，未验证可达性或迭代次数。</p>{% endfor %}
 {% if report.child %}
 <div class="study-actions"><a class="btn primary" href="/calculation?name={{ report.child.process|urlencode }}&amp;source={{ report.model_fingerprint }}">检查子 TI 的计算定义 →</a></div>
@@ -27,12 +26,12 @@
 {% set roles={'write_value':'写入值定义','write_coordinate':'目标坐标','write_target':'目标 Cube 表达式','read_coordinate':'读取坐标','read_target':'读取 Cube 表达式'} %}
 {% for u in b.uses[:20] %}<p>{{ roles[u.role] }} · {{ evidence(report.child.process,u.parameter_evidence) }} → <a href="/calculation?name={{ report.child.process|urlencode }}&amp;source={{ report.model_fingerprint }}&amp;write={{ u.write_id }}&amp;system={{ 1 if system else 0 }}">{{ u.operation }} / {{ u.cube or 'UNKNOWN' }} · {{ u.write_evidence.section }}:{{ u.write_evidence.line }}</a>{% if u.control_context %} · 条件/循环内，路径未求值{% endif %}</p>{% if u.role == "write_value" %}<p class="muted small">子 TI 原定义：<code>{{ u.write_expression }}</code></p>{% endif %}{% else %}<p class="chore-warning">UNKNOWN · 没有可确认的使用链，不据此判为未使用。</p>{% endfor %}
 {% if b.uses|length > 20 %}<p class="chore-warning">PARTIAL · 使用位置展示前 20 条。</p>{% endif %}
-{% if b.uses_hidden %}<p class="chore-warning">范围 · 还有 {{ b.uses_hidden }} 条使用位置指向 } 前缀立方体，已按页面范围隐藏；此处偏少不等于该参数未使用。</p>{% endif %}
+{% if b.uses_hidden %}<p class="chore-warning">范围 · 还有 {{ b.uses_hidden }} 条使用位置指向日志或系统立方体，已按页面范围隐藏；此处偏少不等于该参数未使用。</p>{% endif %}
 </div></div></article>
 {% else %}<p class="muted">该调用没有可列出的完整参数对；请核对源码及缺省参数。</p>{% endfor %}
 <p class="chore-warning">未显式传入的非敏感声明：{{ report.omitted_parameters|join('、') or '无可列出的声明' }}。未展开缺省值，不能推断实际输入。</p>
 </section>
 {% endif %}
 <section class="calculation-step"><h2>未知项与验证边界</h2>{% for d in report.diagnostics %}<p class="chore-warning">{{ d }}</p>{% endfor %}</section>
-<section class="card"><h2>保存核对材料</h2><p class="muted small">导出当前可见的内容{% if scope.hidden %}（{{ scope.writes }} 条子 TI 写入点、{{ scope.uses }} 条参数使用位置因 } 前缀被排除，文件正文会写明取回方式）{% endif %}，含私有对象名称与静态证据，仅供本地保管。不是运行结果或迁移等价声明。</p><div class="study-actions"><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;system={{ 1 if system else 0 }}">下载私有 JSON</a><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;format=markdown&amp;system={{ 1 if system else 0 }}">下载 Markdown</a>{% if scope.hidden and not system %}<a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;system=1">全量 JSON（含 } 前缀）</a>{% endif %}</div></section>
+<section class="card"><h2>保存核对材料</h2><p class="muted small">导出当前可见的内容{% if scope.hidden %}（{{ scope.writes }} 条子 TI 写入点、{{ scope.uses }} 条参数使用位置因日志/系统范围被排除，文件正文会写明取回方式）{% endif %}，含私有对象名称与静态证据，仅供本地保管。不是运行结果或迁移等价声明。</p><div class="study-actions"><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;system={{ 1 if system else 0 }}">下载私有 JSON</a><a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;format=markdown&amp;system={{ 1 if system else 0 }}">下载 Markdown</a>{% if scope.hidden and not system %}<a class="btn ghost" href="/api/invocation/export?name={{ report.process|urlencode }}&amp;call={{ report.call.id }}&amp;source={{ report.model_fingerprint }}&amp;system=1">全量 JSON（含 } 前缀）</a>{% endif %}</div></section>
 {% endblock %}

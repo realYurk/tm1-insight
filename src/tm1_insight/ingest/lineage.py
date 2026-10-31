@@ -32,12 +32,23 @@ LOG_MEASURE_VALUES = {
 }
 
 
+def is_log_cube(name):
+    """按名字判断是不是日志 cube。
+
+    写入侧（``process_writes_cube``）与计算检查页（``worksheet`` 解析出的写入点）
+    是两条独立的生产链路，唯一的口径差就是这一类：血缘图**有意**不追踪日志写入，
+    计算页则把源码里每一处 ``CellPutN`` 都列出来。两边都不算错，但不能各判各的——
+    这份清单是唯一判据，谁要过滤或标注都调它。
+    """
+    target = name or ""
+    return any(pat in target for pat in LOG_CUBE_PATTERNS)
+
+
 def is_log_write(wp):
     target = wp.get("target_cube") or ""
     target_expr = wp.get("target_cube_expr") or ""
-    for pat in LOG_CUBE_PATTERNS:
-        if pat in target or pat in target_expr:
-            return True
+    if is_log_cube(target) or is_log_cube(target_expr):
+        return True
     if target_expr in ("sProcLogCube", "sCubLogCube", "cCubRespMsg"):
         return True
     dim_args = wp.get("dim_args") or []
@@ -52,11 +63,7 @@ def is_log_write(wp):
 
 
 def is_log_read(rp):
-    source = rp.get("source_cube") or ""
-    for pat in LOG_CUBE_PATTERNS:
-        if pat in source:
-            return True
-    return False
+    return is_log_cube(rp.get("source_cube") or "")
 
 
 def is_framework_read(rp):
