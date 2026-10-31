@@ -22,6 +22,7 @@ from html import escape
 import hashlib
 import io
 import json
+import re
 import tempfile
 from typing import Literal
 import zipfile
@@ -59,9 +60,23 @@ PROVENANCE = {
 CORE_BUDGET = dict(processes=(1, 20, 8), write_points=(1, 80, 20), rules=(1, 120, 40),
                    evidence=(500, 20000, 4000), objects=(1, 60, 24))
 
-# Markdown stays readable: full detail for the first N writes, then a summary.
+# Markdown stays readable. A real module can carry a 400 KB rule text and a rule
+# area naming forty members; pasting all of it into prose is not a dossier, it is
+# a dump. Every limit below is stated inside the document, so a shortened section
+# never reads as a complete one.
 DETAIL_LIMIT = 20
-RULE_ROW_LIMIT = 80
+RULE_ROW_LIMIT = 25
+FEEDER_ROW_LIMIT = 20
+RULE_AREA_CHARS = 96
+RULE_EXPRESSION_CHARS = 240
+RULE_REFERENCE_LIMIT = 4
+GAP_LOCATION_SAMPLE = 6
+MARKDOWN_CHAR_BUDGET = 120_000
+
+# "第 9–15 行：AREA_MEMBER_OWNERSHIP_UNKNOWN: ..." -> location + reason.
+# Splitting it is what lets twenty rules failing for the same reason collapse
+# into one entry instead of twenty rows of identical text.
+_LOCATION_PREFIX = re.compile(r'^第\s*([0-9]+(?:\s*[–\-]\s*[0-9]+)?)\s*行\s*[：:]\s*')
 
 
 class Ref(BaseModel):
@@ -772,21 +787,47 @@ def build(con, scope: Scope, progress=None) -> dict:
     evidence = Evidence(snapshot, scope.max_evidence)
     diagnostics: list[dict] = []
     gaps: list[dict] = []
-    gap_keys = set()
+    gap_index: dict[tuple, int] = {}
+    gap_entries: list[dict] = []
 
     def tick(stage, index, current=0, total=None):
         if progress:
             progress(stage=stage, stage_index=index, stages_total=6, current=current, total=total)
 
     def gap(obj, obj_type, section, code, reason, impact, verification, refs=(), severity='warning'):
-        key = (obj, code, reason)
-        if key in gap_keys:
+        """Record one gap, folding repeats of the same cause on the same object.
+
+        One real cube produced 415 RULE_PARTIAL and 199 FEEDER_PARTIAL rows, and
+        614 of them said the same sentence. A list where 93% of the lines are the
+        same sentence is not a report; it hides the twelve gaps that differ. The
+        location moves out of the reason and into ``locations``, the cause becomes
+        the join key, and ``count`` keeps the weight honest. Every individual
+        occurrence survives in ``gap_entries`` for Module.json.
+        """
+        match = _LOCATION_PREFIX.match(reason)
+        location = match.group(1) if match else None
+        cause = reason[match.end():] if match else reason
+        refs_list = evidence.refs(*refs)
+        gap_entries.append(dict(object=obj, object_type=obj_type, section=section, code=code,
+                                location=location, reason=cause, impact=impact,
+                                verification=verification, severity=severity,
+                                evidence_refs=refs_list))
+        index = gap_index.get((obj, section, code, cause))
+        if index is not None:
+            entry = gaps[index]
+            entry['count'] += 1
+            if location and location not in entry['locations']:
+                entry['locations'].append(location)
+            for ref in refs_list:
+                if ref not in entry['evidence_refs'] and len(entry['evidence_refs']) < 6:
+                    entry['evidence_refs'].append(ref)
             return
-        gap_keys.add(key)
+        gap_index[(obj, section, code, cause)] = len(gaps)
         gaps.append(dict(gap_id='GAP-%03d' % (len(gaps) + 1), object=obj, object_type=obj_type,
-                         section=section, code=code, reason=reason, impact=impact,
-                         verification=verification, severity=severity,
-                         provenance=PROVENANCE['UNKNOWN'], evidence_refs=evidence.refs(*refs)))
+                         section=section, code=code, reason=cause, impact=impact,
+                         verification=verification, severity=severity, count=1,
+                         locations=[location] if location else [],
+                         provenance=PROVENANCE['UNKNOWN'], evidence_refs=refs_list))
 
     tick('核对入口与候选范围', 1)
     discovery = discover(con, scope)
@@ -1172,11 +1213,12 @@ def build(con, scope: Scope, progress=None) -> dict:
         execution_calls=sorted(calls, key=lambda c: (c['caller'], (c['location'].get('line') or 0))),
         schedules=schedules, entry_callers=callers,
         verification_gaps=gaps,
+        verification_gap_entries=gap_entries,
         coverage=dict(processes_analyzed=len(facts),
                       processes_in_scope=len(membership['processes']),
                       cubes_modeled=len(models), cubes_with_rules=len(analyzed_rules),
                       write_points=len(results), rules=len(rules), feeders=len(feeders),
-                      gaps=len(gaps), evidence=len(evidence.items),
+                      gaps=len(gaps), gap_entries=len(gap_entries), evidence=len(evidence.items),
                       runtime_verified=0, complete=False),
         evidence=evidence.items,
         diagnostics=diagnostics,
@@ -1242,6 +1284,33 @@ def _code(value) -> str:
     return text.replace('|', '\\|').replace('`', '\\`').replace('\r', ' ').replace('\n', ' ')
 
 
+def _clip(value, limit: int) -> str:
+    """Shorten for the Markdown view only. The JSON keeps the full value.
+
+    Rule areas and expressions in a real model routinely run past a thousand
+    characters; a table row that wraps forty times is not evidence, it is noise.
+    The caller states the clipping in the caption so a shortened cell is never
+    mistaken for a complete one.
+    """
+    text = str(value if value is not None else '')
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + '…'
+
+
+def _location_text(gap: dict) -> str:
+    """Where the gap is, collapsed. One row may stand for dozens of lines."""
+    locations = list(gap.get('locations') or [])
+    count = gap.get('count') or 1
+    if not locations:
+        return '%d 处' % count if count > 1 else '—'
+    shown = '、'.join('第 %s 行' % item for item in locations[:GAP_LOCATION_SAMPLE])
+    total = max(count, len(locations))
+    if total > GAP_LOCATION_SAMPLE:
+        shown += ' 等 %d 处' % total
+    return shown
+
+
 def _table(heads, rows):
     if not rows:
         return ['_无已确认记录。_', '']
@@ -1287,8 +1356,17 @@ def _evidence_where(item: dict) -> str:
     return '模型事实（无源码行）'
 
 
-def markdown(model: dict) -> str:
-    """Reader-first report. No full source, no large JSON dumps."""
+def markdown(model: dict, rule_limit: int = RULE_ROW_LIMIT,
+             detail_limit: int = DETAIL_LIMIT) -> str:
+    """Reader-first report. No full source, no large JSON dumps.
+
+    A real module carries 84 rules whose areas and expressions run to thousands
+    of characters; rendering every one of them in full produced a 335 KB file
+    and an unreadable rule section. Detail is bounded, the bound is printed, and
+    what was cut stays in Module.json. If the result still exceeds the budget the
+    function re-renders itself once with fewer rule rows rather than shipping a
+    document nobody will open.
+    """
     lines: list[str] = []
     module = model['module']
     coverage = model['coverage']
@@ -1433,8 +1511,8 @@ def markdown(model: dict) -> str:
                 _cell(effect['target'] or '参数决定（未解析）'),
                 _cell(_location(effect['location'])), _cell(' '.join(effect['evidence_refs'])))]
         lines += ['', '> 清空/准备动作只证明源码中发生过该调用；目标 Cube 若由参数决定，则未确认实际清空范围。', '']
-    detail = model['target_results'][:DETAIL_LIMIT]
-    rest = model['target_results'][DETAIL_LIMIT:]
+    detail = model['target_results'][:detail_limit]
+    rest = model['target_results'][detail_limit:]
     for result in detail:
         lines += ['### %s · %s → %s' % (_cell(result['result_id']), _cell(result['operation']), _cell(result['cube'])), '',
                   '- 写入模式：**%s**（%s）｜ 来源：%s ｜ 确认度：%s' % (
@@ -1470,7 +1548,7 @@ def markdown(model: dict) -> str:
     if rest:
         lines += ['### 其余写入点（摘要）', '',
                   '为保持可读性，正文只展开前 %d 处写入；下列 %d 处保留在 Module.json 中。' % (
-                      DETAIL_LIMIT, len(rest)), '',
+                      detail_limit, len(rest)), '',
                   '| # | 程序 | 写入模式 | 目标坐标确认 | 值表达式 | 证据 |', '|---|---|---|---|---|---|']
         for result in rest:
             lines += ['| %s | %s | %s | %s | `%s` | %s |' % (
@@ -1484,35 +1562,53 @@ def markdown(model: dict) -> str:
     lines += ['## 5. Rule 与 Feeder', '',
               'Rule 是声明式计算，**不是 TI 的物理写入**；Feeder 只声明稀疏支持关系，不产生业务数值。', '']
     if model['rules']:
-        lines += ['### Rule', '', '| 行 | 目标区域 | 条件 | 表达式 | 状态 | 引用 | 证据 |',
+        lines += ['| 行 | 目标区域 | 条件 | 表达式 | 状态 | 引用 | 证据 |',
                   '|---|---|---|---|---|---|---|']
-        for rule in model['rules'][:RULE_ROW_LIMIT]:
+        for rule in model['rules'][:rule_limit]:
             references = '；'.join('%s%s' % (_cell(r.get('cube')),
                                             '' if r.get('cube_resolved') else '（未解析）')
-                                   for r in rule['references']) or '无'
+                                   for r in rule['references'][:RULE_REFERENCE_LIMIT]) or '无'
+            if len(rule['references']) > RULE_REFERENCE_LIMIT:
+                references += ' 等 %d 个' % len(rule['references'])
             lines += ['| %s | `%s` | %s | `%s` | %s | %s | %s |' % (
                 _cell('%s-%s' % (rule['line_start'], rule['line_end'])),
-                _code(rule['area'].get('raw')), _cell(rule.get('qualifier')),
-                _code(rule.get('expression')), _cell(rule['status']), _cell(references),
-                _cell(' '.join(rule['evidence_refs'])))]
+                _code(_clip(rule['area'].get('raw'), RULE_AREA_CHARS)), _cell(rule.get('qualifier')),
+                _code(_clip(rule.get('expression'), RULE_EXPRESSION_CHARS)), _cell(rule['status']),
+                _cell(references), _cell(' '.join(rule['evidence_refs'])))]
         lines.append('')
-        if len(model['rules']) > RULE_ROW_LIMIT:
-            lines += ['_其余 %d 条 Rule 见 Module.json。_' % (len(model['rules']) - RULE_ROW_LIMIT), '']
+        clipped = [r for r in model['rules'][:rule_limit]
+                   if len(str(r.get('expression') or '')) > RULE_EXPRESSION_CHARS
+                   or len(str(r['area'].get('raw') or '')) > RULE_AREA_CHARS]
+        if clipped:
+            lines += ['_区域截断至 %d 字符、表达式截断至 %d 字符（%d 条有截断）；完整文本见 Module.json。_'
+                      % (RULE_AREA_CHARS, RULE_EXPRESSION_CHARS, len(clipped)), '']
+        if len(model['rules']) > rule_limit:
+            lines += ['_其余 %d 条 Rule 见 Module.json。_' % (len(model['rules']) - rule_limit), '']
         unresolved = [(r['cube'], r['line_start'], x) for r in model['rules'] for x in r['unresolved_reasons']]
         if unresolved:
-            lines += ['Rule 未确认项：', '']
-            lines += ['- %s 第 %s 行：%s' % (_cell(a), _cell(b), _cell(c)) for a, b, c in unresolved[:12]]
+            lines += ['Rule 未确认项（同一原因合并计数）：', '']
+            counted: dict[str, int] = {}
+            for _, _, reason in unresolved:
+                counted[reason] = counted.get(reason, 0) + 1
+            for reason, times in sorted(counted.items(), key=lambda kv: (-kv[1], kv[0]))[:10]:
+                lines += ['- %s（%d 条）' % (_cell(reason), times)]
+            if len(counted) > 10:
+                lines += ['- 另有 %d 类原因见 Module.json。' % (len(counted) - 10)]
             lines.append('')
     else:
         lines += ['_范围内 Cube 未记录可解析的 Rule 源码；这不等于该 Cube 一定没有 Rule（见第 7 节）。_', '']
     if model['feeders']:
         lines += ['### Feeder（非数值流）', '', '| 行 | 源区域 | 目标区域 | 状态 | 证据 |', '|---|---|---|---|---|']
-        for feeder in model['feeders']:
+        for feeder in model['feeders'][:FEEDER_ROW_LIMIT]:
             lines += ['| %s | `%s` | `%s` | %s | %s |' % (
-                _cell(feeder['line_start']), _code(feeder.get('source_area')),
-                _code(feeder.get('target_area')), _cell(feeder['status']),
+                _cell(feeder['line_start']), _code(_clip(feeder.get('source_area'), RULE_AREA_CHARS)),
+                _code(_clip(feeder.get('target_area'), RULE_EXPRESSION_CHARS)), _cell(feeder['status']),
                 _cell(' '.join(feeder['evidence_refs'])))]
         lines.append('')
+        if len(model['feeders']) > FEEDER_ROW_LIMIT:
+            lines += ['_其余 %d 条 Feeder 见 Module.json；区域列同样截断至 %d / %d 字符。_'
+                      % (len(model['feeders']) - FEEDER_ROW_LIMIT, RULE_AREA_CHARS,
+                         RULE_EXPRESSION_CHARS), '']
     if model.get('rule_directives'):
         lines += ['Rule 指令：' + '、'.join(_cell(d.get('kind')) for d in model['rule_directives'][:8]), '']
 
@@ -1539,13 +1635,21 @@ def markdown(model: dict) -> str:
         lines += ['入口 Caller（索引观察）：' + '、'.join(_cell(c['caller']) for c in model['entry_callers'][:10]), '']
 
     # 7 验证缺口
+    entries = coverage.get('gap_entries') or len(model['verification_gaps'])
     lines += ['## 7. 验证缺口', '',
-              '每条缺口都说明「为什么不知道」和「需要补什么」，不静默补值。', '',
-              '| # | 对象 | 环节 | 代码 | 原因 | 影响 | 如何确认 |', '|---|---|---|---|---|---|---|']
+              '每条缺口都说明「为什么不知道」和「需要补什么」，不静默补值。', '']
+    if entries > len(model['verification_gaps']):
+        lines += ['同一对象上的同一原因合并为一行：**%d 组 / %d 处**。'
+                  '`受影响` 只列前 %d 个位置，逐条记录见 Module.json 的 '
+                  '`verification_gap_entries`。' % (len(model['verification_gaps']), entries,
+                                                   GAP_LOCATION_SAMPLE), '']
+    lines += ['| # | 对象 | 环节 | 代码 | 受影响 | 原因 | 影响 | 如何确认 |',
+              '|---|---|---|---|---|---|---|---|']
     for gap in model['verification_gaps']:
-        lines += ['| %s | %s | %s | %s | %s | %s | %s |' % (
+        lines += ['| %s | %s | %s | %s | %s | %s | %s | %s |' % (
             gap['gap_id'], _cell(gap['object']), _cell(gap['section']), _cell(gap['code']),
-            _cell(gap['reason']), _cell(gap['impact']), _cell(gap['verification']))]
+            _cell(_location_text(gap)), _cell(gap['reason']), _cell(gap['impact']),
+            _cell(gap['verification']))]
     lines.append('')
 
     # 8 阅读边界
@@ -1565,7 +1669,13 @@ def markdown(model: dict) -> str:
     lines += ['', '### 已知限制', '']
     lines += ['- ' + _cell(x) for x in model['limitations']]
     lines += ['', '模块 ID：`%s` ｜ Snapshot：%s' % (module['id'], _cell(model['snapshot_ref'])), '']
-    return '\n'.join(lines)
+    text = '\n'.join(lines)
+    if len(text) > MARKDOWN_CHAR_BUDGET and (rule_limit > 6 or detail_limit > 4):
+        # One re-render with fewer rows beats truncating mid-table, which would
+        # leave a half-rendered section pretending to be whole. Both knobs move:
+        # a module with no rules can still overflow on write points alone.
+        return markdown(model, max(6, rule_limit // 3), max(4, detail_limit // 2))
+    return text
 
 
 def questions(model: dict) -> str:
@@ -1573,6 +1683,10 @@ def questions(model: dict) -> str:
     lines = ['# 待确认问题 · ' + _plain(model['module']['name']), '',
              '以下问题全部来自档案中的缺口项。每项说明「要确认什么」和「为什么现在不能确定」。',
              '回答这些问题不会自动改写事实；请把结论作为人工标注另行保存。', '']
+    entries = model.get('coverage', {}).get('gap_entries') or len(model['verification_gaps'])
+    if entries > len(model['verification_gaps']):
+        lines += ['_同一对象上的同一原因已合并：%d 组问题覆盖 %d 处缺口，'
+                  '逐条位置见 Module.json。_' % (len(model['verification_gaps']), entries), '']
     groups = {
         'data_sources': '数据来源与字段',
         'data_model': '数据模型与粒度',
@@ -1592,7 +1706,11 @@ def questions(model: dict) -> str:
             continue
         lines += ['## ' + title, '']
         for gap in items:
-            lines += ['### %s · %s' % (gap['gap_id'], _plain(gap['object'])), '',
+            where = _location_text(gap)
+            heading = '%s · %s' % (gap['gap_id'], _plain(gap['object']))
+            if where != '—':
+                heading += ' · ' + _plain(where)
+            lines += ['### ' + heading, '',
                       '- 现象：' + _plain(gap['reason']),
                       '- 影响：' + _plain(gap['impact']),
                       '- 需要：' + _plain(gap['verification']),

@@ -7,7 +7,7 @@
 ## 0. 一页摘要
 
 - 覆盖：流程 4 / 4 个，Cube 结构 2 个，写入点 2 处，Rule 2 条，Feeder 1 条。
-- 未确认事项：22 项（见第 7 节与 Questions.md）。运行验证：0 项。
+- 未确认事项：20 项（见第 7 节与 Questions.md）。运行验证：0 项。
 - 已确认的数据来源 Cube：General Ledger。
 - 已确认的写入目标：Expense Account Balance。
 - 人工说明：用户说明：月结时把总账里的费用科目汇总到费用余额表；未验证。
@@ -176,21 +176,17 @@ _该流程未观察到影响输出的读写动作（未被后续引用的读取�
 
 Rule 是声明式计算，**不是 TI 的物理写入**；Feeder 只声明稀疏支持关系，不产生业务数值。
 
-### Rule
-
 | 行 | 目标区域 | 条件 | 表达式 | 状态 | 引用 | 证据 |
 |---|---|---|---|---|---|---|
 | 1-1 | `[ 'AMT' ]` | N | `DB ( 'General Ledger' , ! Account , ! Period , ! Version , 'AMT' ) * pFactor` | PARTIAL | General Ledger | EV-0020 |
 | 2-2 | `[ 'QTY' ]` | N | `DB ( pSourceCube , ! Account , ! Period , ! Version , 'QTY' )` | PARTIAL | pSourceCube（未解析） | EV-0022 |
 
-Rule 未确认项：
+Rule 未确认项（同一原因合并计数）：
 
-- Expense Account Balance 第 1 行：AREA_MEMBER_OWNERSHIP_UNKNOWN: 裸成员/集合缺少成员归属索引；不能按 Cube 维度顺序推断
-- Expense Account Balance 第 1 行：AREA_COORDINATE_UNCONFIRMED: 区域坐标仍有未确认项
-- Expense Account Balance 第 1 行：EXPRESSION_SEMANTICS_NOT_RECONSTRUCTED: 仅保留表达式结构和引用，未还原完整计算语义
-- Expense Account Balance 第 2 行：AREA_MEMBER_OWNERSHIP_UNKNOWN: 裸成员/集合缺少成员归属索引；不能按 Cube 维度顺序推断
-- Expense Account Balance 第 2 行：AREA_COORDINATE_UNCONFIRMED: 区域坐标仍有未确认项
-- Expense Account Balance 第 2 行：DB_CUBE_DYNAMIC: Cube 身份没有由字面量和目录共同确认
+- AREA_COORDINATE_UNCONFIRMED: 区域坐标仍有未确认项（2 条）
+- AREA_MEMBER_OWNERSHIP_UNKNOWN: 裸成员/集合缺少成员归属索引；不能按 Cube 维度顺序推断（2 条）
+- DB_CUBE_DYNAMIC: Cube 身份没有由字面量和目录共同确认（1 条）
+- EXPRESSION_SEMANTICS_NOT_RECONSTRUCTED: 仅保留表达式结构和引用，未还原完整计算语义（1 条）
 
 ### Feeder（非数值流）
 
@@ -214,30 +210,30 @@ Rule 未确认项：
 
 每条缺口都说明「为什么不知道」和「需要补什么」，不静默补值。
 
-| # | 对象 | 环节 | 代码 | 原因 | 影响 | 如何确认 |
-|---|---|---|---|---|---|---|
-| GAP-001 | Expense Account Balance | rules | RULE_PARTIAL | 第 1–1 行：AREA_MEMBER_OWNERSHIP_UNKNOWN: 裸成员/集合缺少成员归属索引；不能按 Cube 维度顺序推断 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
-| GAP-002 | Expense Account Balance | rules | RULE_PARTIAL | 第 1–1 行：AREA_COORDINATE_UNCONFIRMED: 区域坐标仍有未确认项 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
-| GAP-003 | Expense Account Balance | rules | RULE_PARTIAL | 第 1–1 行：EXPRESSION_SEMANTICS_NOT_RECONSTRUCTED: 仅保留表达式结构和引用，未还原完整计算语义 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
-| GAP-004 | Expense Account Balance | rules | RULE_PARTIAL | 第 2–2 行：AREA_MEMBER_OWNERSHIP_UNKNOWN: 裸成员/集合缺少成员归属索引；不能按 Cube 维度顺序推断 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
-| GAP-005 | Expense Account Balance | rules | RULE_PARTIAL | 第 2–2 行：AREA_COORDINATE_UNCONFIRMED: 区域坐标仍有未确认项 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
-| GAP-006 | Expense Account Balance | rules | RULE_PARTIAL | 第 2–2 行：DB_CUBE_DYNAMIC: Cube 身份没有由字面量和目录共同确认 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
-| GAP-007 | Expense Account Balance | rules | RULE_DYNAMIC_REFERENCE | Rule 引用了未解析的 Cube 名（动态表达式） | 跨 Cube 依赖与目标坐标不完整 | 确认该 DB() 参数的取值来源 |
-| GAP-008 | Expense Account Balance | feeders | FEEDER_PARTIAL | 第 4 行：FEEDER_SOURCE_INCOMPLETE: 馈送源区域不完整 | Feeder 目标区域未完全确认 | 核对该行源码与区域成员 |
-| GAP-009 | Expense Account Balance | feeders | FEEDER_PARTIAL | 第 4 行：AREA_MEMBER_OWNERSHIP_UNKNOWN: 裸成员/集合缺少成员归属索引；不能按 Cube 维度顺序推断 | Feeder 目标区域未完全确认 | 核对该行源码与区域成员 |
-| GAP-010 | Expense Account Balance | feeders | FEEDER_PARTIAL | 第 4 行：AREA_COORDINATE_UNCONFIRMED: 区域坐标仍有未确认项 | Feeder 目标区域未完全确认 | 核对该行源码与区域成员 |
-| GAP-011 | Expense Account Balance | feeders | FEEDER_PARTIAL | 第 4 行：FEEDER_AREA_UNKNOWN: 馈送源/目标关键结构未确认 | Feeder 目标区域未完全确认 | 核对该行源码与区域成员 |
-| GAP-012 | General Ledger | rules | RULE_SOURCE_NOT_RECORDED | 本快照未记录该 Cube 的 Rule 源码（has_rules=false） | 不能据此断定该 Cube 没有 Rule；若存在 Rule，计算关系缺失 | 在源模型中确认该 Cube 是否有 Rule，并补采其源码 |
-| GAP-013 | TI.Load.ExpenseBalance | target_results | COORDINATE_UNRESOLVED | 写入 CellPutN → Expense Account Balance 的目标坐标未完整确认（PARTIAL） | 实际写入的成员范围不确定 | 核对目标维度顺序、动态坐标与成员目录 |
-| GAP-014 | TI.Load.ExpenseBalance | target_results | WRITE_VALUE_UNRESOLVED | 写入值或依赖未解析：函数 AttrS 的返回值语义未支持；不推导其值流 | 该写入点无法给出完整公式 | 核对该位置的变量定义链与来源字段 |
-| GAP-015 | TI.Load.ExpenseBalance | target_results | CONDITION_NOT_EVALUATED | 写入受条件/循环控制但未求值：( vVersion @ = &#x27;&lt;常量&gt;&#x27; &amp; vMeasure @ = &#x27;&lt;常量&gt;&#x27; ) | 不能确认实际写入次数与哪一行会执行 | 用覆盖该条件的测试夹具验证可达性 |
-| GAP-016 | Chore.MonthEndClose | data_sources | PARAMETER_TYPE_NOT_COLLECTED | 未采集该 Process 的参数定义；仅有参数名可用。 | 只能列出参数名，无法确认可接受取值范围 | 用 collect-process-metadata 补采该 TI 的参数定义 |
-| GAP-017 | TI.Report.ExpenseReview | data_sources | PARAMETER_TYPE_NOT_COLLECTED | 未采集该 Process 的参数定义；仅有参数名可用。 | 只能列出参数名，无法确认可接受取值范围 | 用 collect-process-metadata 补采该 TI 的参数定义 |
-| GAP-018 | }bedrock.synthetic.clear | data_sources | PARAMETER_TYPE_NOT_COLLECTED | 未采集该 Process 的参数定义；仅有参数名可用。 | 只能列出参数名，无法确认可接受取值范围 | 用 collect-process-metadata 补采该 TI 的参数定义 |
-| GAP-019 | Chore.MonthEndClose | execution_calls | DYNAMIC_CALL_TARGET | 动态调用目标未确认：pOptionalStep | 被调用流程、参数契约与副作用未知 | 核对该位置的调用目标表达式与参数来源 |
-| GAP-020 | }bedrock.synthetic.clear | target_results | CLEAR_TARGET_UNRESOLVED | 清空操作（ViewZeroOut）的目标由参数决定，未解析到具体 Cube | 不能确认目标 Cube 是否先被清空，也就不能推断结果是覆盖还是叠加 | 核对调用方传入了哪个 Cube 参数，或在授权环境记录清空前后范围 |
-| GAP-021 | Expense Account Balance 月度结转 | verification | EXECUTION_ORDER_UNPROVEN | 跨独立 TI 的全局执行顺序、重复执行与清空范围未验证 | 不能据此推断最终数值、幂等性或覆盖结果 | 在授权测试环境按调用参数、清空成员范围与重复累加建立金标测试 |
-| GAP-022 | Expense Account Balance 月度结转 | verification | RUNTIME_NOT_VERIFIED | 本档案为静态源码与采集模型事实，未执行 TM1 | 所有公式与映射都不是运行贡献或迁移等价证明 | 需要隔离环境的运行记录、数值对账与等价测试 |
+同一对象上的同一原因合并为一行：**20 组 / 22 处**。`受影响` 只列前 6 个位置，逐条记录见 Module.json 的 `verification_gap_entries`。
+
+| # | 对象 | 环节 | 代码 | 受影响 | 原因 | 影响 | 如何确认 |
+|---|---|---|---|---|---|---|---|
+| GAP-001 | Expense Account Balance | rules | RULE_PARTIAL | 第 1–1 行、第 2–2 行 | AREA_MEMBER_OWNERSHIP_UNKNOWN: 裸成员/集合缺少成员归属索引；不能按 Cube 维度顺序推断 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
+| GAP-002 | Expense Account Balance | rules | RULE_PARTIAL | 第 1–1 行、第 2–2 行 | AREA_COORDINATE_UNCONFIRMED: 区域坐标仍有未确认项 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
+| GAP-003 | Expense Account Balance | rules | RULE_PARTIAL | 第 1–1 行 | EXPRESSION_SEMANTICS_NOT_RECONSTRUCTED: 仅保留表达式结构和引用，未还原完整计算语义 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
+| GAP-004 | Expense Account Balance | rules | RULE_PARTIAL | 第 2–2 行 | DB_CUBE_DYNAMIC: Cube 身份没有由字面量和目录共同确认 | 该条 Rule 的完整区域或表达式未确认 | 核对该行源码与成员索引 |
+| GAP-005 | Expense Account Balance | rules | RULE_DYNAMIC_REFERENCE | — | Rule 引用了未解析的 Cube 名（动态表达式） | 跨 Cube 依赖与目标坐标不完整 | 确认该 DB() 参数的取值来源 |
+| GAP-006 | Expense Account Balance | feeders | FEEDER_PARTIAL | 第 4 行 | FEEDER_SOURCE_INCOMPLETE: 馈送源区域不完整 | Feeder 目标区域未完全确认 | 核对该行源码与区域成员 |
+| GAP-007 | Expense Account Balance | feeders | FEEDER_PARTIAL | 第 4 行 | AREA_MEMBER_OWNERSHIP_UNKNOWN: 裸成员/集合缺少成员归属索引；不能按 Cube 维度顺序推断 | Feeder 目标区域未完全确认 | 核对该行源码与区域成员 |
+| GAP-008 | Expense Account Balance | feeders | FEEDER_PARTIAL | 第 4 行 | AREA_COORDINATE_UNCONFIRMED: 区域坐标仍有未确认项 | Feeder 目标区域未完全确认 | 核对该行源码与区域成员 |
+| GAP-009 | Expense Account Balance | feeders | FEEDER_PARTIAL | 第 4 行 | FEEDER_AREA_UNKNOWN: 馈送源/目标关键结构未确认 | Feeder 目标区域未完全确认 | 核对该行源码与区域成员 |
+| GAP-010 | General Ledger | rules | RULE_SOURCE_NOT_RECORDED | — | 本快照未记录该 Cube 的 Rule 源码（has_rules=false） | 不能据此断定该 Cube 没有 Rule；若存在 Rule，计算关系缺失 | 在源模型中确认该 Cube 是否有 Rule，并补采其源码 |
+| GAP-011 | TI.Load.ExpenseBalance | target_results | COORDINATE_UNRESOLVED | — | 写入 CellPutN → Expense Account Balance 的目标坐标未完整确认（PARTIAL） | 实际写入的成员范围不确定 | 核对目标维度顺序、动态坐标与成员目录 |
+| GAP-012 | TI.Load.ExpenseBalance | target_results | WRITE_VALUE_UNRESOLVED | — | 写入值或依赖未解析：函数 AttrS 的返回值语义未支持；不推导其值流 | 该写入点无法给出完整公式 | 核对该位置的变量定义链与来源字段 |
+| GAP-013 | TI.Load.ExpenseBalance | target_results | CONDITION_NOT_EVALUATED | — | 写入受条件/循环控制但未求值：( vVersion @ = &#x27;&lt;常量&gt;&#x27; &amp; vMeasure @ = &#x27;&lt;常量&gt;&#x27; ) | 不能确认实际写入次数与哪一行会执行 | 用覆盖该条件的测试夹具验证可达性 |
+| GAP-014 | Chore.MonthEndClose | data_sources | PARAMETER_TYPE_NOT_COLLECTED | — | 未采集该 Process 的参数定义；仅有参数名可用。 | 只能列出参数名，无法确认可接受取值范围 | 用 collect-process-metadata 补采该 TI 的参数定义 |
+| GAP-015 | TI.Report.ExpenseReview | data_sources | PARAMETER_TYPE_NOT_COLLECTED | — | 未采集该 Process 的参数定义；仅有参数名可用。 | 只能列出参数名，无法确认可接受取值范围 | 用 collect-process-metadata 补采该 TI 的参数定义 |
+| GAP-016 | }bedrock.synthetic.clear | data_sources | PARAMETER_TYPE_NOT_COLLECTED | — | 未采集该 Process 的参数定义；仅有参数名可用。 | 只能列出参数名，无法确认可接受取值范围 | 用 collect-process-metadata 补采该 TI 的参数定义 |
+| GAP-017 | Chore.MonthEndClose | execution_calls | DYNAMIC_CALL_TARGET | — | 动态调用目标未确认：pOptionalStep | 被调用流程、参数契约与副作用未知 | 核对该位置的调用目标表达式与参数来源 |
+| GAP-018 | }bedrock.synthetic.clear | target_results | CLEAR_TARGET_UNRESOLVED | — | 清空操作（ViewZeroOut）的目标由参数决定，未解析到具体 Cube | 不能确认目标 Cube 是否先被清空，也就不能推断结果是覆盖还是叠加 | 核对调用方传入了哪个 Cube 参数，或在授权环境记录清空前后范围 |
+| GAP-019 | Expense Account Balance 月度结转 | verification | EXECUTION_ORDER_UNPROVEN | — | 跨独立 TI 的全局执行顺序、重复执行与清空范围未验证 | 不能据此推断最终数值、幂等性或覆盖结果 | 在授权测试环境按调用参数、清空成员范围与重复累加建立金标测试 |
+| GAP-020 | Expense Account Balance 月度结转 | verification | RUNTIME_NOT_VERIFIED | — | 本档案为静态源码与采集模型事实，未执行 TM1 | 所有公式与映射都不是运行贡献或迁移等价证明 | 需要隔离环境的运行记录、数值对账与等价测试 |
 
 ## 8. 阅读边界与证据索引
 

@@ -386,3 +386,78 @@ def test_build_is_deterministic_and_read_only(model):
             assert action['location']['section'] in {'prolog', 'metadata', 'data', 'epilog'}
             assert action['order_basis'] == 'SOURCE_LOCATION_ORDER'
     assert all(g['provenance'] == 'UNKNOWN' for g in first['verification_gaps'])
+
+
+# ---------------------------------------------------------------------------
+# 8. Readability at real scale
+#
+# A 436 KB rule text produced a 335 KB Module.md in which the rule section was
+# 187 KB and the gap section 106 KB, 614 of whose rows repeated one sentence.
+# These tests keep that from coming back: they assert what a reader gets, not
+# what the JSON holds.
+# ---------------------------------------------------------------------------
+
+def test_repeated_gaps_collapse_but_every_occurrence_survives(model):
+    document = build(model)
+    folded = [g for g in document['verification_gaps'] if g['count'] > 1]
+    assert folded, '两条同因不同行的 Rule 缺口应合并'
+    assert len(document['verification_gap_entries']) > len(document['verification_gaps'])
+    # The merged row still says where: locations carry the line ranges.
+    assert all(g['locations'] for g in folded)
+
+    text = md.markdown(document)
+    repeated = folded[0]['reason']
+    keys = [(g['object'], g['section'], g['code'], g['reason'])
+            for g in document['verification_gaps']]
+    assert len(keys) == len(set(keys)), '同一对象同一环节同一原因只占一行'
+    # The same sentence in rules and in feeders is two findings, not one: the
+    # area problem is the same, the thing that cannot be confirmed is not.
+    assert any(g['section'] == 'rules' for g in folded)
+    # One table row per merged group -- the reason is still listed once under
+    # 第 5 节, where rule causes are counted, and that is the point of that list.
+    gap_section = text.split('## 7. 验证缺口')[1].split('## 8.')[0]
+    rows = [line for line in gap_section.splitlines() if line.startswith('| GAP-')]
+    assert len(rows) == len(document['verification_gaps'])
+    assert '%d 组 / %d 处' % (len(document['verification_gaps']),
+                              len(document['verification_gap_entries'])) in gap_section
+    # Line numbers moved out of the reason into the 受影响 column.
+    assert '受影响' in gap_section and folded[0]['locations'][0] not in repeated
+    assert '第 %s 行' % folded[0]['locations'][0] in gap_section
+
+
+def test_rule_table_clips_long_text_and_says_it_did(model):
+    document = build(model)
+    template = document['rules'][0]
+    document['rules'] = [dict(template, expression='X' * 5000,
+                              area=dict(template['area'], raw='[' + 'Y' * 5000 + ']'))]
+    text = md.markdown(document)
+    assert 'X' * 500 not in text, '表达式不应整段落入正文'
+    assert '…' in text
+    assert '完整文本见 Module.json' in text
+
+
+def test_markdown_shrinks_before_it_truncates(model, monkeypatch):
+    document = build(model)
+    template = document['rules'][0]
+    # The synthetic model has two rules; a budget can only bite when the table
+    # has more rows than the fallback limit.
+    document['rules'] = [dict(template, line_start=i, line_end=i,
+                              expression='表达式内容 ' * 40) for i in range(1, 31)]
+    full = md.markdown(document)
+    monkeypatch.setattr(md, 'MARKDOWN_CHAR_BUDGET', len(full) - 2000)
+    smaller = md.markdown(document)
+    assert len(smaller) < len(full)
+    assert len(smaller) <= len(full) - 2000
+    # Fewer rule rows, never a document cut mid-table.
+    assert '## 8. 阅读边界与证据索引' in smaller
+    assert '其余 %d 条 Rule 见 Module.json' % (len(document['rules']) - md.RULE_ROW_LIMIT // 3) in smaller
+
+
+def test_questions_group_the_same_cause(model):
+    document = build(model)
+    text = md.questions(document)
+    entries = len(document['verification_gap_entries'])
+    assert entries > len(document['verification_gaps'])
+    assert '%d 组问题覆盖 %d 处缺口' % (len(document['verification_gaps']), entries) in text
+    # One question per merged cause, not one per affected line.
+    assert text.count('### GAP-') == len(document['verification_gaps'])

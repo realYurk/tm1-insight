@@ -140,4 +140,40 @@ tm1-insight collect-process-metadata --process "<入口 TI>" --process "<装载 
 tm1-insight import-process-metadata --bundle "meta.json" --database "D:\acceptance\offline-copy.duckdb"
 ```
 
-Rule 源码需要按 Cube 采集（当前采集器未覆盖），是下一步最高价值的补采项。
+Rule 源码**不需要新开发**。`tm1/client.py::read_cube_rules` 已经实现了三级回退
+（`cube.rules` → `cubes.get_rules` → REST `?$select=Rules`），并在 `fetch_cube` 里
+返回 `rules_status: available|unavailable`，导出器也把它原样落盘。
+
+本次库之所以是 0，是因为 `data/raw/cubes/*.json` 是**旧格式**——只有
+`name/dimensions/rules/has_rules`，没有 `rules_status`。缺了它，`rules: ""` 无法区分
+「这个 Cube 确实没有 Rule」和「这次采集没读到 Rule」，而 `data/raw` 的 3661 个文件
+全部是 `has_rules: false`，不可能全对。
+
+`exporter._export_one` 已经考虑到这种情况（`ingest/exporter.py:58`）：带
+`rules_status == "available"` 的旧文件会被跳过，其余会在下一次采集时重新读取。所以
+把同一份采集配置再跑一次，`cubes` 表就会有 Rule 源码，档案第 5 节随之从空变满，
+不需要改任何档案代码。
+
+---
+
+## 8. 有 Rule 的库上的规模验收（2026-10-31）
+
+前一轮验收用的是 Rule 全空的库，于是「第 5 节永远是空的」被当成产品缺陷看了半天。
+换到仓库内另一份带 Rule 的离线库（`data/demo`）后暴露的真实问题是**可读性**，
+不是缺数据。
+
+| 项 | 值 |
+| --- | --- |
+| 模型规模 | Cube 3338，其中 1339 个有 Rule 源码（最大 616 KB） |
+| 本次模块 | 2 个 TI、5 个 Cube、40 处写入、84 条 Rule、75 条 Feeder |
+| 逐行缺口 / 合并后 | 1035 处 → 86 组 |
+| `Module.md` | 335 K 字符 → **75 K 字符**（规则段 187 K → 15 K，缺口段 106 K → 18 K） |
+| `Questions.md` | 174 K → 30 K 字符 |
+| 生成耗时 | 2.5 s |
+| 库文件 SHA-256 | 前后一致（未被修改） |
+
+处理前后的差别不是「大一点小一点」：335 K 的 Markdown 里，缺口段 660 行有 614 行
+在重复同一句话，真正不同的 12 类缺口被埋掉了。合并后一眼能看到「81 条区域坐标
+未确认、71 条表达式语义未还原、60 条用了 ATTRS」。
+
+完整规模记录与判定标准见 `SCALE.md`。
