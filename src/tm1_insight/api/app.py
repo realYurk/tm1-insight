@@ -384,15 +384,19 @@ def cubes_page(request: Request, q: str = "", page: int = 1, name: str = Query("
 
 @app.get("/processes", response_class=HTMLResponse)
 def processes_page(request: Request, q: str = Query("", max_length=1000),
-                   page: int = Query(1, ge=1), scope: Literal["name", "code", "all"] = "name"):
+                   page: int = Query(1, ge=1), scope: Literal["name", "code", "all"] = "name",
+                   objects: Literal["all", "business"] = "all"):
     store = _store()
     con = store.connect(read_only=True)
     try:
         per_page = 100
-        result = queries.search_process_page(con, q, scope, (page - 1) * per_page, per_page)
+        result = queries.search_process_page(con, q, scope, (page - 1) * per_page, per_page, objects)
         total = result["total"]
         page = result["offset"] // per_page + 1
         chore_count = con.execute("SELECT count(*) FROM chores").fetchone()[0]
+        # 显式报出被排除的数量：列表可以只显示业务对象，但不能让人以为模型里没有系统对象。
+        system_total = con.execute(
+            "SELECT count(*) FROM processes WHERE name LIKE '}%'").fetchone()[0]
     finally:
         con.close()
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -402,6 +406,8 @@ def processes_page(request: Request, q: str = Query("", max_length=1000),
         "total": total,
         "q": result["q"],
         "scope": scope,
+        "objects": objects,
+        "system_total": system_total,
         "search_source": _process_search_source(store.settings),
         "page": page,
         "total_pages": total_pages,
@@ -585,7 +591,8 @@ def explorer(request: Request):
 
 
 @app.get("/explorer/process/{name}", response_class=HTMLResponse)
-def explorer_process(request: Request, name: str, source: str = Query("", max_length=64), model: str = Query('',max_length=64)):
+def explorer_process(request: Request, name: str, source: str = Query("", max_length=64),
+                     model: str = Query('',max_length=64), scope: str = Query('', max_length=16)):
     store = _store()
     if model and model!=_research_model():return _error_page(request,409,'模型身份已变化','未显示其他本地模型的同名 TI，请返回原研究入口。')
     current_source = _process_search_source(store.settings)
@@ -603,7 +610,9 @@ def explorer_process(request: Request, name: str, source: str = Query("", max_le
         return _error_page(request, 409, "源码位置已失效", "数据源或文件已变化，请返回 TI 列表重新搜索；旧行号未用于定位。")
     # 调用树不在首屏构建：源码与基本信息先返回，调用关系到页面空闲时按需加载。
     return templates.TemplateResponse(request, "process_view.html", {
-        "proc": proc, "search_source": current_source})
+        "proc": proc, "search_source": current_source,
+        "call_scope": _call_scope(name, scope),
+        "call_scope_limits": {k: v for k, v in calls.SCOPE_LABEL.items()}})
 
 
 # 调用树按需加载的默认预算。数值是性能边界，不是语义放宽：
@@ -615,9 +624,9 @@ _call_tree_cache_lock = threading.Lock()
 _CALL_TREE_CACHE_MAX = 128
 
 
-def _call_tree_for(con, name: str, fingerprint: str) -> dict:
-    """带指纹的调用树缓存。键含数据源指纹、对象名与预算，数据源变化即自然失效。"""
-    key = (fingerprint, name, CALL_TREE_LIMITS["max_depth"],
+def _call_tree_for(con, name: str, fingerprint: str, include_system: bool = True) -> dict:
+    """带指纹的调用树缓存。键含数据源指纹、对象名、范围与预算，数据源变化即自然失效。"""
+    key = (fingerprint, name, include_system, CALL_TREE_LIMITS["max_depth"],
            CALL_TREE_LIMITS["max_breadth"], CALL_TREE_LIMITS["root_breadth"],
            CALL_TREE_LIMITS["max_nodes"])
     with _call_tree_cache_lock:
@@ -630,6 +639,7 @@ def _call_tree_for(con, name: str, fingerprint: str) -> dict:
         max_breadth=CALL_TREE_LIMITS["max_breadth"],
         root_breadth=CALL_TREE_LIMITS["root_breadth"],
         max_nodes=CALL_TREE_LIMITS["max_nodes"],
+        include_system=include_system,
     )
     with _call_tree_cache_lock:
         if len(_call_tree_cache) >= _CALL_TREE_CACHE_MAX:
@@ -638,9 +648,22 @@ def _call_tree_for(con, name: str, fingerprint: str) -> dict:
     return tree
 
 
+def _call_scope(name: str, scope: str) -> str:
+    """调用关系的对象范围。
+
+    默认跟随对象本身：打开业务 TI 时只看业务对象（下游 82% 是 }bedrock.*，不折叠就看不见
+    自己调用谁）；打开系统对象时不折叠——那时它自己就是被研究的对象，藏掉同类反而莫名其妙。
+    显式传 ``scope=all`` / ``scope=business`` 一律照办，页面必须把折叠数量写在旁边。
+    """
+    if scope in (calls.SCOPE_ALL, calls.SCOPE_BUSINESS):
+        return scope
+    return calls.SCOPE_ALL if calls.is_system_object(name) else calls.SCOPE_BUSINESS
+
+
 @app.get("/explorer/process/{name}/call-tree", response_class=HTMLResponse)
 def explorer_process_call_tree(request: Request, name: str,
-                               source: str = Query("", max_length=64)):
+                               source: str = Query("", max_length=64),
+                               scope: str = Query("", max_length=16)):
     """调用树片段：按需、有预算、可失败重试。只读，不写任何库。"""
     store = _store()
     current_source = _process_search_source(store.settings)
@@ -648,6 +671,7 @@ def explorer_process_call_tree(request: Request, name: str,
         return HTMLResponse(
             '<p class="muted small call-tree-note">数据源已变化，请刷新本页后再加载调用树。</p>',
             status_code=409)
+    include_system = _call_scope(name, scope) == calls.SCOPE_ALL
     con = store.connect(read_only=True)
     try:
         exists = con.execute("SELECT 1 FROM processes WHERE name = ? LIMIT 1", [name]).fetchone()
@@ -655,7 +679,7 @@ def explorer_process_call_tree(request: Request, name: str,
             return HTMLResponse(
                 '<p class="muted small call-tree-note">该 TI 不在当前数据源中，未加载调用树。</p>',
                 status_code=404)
-        tree = _call_tree_for(con, name, current_source)
+        tree = _call_tree_for(con, name, current_source, include_system)
     finally:
         con.close()
     if source and current_source != _process_search_source(store.settings):
@@ -670,6 +694,7 @@ def explorer_process_call_tree(request: Request, name: str,
 
 @app.get("/calls/sources", response_class=HTMLResponse)
 def calls_sources(request: Request, focus: str = Query("", max_length=200),
+                  scope: str = Query("", max_length=16),
                   limit: int = Query(200, ge=10, le=1000)):
     """调用口径差异清单：只读、可抽查。
 
@@ -677,20 +702,38 @@ def calls_sources(request: Request, focus: str = Query("", max_length=200),
     正则口径（旧页面只读这一张表）与三表合并口径（当前唯一生产者）
     下的调用方个数并排列出。不做趋势、不做评分、不导出：
     这是证据核对页，不是分析功能。
+
+    默认只看业务对象（``}`` 开头的系统对象另有一页签）。理由是实测：153 个差异里
+    19 个是系统对象，但它们贡献了最大的差值；使用者要核对的是自己写的 TI，
+    系统对象的差值对他没有决策价值。
     """
     store = _store()
     con = store.connect(read_only=True)
     try:
-        rows = calls.caller_counts_by_target(con)
+        rows_all = calls.caller_counts_by_target(con)
     finally:
         con.close()
-    changed = [row for row in rows if row["delta"] != 0]
-    placeholders = [row for row in changed if row["dynamic"]]
+
+    def _keep(row: dict, which: str) -> bool:
+        if which == calls.SCOPE_ALL:
+            return True
+        if which == calls.SCOPE_SYSTEM:
+            return row["system"]
+        # 业务页签里占位条目也不列：占位不是成员，只在「全部」里作为异常项出现。
+        return not row["system"] and not row["dynamic"]
+
+    active = scope if scope in calls.SCOPES else calls.SCOPE_BUSINESS
+    changed_all = [row for row in rows_all if row["delta"] != 0]
+    changed = [row for row in changed_all if _keep(row, active)]
     return templates.TemplateResponse(request, "calls_sources.html", {
         "rows": changed[:limit],
-        "object_total": len(rows),
+        "object_total": len([row for row in rows_all if _keep(row, active)]),
         "changed_total": len(changed),
-        "placeholder_total": len(placeholders),
+        "placeholder_total": len([row for row in changed if row["dynamic"]]),
+        "scope": active,
+        "scope_changed": {s: len([row for row in changed_all if _keep(row, s)]) for s in calls.SCOPES},
+        "hidden_system": len([row for row in changed_all if row["system"]]),
+        "hidden_dynamic": len([row for row in changed_all if row["dynamic"]]),
         "limit": limit,
         "focus": focus,
     }, headers={"Cache-Control": "no-store"})

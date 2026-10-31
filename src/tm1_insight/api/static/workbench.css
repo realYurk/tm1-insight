@@ -497,3 +497,10 @@ details summary { cursor: pointer; padding: 12px 0; }
   font-size: 12px; padding: 1px 4px; border-radius: 4px;
   background: rgba(127, 127, 127, .12);
 }
+
+/* ==== 对象范围开关（业务 / 系统 / 全部）==== */
+.scope-switch { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 10px; }
+.scope-switch .btn { text-decoration: none; }
+.scope-switch .tag { margin-left: 4px; }
+.call-tree-scope { margin: 8px 0 0; font-size: 12px; line-height: 1.6; }
+.call-tree-scope code { padding: 0 3px; border-radius: 3px; background: rgba(127, 127, 127, .12); }

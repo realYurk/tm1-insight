@@ -10,14 +10,37 @@
 {% endblock %}
 
 {% block content %}
+{% set label = {'business': '业务对象', 'system': '系统对象', 'all': '全部'} %}
 <div class="page-head">
   <div>
     <h1 class="page-title">调用口径差异</h1>
     <p class="page-sub">
+      当前范围：<strong>{{ label[scope] }}</strong> ·
       共 {{ object_total }} 个被调用对象 · {{ changed_total }} 个在新旧口径下数字不同
       {% if placeholder_total %}· 其中 {{ placeholder_total }} 个是变量拼出来的占位，不是真实 TI{% endif %}
     </p>
   </div>
+</div>
+
+<div class="card">
+  <div class="scope-switch">
+    {% for key in ['business', 'system', 'all'] %}
+    <a class="btn btn-sm{{ ' primary' if scope == key else ' ghost' }}"
+       href="/calls/sources?scope={{ key }}{% if focus %}&amp;focus={{ focus|urlencode }}{% endif %}">
+      {{ label[key] }} <span class="tag">{{ scope_changed[key] }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% if scope == 'business' and (hidden_system or hidden_dynamic) %}
+  <p class="muted small">
+    本页只列业务对象，因此未包含
+    {% if hidden_system %}<strong>{{ hidden_system }}</strong> 个 <code>}</code> 开头的系统对象的差异{% endif %}
+    {%- if hidden_system and hidden_dynamic %}、{% endif %}
+    {%- if hidden_dynamic %}<strong>{{ hidden_dynamic }}</strong> 个变量占位条目{% endif %}。
+    这些不是「没有差异」，只是不在这个页签里：
+    <a href="/calls/sources?scope=all">看全部</a>。
+  </p>
+  {% endif %}
 </div>
 
 <div class="card">
@@ -53,6 +76,12 @@
     按差值从大到小只列前 {{ rows|length }} 个（共 {{ changed_total }} 个），未列出的不代表没有差异。
   </p>
   {% endif %}
+  {% if not rows %}
+  <p class="muted small">
+    这个范围内没有口径差异：{{ label[scope] }}的调用方数字在新旧口径下一致。
+    这不代表没有问题，只代表「正则能看到的」和「三表合并后的」在这里相同。
+  </p>
+  {% else %}
   <div class="table-wrap">
     <table class="table compact">
       <thead>
@@ -76,6 +105,7 @@
             {% else %}
             <a href="/explorer/process/{{ row.callee|urlencode }}">{{ row.callee }}</a>
             {% endif %}
+            {% if row.system %}<span class="tree-kind">系统</span>{% endif %}
           </td>
           <td class="num">{{ row.regex }}</td>
           <td class="num">{{ row.regex }}</td>
@@ -88,7 +118,7 @@
           <td>
             {% if row.dynamic %}
             <span class="tree-kind">动态占位，不是成员</span>
-            {% elif row.total == row.regex %}
+            {% elif row.delta == 0 %}
             <span class="muted small">口径一致</span>
             {% else %}
             <span class="muted small">
@@ -104,6 +134,7 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
 </div>
 
 <p class="muted small">

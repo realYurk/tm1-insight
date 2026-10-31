@@ -18,24 +18,44 @@
                       else ('vars' if proc.semantic_vars
                             else (code_panes[0][0] if code_panes else ''))) %}
 
+{% set cf = proc.call_facts %}
 <div class="page-head process-page-head">
   <div>
     <h1 class="page-title">{{ proc.name }}</h1>
     <p class="page-sub">
       {% if proc.source %}<span class="src-chip">源头：{{ proc.source }}</span>{% endif %}
       {{ proc.total_lines }} 行代码
-      {% if proc.called_by %}| 被 {{ proc.called_by|length }} 个进程调用{% endif %}
-      {% if proc.calls_process %}| 调用 {{ proc.calls_process|length }} 个子进程{% endif %}
-      {% if proc.call_facts and proc.call_facts.dynamic_callees %}| {{ proc.call_facts.dynamic_callees }} 处动态调用目标未解析{% endif %}
+      {# 默认范围跟随对象：业务 TI 只看业务对象，系统对象折叠但必须报数。
+         数字统一来自 proc.call_facts（store.calls 唯一生产者），页面不自行拼表。 #}
+      {% if cf and cf.counts.callers %}
+        {% if call_scope == 'all' %}
+        | 被 {{ cf.counts.callers }} 个进程调用{% if cf.callers_system %}（含 {{ cf.callers_system }} 个系统对象）{% endif %}
+        {% else %}
+        | 被 {{ cf.callers_business }} 个业务 TI 调用{% if cf.callers_system %}，另有 {{ cf.callers_system }} 个系统对象未计入{% endif %}
+        {% endif %}
+      {% endif %}
+      {% if cf and cf.callees %}
+        {% if call_scope == 'all' %}
+        | 调用 {{ cf.callees|length }} 个目标
+        {% else %}
+        | 调用 {{ cf.callees_by_scope.business }} 个业务子进程{% if cf.callees_by_scope.system %}，另有 {{ cf.callees_by_scope.system }} 个系统对象未计入{% endif %}
+        {% endif %}
+      {% endif %}
+      {% if cf and cf.dynamic_callees %}| {{ cf.dynamic_callees }} 处动态调用目标未解析{% endif %}
     </p>
     {# 数字可拆解：这里的三个计数是「为什么这个数变了」的唯一解释入口。
        没有脚本也能展开（原生 details），且不隐藏任何来源。 #}
-    {% if proc.call_facts and proc.call_facts.counts.callers %}
-    {% set cf = proc.call_facts %}
+    {% if cf and cf.counts.callers %}
     <details class="call-evidence">
       <summary>这些调用数字是怎么来的</summary>
       <div class="call-evidence-body">
-        <p class="muted small">三张表各自记录同一类事实，这里去重后合并；同一调用方只算一次，所以各来源之和 ≥ 总数。</p>
+        <p class="muted small">
+          三张表各自记录同一类事实，这里去重后合并；同一调用方只算一次，所以各来源之和 ≥ 总数。
+          {% if call_scope != 'all' and (cf.callers_system or cf.callees_by_scope.system) %}
+          本页默认折叠 <code>}</code> 开头的系统对象（{% if cf.callers_system %}调用方 {{ cf.callers_system }} 个{% endif %}{% if cf.callers_system and cf.callees_by_scope.system %}、{% endif %}{% if cf.callees_by_scope.system %}下游 {{ cf.callees_by_scope.system }} 个{% endif %}），
+          它们不是不存在，只是不在默认视图里：<a href="?scope=all">全部显示</a>。
+          {% endif %}
+        </p>
         <table class="table compact">
           <thead><tr><th>来源</th><th>调用方</th><th>本 TI 调用的目标</th><th>含义</th></tr></thead>
           <tbody>
@@ -60,7 +80,9 @@
           </tbody>
         </table>
         <p class="muted small">
-          去重后合计：被 <strong>{{ cf.counts.callers }}</strong> 个进程调用，
+          去重后合计（<strong>含系统对象</strong>，与上方页头的默认视图不同口径）：
+          被 <strong>{{ cf.counts.callers }}</strong> 个进程调用
+          （业务 {{ cf.callers_business }} / 系统 {{ cf.callers_system }}），
           调用 <strong>{{ cf.callees|length }}</strong> 个目标（字面 {{ cf.counts.callees.literal }}
           / 框架 {{ cf.counts.callees.framework }}
           / 目录中不存在 {{ cf.counts.callees.missing }}
@@ -188,11 +210,19 @@
 
     <!-- 调用关系卡片：按需加载，首屏不构建 -->
     <div class="card side-card" id="call-tree-card"
-         data-endpoint="/explorer/process/{{ proc.name|urlencode }}/call-tree?source={{ search_source }}">
-      <h2>调用关系</h2>
+         data-endpoint="/explorer/process/{{ proc.name|urlencode }}/call-tree?source={{ search_source }}&amp;scope={{ call_scope }}">
+      <h2>调用关系 <span class="tag">{{ '含系统对象' if call_scope == 'all' else '业务对象' }}</span></h2>
       <div class="call-tree" id="call-tree-body" hidden></div>
       <p class="muted small call-tree-note" id="call-tree-status">源码已可读。调用关系在页面空闲时按需加载，不阻塞查看。</p>
       <button class="btn ghost btn-sm" id="call-tree-load" type="button">加载调用树</button>
+      <p class="muted small call-tree-scope">
+        {% if call_scope == 'all' %}
+        当前包含 <code>}</code> 开头的系统对象 · <a href="?scope=business">只看业务对象</a>
+        {% else %}
+        当前不含 <code>}</code> 开头的系统对象（}bedrock.* 等）；折叠数量会写在树里 ·
+        <a href="?scope=all">全部显示</a>
+        {% endif %}
+      </p>
     </div>
   </div>
 </div>

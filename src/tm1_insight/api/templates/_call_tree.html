@@ -45,6 +45,21 @@
   {%- if call_tree.dynamic_targets %} · 另有 {{ call_tree.dynamic_targets }} 处动态目标未解析、未画{% endif %}
 </p>
 {% endif %}
+{# 范围折叠必须报数：不画不等于不存在。业务 TI 的下游里 72% 只调 } 开头的系统对象。
+   直接上下游与更下层分开说，这样页头「另有 N 个未计入」和这里能对齐。 #}
+{% set hid = call_tree.hidden_system %}
+{% if hid and (hid.callers or hid.callees or hid.deeper) %}
+<p class="muted small call-tree-note">
+  当前只画业务对象（<code>}</code> 开头的系统对象已折叠）：
+  {% if hid.callers %}直接上游另有 {{ hid.callers }} 个{% endif %}
+  {%- if hid.callers and hid.callees %}、{% endif %}
+  {%- if hid.callees %}直接下游另有 {{ hid.callees }} 个{% endif %}
+  {%- if (hid.callers or hid.callees) and hid.deeper %}，图中更下层还有 {{ hid.deeper }} 个{% endif %}
+  {%- if not (hid.callers or hid.callees) %}图中更下层有 {{ hid.deeper }} 个{% endif %}
+  未画，它们更远的分支也未展开。
+  <a href="?scope=all">全部显示</a>
+</p>
+{% endif %}
 {% if call_tree.callers %}
 <div class="tree-section">
   <div class="tree-label upstream">↑ 被调用（{% if call_tree.direct.callers.capped %}显示 {{ call_tree.direct.callers.shown }} / 共 {{ call_tree.direct.callers.total }}{% else %}{{ call_tree.direct.callers.total }}{% endif %}）</div>
@@ -65,7 +80,12 @@
 </div>
 {% endif %}
 {% if not call_tree.callers and not call_tree.callees %}
+{% if hid and (hid.callers or hid.callees or hid.deeper) %}
+{# 真实库里 2130 个业务 TI 只调用系统对象：这时说「未记录调用关系」是假话。 #}
+<p class="muted small call-tree-note">业务对象范围内没有调用关系；上面列出的是被折叠的系统对象，可展开查看。</p>
+{% else %}
 <p class="muted small call-tree-note">未记录静态调用关系；动态调用可能尚未解析。</p>
+{% endif %}
 {% endif %}
 {% if call_tree.recursive_self_call %}
 <p class="muted small call-tree-note">

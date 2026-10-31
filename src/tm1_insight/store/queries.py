@@ -365,6 +365,7 @@ def process_call_tree(
     *,
     max_nodes: int | None = None,
     root_breadth: int | None = None,
+    include_system: bool = True,
 ) -> dict:
     """构建以 root 为根的「调用树」：谁调用我（上游）+ 我调用谁（下游），递归展开。
 
@@ -378,7 +379,12 @@ def process_call_tree(
       "limits": {"max_depth", "max_breadth", "root_breadth", "max_nodes"},
       "direct": {"callers": {"shown", "total"}, "callees": {"shown", "total"}},
       "truncation": {"nodes": bool, "breadth_parents": int, "root_capped": bool, "depth": bool},
+      "hidden_system": {"callers": int, "callees": int},
     }
+
+    ``include_system=False`` 时 ``}`` 开头的系统对象不进入图（连同它们更远的分支也不展开），
+    但**必须**通过 ``hidden_system`` 报出折叠了多少个——实测业务 TI 的下游里平均 82%
+    是 ``}bedrock.*`` 这类对象，不折叠调用树就只剩它们；折叠而不报数，则是另一种撒谎。
 
     约束（性能止损，不是语义放宽）：
     - max_depth 限制层数；max_breadth 限制「每个父节点的子节点数」（与原实现一致）；
@@ -418,11 +424,15 @@ def process_call_tree(
 
     state = {"nodes": 1, "nodes_capped": False, "breadth_parents": 0, "depth_capped": False,
              "root_capped": {"callers": False, "callees": False},
+             # 被范围折叠掉的系统对象。根层单独记：页头「另有 N 个系统对象未计入」说的是
+             # 直接上下游，树里若把更下层也算进同一个数，两个数字就会对不上。
+             "hidden_system": {"callers": set(), "callees": set(), "deeper": set()},
              # 图中每个节点按 kind 计数：页面据此说明「这一屏节点里有多少是框架调用、
              # 多少在目录里根本不存在」，而不是让用户以为图上全是同一类证据。
              "kind_counts": {kind: 0 for kind in calls.NODE_KINDS}}
 
-    def _children_of_level(parents: list[str], direction: str, breadth: int) -> tuple[dict[str, list[tuple[str, str]]], dict[str, int]]:
+    def _children_of_level(parents: list[str], direction: str, breadth: int,
+                           at_root: bool = False) -> tuple[dict[str, list[tuple[str, str]]], dict[str, int]]:
         """一层节点 → 各自的前 breadth 个子节点，并回报每个父节点的真实子节点数。
 
         数据来自 store.calls 的统一口径（正则表 + 变量解析表 + 框架表去重），
@@ -431,12 +441,22 @@ def process_call_tree(
         adjacency = edges_by_direction[direction]
         grouped: dict[str, list[tuple[str, str]]] = {}
         totals: dict[str, int] = {}
+        scope_key = "callers" if direction == "up" else "callees"
         for parent in parents:
             children = adjacency.get(parent) or []
             if not children:
                 continue
-            grouped[parent] = children[:breadth]
-            totals[parent] = len(children)
+            kept: list[tuple[str, str]] = []
+            for child, child_kind in children:
+                if not include_system and calls.is_system_object(child):
+                    # 折叠但要留账：根层与更下层分开记，页面才能和页头的数字对齐。
+                    state["hidden_system"][scope_key if at_root else "deeper"].add(child)
+                    continue
+                kept.append((child, child_kind))
+            if not kept:
+                continue
+            grouped[parent] = kept[:breadth]
+            totals[parent] = len(kept)
         return grouped, totals
 
     # 根节点自身不是子节点，这里直接按层展开，结果挂在 root 的 callers / callees 上。
@@ -453,7 +473,7 @@ def process_call_tree(
         while frontier and depth < max_depth:
             parents = [item["name"] for item in frontier]
             breadth = root_limit if depth == 0 else max_breadth
-            grouped, totals = _children_of_level(parents, direction, breadth)
+            grouped, totals = _children_of_level(parents, direction, breadth, at_root=(depth == 0))
             if depth == 0:
                 direct[direct_key]["total"] = totals.get(root, 0)
             for parent, total in totals.items():
@@ -498,7 +518,7 @@ def process_call_tree(
 
     truncated = bool(state["nodes_capped"] or state["breadth_parents"]
                      or state["depth_capped"]
-                     or any(state["root_capped"].values()))    # 动态目标不是固定成员：只报「有几处」，不点名、不展开（上方统计）。
+                     or any(state["root_capped"].values()))
     # 自环会被 visited 去重挡住，如果不单独回报，页面就等于把「自己调自己」删掉了。
     recursive_self_call = any(callee == root for callee, _ in down.get(root, []))
     return {
@@ -508,6 +528,12 @@ def process_call_tree(
         "dynamic_targets": int(dynamic_targets),
         "recursive_self_call": recursive_self_call,
         "kind_counts": dict(state["kind_counts"]),
+        "hidden_system": {
+            "callers": len(state["hidden_system"]["callers"]),
+            "callees": len(state["hidden_system"]["callees"]),
+            "deeper": len(state["hidden_system"]["deeper"]),
+        },
+        "scope": calls.SCOPE_ALL if include_system else calls.SCOPE_BUSINESS,
         "node_count": state["nodes"],
         "truncated": truncated,
         "limits": {"max_depth": max_depth, "max_breadth": max_breadth,
@@ -1145,12 +1171,15 @@ def search_processes(con: duckdb.DuckDBPyConnection, keyword: str, limit: int = 
 
 def search_process_page(
     con: duckdb.DuckDBPyConnection, keyword: str = "", scope: str = "name",
-    offset: int = 0, limit: int = 100,
+    offset: int = 0, limit: int = 100, objects: str = "all",
 ) -> dict:
     """Literal, paginated TI search. Code hits are source text, never execution/data edges.
 
     Only fetch source text for the returned page and only in code/all mode. The legacy
     search_processes contract remains available to existing API/graph consumers.
+
+    ``objects="business"`` 时排除 ``}`` 开头的系统对象（默认不排除：这是列表页的
+    显式选择，不是对事实的隐藏；页面会写明当前排除了多少个）。
     """
     if scope not in {"name", "code", "all"}:
         raise ValueError("Unsupported process search scope")
@@ -1162,6 +1191,8 @@ def search_process_page(
         fields.insert(0, "name")
     # strpos treats %, _ and quotes as literal characters; no SQL wildcard surprises.
     where = " OR ".join(f"strpos(lower(coalesce({field}, '')), lower(?)) > 0" for field in fields)
+    if objects == "business":
+        where = f"({where}) AND name NOT LIKE '}}%'"
     params = [keyword] * len(fields)
     total = con.execute(f"SELECT count(*) FROM processes WHERE {where}", params).fetchone()[0]
     offset = min(offset, ((max(total, 1) - 1) // limit) * limit)

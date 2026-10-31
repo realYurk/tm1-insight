@@ -27,10 +27,23 @@
         <option value="all" {% if scope == 'all' %}selected{% endif %}>名称和代码</option>
       </select>
       <button type="submit" class="btn primary btn-sm">搜索</button>
-      {% if q %}<a class="btn ghost btn-sm" href="/processes">清除</a>{% endif %}
+      <input type="hidden" name="objects" value="{{ objects }}">
+      {% if q %}<a class="btn ghost btn-sm" href="/processes?objects={{ objects }}">清除</a>{% endif %}
     </form>
   </div>
   <p class="muted small">默认仅按名称匹配。代码命中包含注释和字符串，只是文本位置，不证明调用或计算关系。</p>
+  {# 系统对象开关：} 开头的 273 个对象由产品方维护，通常不是使用者的改写对象。
+     默认仍全部显示（不擅自改变列表语义），但给出只含业务对象的一键视图，
+     并写清当前排除了多少个——折叠可以，悄悄少给几条不行。 #}
+  <p class="muted small">
+    {% if objects == 'business' %}
+    当前<strong>只显示业务对象</strong>，已排除 {{ system_total }} 个 <code>}</code> 开头的系统对象（}bedrock.*、}APQ.* 等）。
+    <a href="/processes?q={{ q|urlencode }}&scope={{ scope }}&objects=all">显示全部</a>
+    {% else %}
+    当前显示全部对象，其中 {{ system_total }} 个是 <code>}</code> 开头的系统对象。
+    <a href="/processes?q={{ q|urlencode }}&scope={{ scope }}&objects=business">只看业务对象</a>
+    {% endif %}
+  </p>
 
   {% if processes %}
   <ul class="list">
@@ -54,8 +67,8 @@
   <div class="pagination">
     <span class="pagination-info">共 {{ total }} 项 · 第 {{ page }} / {{ total_pages }} 页</span>
     <div class="pagination-btns">
-      {% if page > 1 %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&scope={{ scope }}&page={{ page - 1 }}">上一页</a>{% endif %}
-      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&scope={{ scope }}&page={{ page + 1 }}">下一页</a>{% endif %}
+      {% if page > 1 %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&scope={{ scope }}&objects={{ objects }}&page={{ page - 1 }}">上一页</a>{% endif %}
+      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/processes?q={{ q|urlencode }}&scope={{ scope }}&objects={{ objects }}&page={{ page + 1 }}">下一页</a>{% endif %}
     </div>
   </div>
   {% endif %}

@@ -216,6 +216,15 @@ def client(tmp_path, monkeypatch):
         insert_process(connection, "Elsewhere", prolog="vY = 2;")
         business(connection, "Dynamic", "<sProc2>")
         business(connection, "Dynamic", "Elsewhere")
+        # 范围（业务 / 系统）用例：一个业务 TI，上下游各有一个 } 开头的系统对象。
+        insert_process(connection, "Mixed")
+        insert_process(connection, "BizCaller")
+        insert_process(connection, "BizChild")
+        insert_process(connection, "}bedrock.cube.data.clear")
+        literal(connection, "BizCaller", "Mixed")
+        framework(connection, "}bedrock.cube.data.clear", "Mixed")
+        literal(connection, "Mixed", "BizChild")
+        literal(connection, "Mixed", "}bedrock.cube.data.clear")
     api_module = importlib.import_module("tm1_insight.api.app")
     api_module._call_tree_cache.clear()
     with TestClient(app) as test_client:
@@ -227,7 +236,9 @@ def client(tmp_path, monkeypatch):
 def test_header_count_matches_tree_for_variable_resolved_caller(client):
     page = client.get("/explorer/process/Hub")
     assert page.status_code == 200
-    assert "被 1 个进程调用" in page.text
+    # 默认范围是业务对象：ViaVariable 是业务 TI，页头必须把它算进去，
+    # 措辞也要说明「业务」——否则用户无法判断这个数字里有没有系统对象。
+    assert "被 1 个业务 TI 调用" in page.text
 
     fragment = client.get("/explorer/process/Hub/call-tree")
     assert fragment.status_code == 200
@@ -319,9 +330,19 @@ def test_header_and_sources_page_explain_the_numbers(client):
     assert sources.status_code == 200
     assert sources.headers["cache-control"] == "no-store"
     assert "Hub" in sources.text, "有差异的对象必须出现在清单里"
+    # 默认只列业务对象：占位不是成员，不在这个页签里，但必须报出被排除的条数。
+    assert "&lt;sProc2&gt;" not in sources.text
+    assert "<strong>1</strong> 个变量占位条目" in sources.text
+
+    # 空页签也要能打开（不能只测有数据的分支）
+    quiet = client.get("/calls/sources", params={"scope": "system"})
+    assert quiet.status_code == 200
+    assert "没有口径差异" in quiet.text
+
+    everyone = client.get("/calls/sources", params={"scope": "all"})
     # 占位名会按 HTML 转义展示，不能直接渲染成标签
-    assert "&lt;sProc2&gt;" in sources.text, "占位条目也要列出，但必须标注"
-    assert "动态占位" in sources.text
+    assert "&lt;sProc2&gt;" in everyone.text, "占位条目也要列出，但必须标注"
+    assert "动态占位" in everyone.text
 
 
 def test_sources_page_marks_focus_object(client):
@@ -341,3 +362,94 @@ def test_tree_legend_states_what_the_nodes_are(con):
     fragment = _render_fragment(tree)
     assert "图中节点" in fragment
     assert "目录中不存在 1 个" in fragment
+
+
+# ---------------------------------------------------------------------------
+# 对象范围：系统对象（} 开头）默认退到幕后，但折叠必须报数
+#
+# 实测（本机 Demo）：1365 个业务 TI 的下游里平均 82.4% 是 }bedrock.* 一类系统对象。
+# 不折叠，调用树等于只剩框架调用；折叠而不报数，等于欺骗。
+# ---------------------------------------------------------------------------
+
+def test_call_tree_scope_folds_system_objects_and_reports_the_count(con):
+    for name in ("Root", "Biz", "}bedrock.cube.data.clear"):
+        insert_process(con, name)
+    literal(con, "Biz", "Root")
+    framework(con, "}bedrock.cube.data.clear", "Root")
+    literal(con, "Root", "}bedrock.cube.data.clear")
+
+    full = queries.process_call_tree(con, "Root", include_system=True)
+    assert [n["name"] for n in full["callers"]] == ["Biz", "}bedrock.cube.data.clear"]
+    assert full["hidden_system"] == {"callers": 0, "callees": 0, "deeper": 0}
+    assert full["scope"] == calls.SCOPE_ALL
+
+    folded = queries.process_call_tree(con, "Root", include_system=False)
+    assert [n["name"] for n in folded["callers"]] == ["Biz"]
+    assert folded["callees"] == []
+    # 折叠掉的必须留账：调用方 1 个、下游 1 个
+    assert folded["hidden_system"] == {"callers": 1, "callees": 1, "deeper": 0}
+    assert folded["scope"] == calls.SCOPE_BUSINESS
+    html = _render_fragment(folded)
+    assert "直接上游另有 1 个" in html
+    assert "直接下游另有 1 个" in html
+    assert "全部显示" in html
+
+
+def test_summary_reports_business_and_system_callers_separately(con):
+    for name in ("Root", "Biz", "}bedrock.cube.data.clear"):
+        insert_process(con, name)
+    literal(con, "Biz", "Root")
+    framework(con, "}bedrock.cube.data.clear", "Root")
+    literal(con, "Root", "}bedrock.cube.data.clear")
+
+    summary = calls.summary(con, "Root")
+    assert summary["counts"]["callers"] == 2
+    assert (summary["callers_business"], summary["callers_system"]) == (1, 1)
+    assert summary["callees_by_scope"] == {
+        calls.SCOPE_BUSINESS: 0, calls.SCOPE_SYSTEM: 1, calls.KIND_DYNAMIC: 0,
+    }
+
+
+def test_default_scope_follows_the_object_and_links_to_the_other_scope(client):
+    """打开业务 TI 只看业务对象；打开系统对象不折叠（那时它自己就是研究对象）。"""
+    page = client.get("/explorer/process/Mixed")
+    assert "被 1 个业务 TI 调用" in page.text
+    assert "另有 1 个系统对象未计入" in page.text
+    assert "scope=all" in page.text            # 一键展开的入口必须存在
+
+    fragment = client.get("/explorer/process/Mixed/call-tree")
+    assert "}bedrock.cube.data.clear" not in fragment.text
+    assert "BizChild" in fragment.text
+
+    # 显式 scope=all：数字回到 2，系统对象出现在图里
+    page_all = client.get("/explorer/process/Mixed", params={"scope": "all"})
+    assert "被 2 个进程调用" in page_all.text
+    assert "含 1 个系统对象" in page_all.text
+    fragment_all = client.get("/explorer/process/Mixed/call-tree", params={"scope": "all"})
+    assert "}bedrock.cube.data.clear" in fragment_all.text
+
+    # 系统对象被直接打开时，默认不折叠自己这一类
+    from urllib.parse import quote
+    system_page = client.get("/explorer/process/" + quote("}bedrock.cube.data.clear", safe=""))
+    assert "含系统对象" in system_page.text
+
+
+def test_header_and_tree_agree_inside_each_scope(client):
+    """两个范围各自自洽：页头说 1，树的上游就必须是 1；切成全部后两边都变 2。"""
+    for scope, expected in (("", "1"), ("all", "2")):
+        params = {"scope": scope} if scope else None
+        page = client.get("/explorer/process/Mixed", params=params)
+        fragment = client.get("/explorer/process/Mixed/call-tree", params=params)
+        word = "个业务 TI 调用" if not scope else "个进程调用"
+        assert f"被 {expected} {word}" in page.text
+        assert f"被调用（{expected}）" in fragment.text
+
+
+def test_process_list_can_hide_system_objects_and_says_how_many(client):
+    all_hits = client.get("/processes", params={"q": "bedrock"})
+    assert "}bedrock.cube.data.clear" in all_hits.text
+
+    business_only = client.get("/processes", params={"q": "bedrock", "objects": "business"})
+    assert "}bedrock.cube.data.clear" not in business_only.text
+    assert "只显示业务对象" in business_only.text
+    assert "已排除 1 个" in business_only.text

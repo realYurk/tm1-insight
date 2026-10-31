@@ -51,6 +51,19 @@ KIND_LABEL = {
 #: 可以当成「进程」展示的 kind（dynamic 不行）。
 NODE_KINDS = (KIND_LITERAL, KIND_FRAMEWORK, KIND_MISSING)
 
+#: 对象范围。这不是「过滤掉不重要的事实」，而是把两类对象分开看：
+#: ``}`` 开头是 TM1 自带/框架对象（}bedrock.*、}APQ.*、}DimensionAttributes …），
+#: 它们由产品方维护，改不了也不该改；业务 TI 才是使用者自己写的那部分。
+#: 实测（本机 Demo，3 437 个进程）：1365 个业务 TI 的下游里平均 82% 是系统对象，
+#: 不分开，调用树基本就是一片 }bedrock.*，看不见自己调用的业务子进程。
+SCOPE_BUSINESS = "business"
+SCOPE_SYSTEM = "system"
+SCOPE_ALL = "all"
+SCOPES = (SCOPE_BUSINESS, SCOPE_SYSTEM, SCOPE_ALL)
+SCOPE_LABEL = {SCOPE_BUSINESS: "业务对象", SCOPE_SYSTEM: "系统对象", SCOPE_ALL: "全部"}
+
+SYSTEM_PREFIX = "}"
+
 #: 证据来源（哪张表产出这条边）。与 kind 是两个正交维度：
 #: kind 说「这条边指向什么」，source 说「这条边凭什么被记录下来」。
 #: 页面上的「为什么数字变了」只能靠 source 解释——131 与 1996 的差别就在这一层。
@@ -94,6 +107,29 @@ def is_dynamic_target(name: str | None) -> bool:
     后缀（例如 ``.Localized``），只看首字符才不会漏。
     """
     return bool(name) and name.startswith("<")
+
+
+def is_system_object(name: str | None) -> bool:
+    """``}`` 开头是 TM1 自带对象；其余是使用者自己写的业务对象。
+
+    只用前缀判断，不猜语义：``}bedrock.*`` 是框架，``}DimensionAttributes`` 是控制立方体，
+    ``}ElementAttributes_XXX`` 是属性视图——但它们在「这不关我的事」这一点上相同。
+    """
+    return bool(name) and name.startswith(SYSTEM_PREFIX)
+
+
+def scope_of(name: str | None) -> str:
+    """给对象分范围。占位单独一类，因为它既不是业务对象也不是系统对象。"""
+    if is_dynamic_target(name):
+        return KIND_DYNAMIC
+    return SCOPE_SYSTEM if is_system_object(name) else SCOPE_BUSINESS
+
+
+def in_scope(name: str | None, scope: str) -> bool:
+    """``scope`` 只接受三种值；``all`` 放行一切（占位目标由调用方另行处理）。"""
+    if scope == SCOPE_ALL:
+        return True
+    return scope_of(name) == scope
 
 
 def available_sources(con: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
@@ -254,6 +290,10 @@ def summary(con: duckdb.DuckDBPyConnection, name: str) -> dict:
 
     ``dynamic_callees`` 是「有几处调用目标没能解析成固定成员」——一个计数，
     不是进程名列表；这些目标可能是任何 TI，不能点名。
+
+    ``callers_business`` / ``callers_system`` 与 ``callees_by_scope`` 是同一份事实的
+    范围拆分，供页面默认「只看业务对象」时如实报出被折叠的数量（折叠必须显式，
+    不能让人以为系统对象不存在）。
     """
     empty_sources = {src: 0 for src in SOURCES}
     if is_dynamic_target(name):
@@ -262,6 +302,9 @@ def summary(con: duckdb.DuckDBPyConnection, name: str) -> dict:
                 "counts": {"callers": 0, "callees": {k: 0 for k in KINDS}},
                 "callers_by_source": dict(empty_sources),
                 "callees_by_source": dict(empty_sources),
+                "callers_business": 0, "callers_system": 0,
+                "callees_by_scope": {SCOPE_BUSINESS: 0, SCOPE_SYSTEM: 0, KIND_DYNAMIC: 0},
+                "scope": KIND_DYNAMIC,
                 "dynamic_callees": 0, "node_callees": []}
     # 过滤下推到三张表，只算这个 TI 的上下游；一条 SQL 同时拿到两个方向。
     cte, params = object_edges_cte(con, name)
@@ -294,12 +337,24 @@ def summary(con: duckdb.DuckDBPyConnection, name: str) -> dict:
          "sources": sources_of(r[5], r[6], r[7])}
         for r in sorted(outbound, key=lambda r: (KINDS.index(r[2]) if r[2] in KINDS else 99, r[1]))
     ]
+    callees_by_scope = {SCOPE_BUSINESS: 0, SCOPE_SYSTEM: 0, KIND_DYNAMIC: 0}
+    for edge in callees:
+        if edge["kind"] == KIND_DYNAMIC:
+            callees_by_scope[KIND_DYNAMIC] += 1
+        elif is_system_object(edge["callee"]):
+            callees_by_scope[SCOPE_SYSTEM] += 1
+        else:
+            callees_by_scope[SCOPE_BUSINESS] += 1
     return {
         "callers": callers,
         "callees": callees,
         "counts": {"callers": len(callers), "callees": counts},
         "callers_by_source": {src: len(caller_sets[src]) for src in SOURCES},
         "callees_by_source": {src: len(callee_sets[src]) for src in SOURCES},
+        "callers_business": sum(1 for c in callers if not is_system_object(c)),
+        "callers_system": sum(1 for c in callers if is_system_object(c)),
+        "callees_by_scope": callees_by_scope,
+        "scope": scope_of(name),
         "dynamic_callees": counts.get(KIND_DYNAMIC, 0),
         "node_callees": [e for e in callees if e["kind"] in NODE_KINDS],
     }
@@ -334,6 +389,9 @@ def caller_counts_by_target(con: duckdb.DuckDBPyConnection, limit: int | None = 
             "total": n_total,
             "delta": n_total - n_regex,
             "dynamic": is_dynamic_target(callee),
+            # 系统对象与业务对象分开统计：153 个差异里 19 个是 } 开头，
+            # 页面默认只给业务对象，但必须报出被折叠的条数。
+            "system": is_system_object(callee),
         })
     if limit is not None:
         return out[:limit]
