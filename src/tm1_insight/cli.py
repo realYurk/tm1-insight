@@ -315,6 +315,59 @@ def audit() -> None:
     typer.echo(f"前端→后端映射: {stats['front_backend_mapping']} 个")
 
 
+@app.command('module-dossier')
+def module_dossier(
+    name: str = typer.Option(..., '--name', help='模块名称（写入档案标题）'),
+    entry: str = typer.Option(..., '--entry', help='入口对象名（Process 或 Cube）'),
+    kind: str = typer.Option('process', '--kind', help='入口类型：process 或 cube'),
+    target_cube: str = typer.Option('', '--target-cube', help='目标 Cube（Cube 入口可省略）'),
+    include: list[str] = typer.Option([], '--include', help='人工包含：process:名称 或 cube:名称，可重复'),
+    exclude: list[str] = typer.Option([], '--exclude', help='人工排除：process:名称 或 cube:名称，可重复'),
+    notes: str = typer.Option('', '--notes', help='人工说明（USER_ANNOTATION，不进入事实字段）'),
+    output: Path = typer.Option(..., '--output', help='输出目录（必须位于模型数据目录之外）'),
+    database: Path = typer.Option(None, '--database', help='只读 DuckDB 路径；默认使用当前数据源'),
+    max_processes: int = typer.Option(8, '--max-processes', min=1, max=20),
+    max_write_points: int = typer.Option(20, '--max-write-points', min=1, max=80),
+) -> None:
+    """生成只读模块档案（Module.md / Module.json / Evidence / Diagnostics / Questions）。"""
+    from tm1_insight import module_dossier as dossier
+    from tm1_insight.store.db import Store
+
+    if kind not in {'process', 'cube'}:
+        typer.echo('--kind 只能是 process 或 cube', err=True)
+        raise typer.Exit(2)
+
+    def refs(values: list[str]) -> list[dict]:
+        parsed = []
+        for value in values:
+            prefix, _, item = value.partition(':')
+            if prefix not in {'process', 'cube'} or not item:
+                typer.echo('对象引用格式应为 process:名称 或 cube:名称：' + value, err=True)
+                raise typer.Exit(2)
+            parsed.append(dict(type=prefix, name=item))
+        return parsed
+
+    settings = get_settings()
+    if database is not None:
+        settings = settings.model_copy(update={'database_file': database})
+    store = Store(settings)
+    scope = dossier.Scope(name=name, entry_kind=kind, entry=entry,
+                          target_cube=target_cube or None, include=refs(include),
+                          exclude=refs(exclude), notes=notes, max_processes=max_processes,
+                          max_write_points=max_write_points)
+    with store.connect(read_only=True) as con:
+        model = dossier.build(con, scope, lambda **event: None)
+    written = dossier.write_package(dossier.package(model), output)
+    typer.echo('档案已生成：' + str(output))
+
+    typer.echo('文件：' + '、'.join(p.name for p in written))
+    coverage = model['coverage']
+    typer.echo('覆盖：流程 %d 个，Cube %d 个，写入点 %d 处，Rule %d 条，Feeder %d 条，缺口 %d 项。' % (
+        coverage['processes_analyzed'], coverage['cubes_modeled'], coverage['write_points'],
+        coverage['rules'], coverage['feeders'], coverage['gaps']))
+    typer.echo('运行验证：0 项。档案是静态事实，不是运行结果。')
+
+
 @app.command()
 def web(
     no_browser: bool = typer.Option(False, "--no-browser", help="不自动打开浏览器"),

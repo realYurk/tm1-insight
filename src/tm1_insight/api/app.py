@@ -80,6 +80,8 @@ from tm1_insight.api.assets import router as assets_router
 app.include_router(assets_router)
 from tm1_insight.api.module_spec import router as module_spec_router
 app.include_router(module_spec_router)
+from tm1_insight.api.module_dossier import router as module_dossier_router
+app.include_router(module_dossier_router)
 
 
 # ---- 全局异常处理：任何未捕获异常都返回友好错误页，而非白屏 500 ----
