@@ -25,7 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from tm1_insight import __version__
 from tm1_insight.config import Settings, get_settings
 from tm1_insight.store.db import Store
-from tm1_insight.store import queries, calls, scope_view
+from tm1_insight.store import queries, calls, scope_view, call_sites
 from tm1_insight.store.graph_adapter import dependencies_from_store
 from tm1_insight.ingest.progress import INGEST_STAGES, AUDIT_STAGES, stage_progress
 from tm1_insight.tasks import TaskCancelled
@@ -650,6 +650,9 @@ def _call_tree_for(con, name: str, fingerprint: str, include_system: bool = True
         max_nodes=CALL_TREE_LIMITS["max_nodes"],
         include_system=include_system,
     )
+    # 调用点位置：只有直接上下游标，成本约 4 ms/个上游，且结果随树一起缓存。
+    call_sites.attach(con, tree)
+    tree["fingerprint"] = fingerprint
     with _call_tree_cache_lock:
         if len(_call_tree_cache) >= _CALL_TREE_CACHE_MAX:
             _call_tree_cache.clear()

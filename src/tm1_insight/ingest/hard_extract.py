@@ -58,6 +58,32 @@ def strip_log_regions(code):
     return "\n".join(out)
 
 
+def mask_log_regions(code):
+    """把日志区域抹成等长空白（保留换行），用于**报告源码位置**的解析。
+
+    ``strip_log_regions`` 是按行删除的，删完之后后面所有行号都往前挪，
+    拿它算出来的位置指不回原文件——位置错了比没有位置更坏。
+
+    这里保留每一个字符的位置（只把内容换成空格、换行原样留），
+    于是 offset / line / column 与原始源码一一对应，而注释里的伪
+    ``ExecuteProcess(...)`` 不会命中。
+    """
+    lines = code.split("\n")
+    out = []
+    skip = False
+    for line in lines:
+        if LOG_REGION_START.search(line) or LOG_REGION_FINAL_START.search(line):
+            skip = True
+            out.append(" " * len(line))
+            continue
+        if LOG_REGION_END.search(line) or LOG_REGION_FINAL_END.search(line):
+            skip = False
+            out.append(" " * len(line))
+            continue
+        out.append(" " * len(line) if skip else line)
+    return "\n".join(out)
+
+
 def split_statements(code):
     """按分号切分语句, 保护引号内的分号"""
     lines = code.split("\n")
@@ -367,7 +393,8 @@ def _find_multiline_call(code, func_names):
     """跨行扫描函数调用：解决 ExecuteProcess(\n '}bedrock.cube.data.copy',\n ...) 这类
     多行调用被 split_statements 按单行切碎、导致括号无法闭合的问题。
 
-    返回 [(func_name, args_str), ...]，args_str 为去括号后的完整参数字符串。
+    返回 [(func_name, args_str, offset), ...]，args_str 为去括号后的完整参数字符串，
+    offset 是函数名在 code 中的起始下标（用于换算出源码行号）。
     """
     pattern = r'\b(' + '|'.join(func_names) + r')\s*\('
     results = []
@@ -393,7 +420,7 @@ def _find_multiline_call(code, func_names):
                 elif ch == ")":
                     depth -= 1
                     if depth == 0:
-                        results.append((fname, code[start:i]))
+                        results.append((fname, code[start:i], m.start()))
                         break
             i += 1
     return results
@@ -403,7 +430,7 @@ def extract_calls(code, assignments):
     calls = []
     # 用跨行扫描统一提取 ExecuteProcess/RunProcess（兼容单行与多行两种写法），
     # 替代原先依赖 split_statements 的单行扫描，避免多行调用漏解析。
-    for fname, args_str in _find_multiline_call(code, ["ExecuteProcess", "RunProcess"]):
+    for fname, args_str, offset in _find_multiline_call(code, ["ExecuteProcess", "RunProcess"]):
         args = split_args(args_str)
         if not args:
             continue
@@ -428,6 +455,7 @@ def extract_calls(code, assignments):
             "callee_expr": proc_expr,
             "callee": callee,
             "params": params,
+            "offset": offset,
         })
     return calls
 

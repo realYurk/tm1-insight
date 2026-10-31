@@ -550,3 +550,13 @@ details summary { cursor: pointer; padding: 12px 0; }
 .scope-inline a { color: inherit; font-weight: 600; text-decoration: none; white-space: nowrap; }
 .scope-inline a:hover { text-decoration: underline; }
 [data-theme="dark"] .scope-inline { background: rgba(180, 83, 9, .16); color: #f6c177; }
+
+/* ==== 调用点位置：让「它调了它」变成「第 12 行调了它」====
+   放在节点名后面，指向调用发生的那份源码。颜色压得比节点名淡，
+   因为它是证据的指针，不是节点本身。 */
+.tree-site {
+  margin-left: 6px; font-size: 11px; font-family: var(--mono, ui-monospace, monospace);
+  color: var(--muted); text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+.tree-site:hover { color: var(--accent); border-bottom-style: solid; }

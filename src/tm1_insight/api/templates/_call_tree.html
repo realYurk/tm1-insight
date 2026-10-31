@@ -7,7 +7,7 @@
    节点 kind 来自 store.calls：literal / framework / missing / dynamic。
    dynamic 不是固定成员，不会出现在节点里，只在树末尾报「几处未解析」。
 #}
-{% macro render_tree(node, kind) -%}
+{% macro render_tree(node, kind, fp) -%}
 {% set nk = node.kind|default('literal') %}
 {# catalog 说「这个目标在不在目录里」，kind 说「它是什么类型」。两者不能合并：
    框架对象默认不进快照，若只按 kind 判断，会把「按范围未收录」渲染成
@@ -29,11 +29,15 @@
       <a class="tree-node" href="/explorer/process/{{ node.name|urlencode }}">{{ node.name }}</a>
       {% if nk == 'framework' %}<span class="tree-kind">框架</span>{% endif %}
       {% endif %}
+      {# 调用点位置：链接指向「调用发生的那份源码」，不是当前 TI 的源码。
+         上游节点的这一行在上游自己的文件里——写在这里必须让 href 指向对的文件，
+         否则就是把人送到一个行号对不上的页面。 #}
+      {% if node.site %}<a class="tree-site" href="/explorer/process/{{ node.site.process|urlencode }}{% if fp %}?source={{ fp }}{% endif %}#{{ node.site.section }}-L{{ node.site.line }}" title="在 {{ node.site.process }} 的{{ node.site.section }}第 {{ node.site.line }} 行{% if node.site.count > 1 %}（共 {{ node.site.count }} 处调用，这是第一处）{% endif %}">{{ node.site.section }}:{{ node.site.line }}</a>{% endif %}
     </summary>
     {% if node.children %}
     <div class="tree-children">
       {% for child in node.children %}
-      {{ render_tree(child, kind) }}
+      {{ render_tree(child, kind, fp) }}
       {% endfor %}
     </div>
     {% endif %}
@@ -51,6 +55,8 @@
   目录中不存在 {{ kc.missing|default(0) }} 个
   {%- if cc.excluded %} · 按采集范围未收录 {{ cc.excluded }} 个（存在于服务器，没有源码）{% endif %}
   {%- if call_tree.dynamic_targets %} · 另有 {{ call_tree.dynamic_targets }} 处动态目标未解析、未画{% endif %}
+  {%- if call_tree.site_count %} · 节点后的 <code>data:12</code> 是调用点在该 TI 源码里的位置（只标直接上下游）{% endif %}
+  {%- if call_tree.site_unlocated %} · 另有 {{ call_tree.site_unlocated }} 个节点没标位置：调用目标由变量拼成，或这条边来自与当前源码不一致的历史采集{% endif %}
 </p>
 {% endif %}
 {# 范围折叠必须报数：不画不等于不存在。业务 TI 的下游里 72% 只调 } 开头的系统对象。
@@ -72,7 +78,7 @@
 <div class="tree-section">
   <div class="tree-label upstream">↑ 被调用（{% if call_tree.direct.callers.capped %}显示 {{ call_tree.direct.callers.shown }} / 共 {{ call_tree.direct.callers.total }}{% else %}{{ call_tree.direct.callers.total }}{% endif %}）</div>
   {% for c in call_tree.callers %}
-  {{ render_tree(c, 'caller') }}
+  {{ render_tree(c, 'caller', call_tree.fingerprint) }}
   {% endfor %}
 </div>
 {% endif %}
@@ -83,7 +89,7 @@
 <div class="tree-section">
   <div class="tree-label downstream">↓ 调用（{% if call_tree.direct.callees.capped %}显示 {{ call_tree.direct.callees.shown }} / 共 {{ call_tree.direct.callees.total }}{% else %}{{ call_tree.direct.callees.total }}{% endif %}）</div>
   {% for c in call_tree.callees %}
-  {{ render_tree(c, 'callee') }}
+  {{ render_tree(c, 'callee', call_tree.fingerprint) }}
   {% endfor %}
 </div>
 {% endif %}
