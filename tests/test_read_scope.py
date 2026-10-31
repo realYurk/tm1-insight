@@ -23,14 +23,14 @@ def _seed_reads(client):
     """两个 TI：一个读业务 + 系统，一个只读系统。"""
     seed(client)
     con = Store(get_settings()).connect()
-    con.execute("INSERT INTO cubes (name,dimension_count) VALUES ('}APQ Settings',1)")
-    con.execute("INSERT INTO cube_has_dimension VALUES ('}APQ Settings','Dept',0)")
+    con.execute("INSERT INTO cubes (name,dimension_count) VALUES ('}ElementAttributes_Dept',1)")
+    con.execute("INSERT INTO cube_has_dimension VALUES ('}ElementAttributes_Dept','Dept',0)")
     con.execute('INSERT INTO processes (name,data,parameters) VALUES (?,?,?)', ['Mixed',
-        "base=CellGetN('Input',pDept);\nsetting=CellGetN('}APQ Settings',pDept);\n"
+        "base=CellGetN('Input',pDept);\nsetting=CellGetN('}ElementAttributes_Dept',pDept);\n"
         "v=base*setting;\nCellPutN(v,'Result',pDept);",
         json.dumps([dict(name='pDept')])])
     con.execute('INSERT INTO processes (name,data,parameters) VALUES (?,?,?)', ['OnlySystem',
-        "s=CellGetN('}APQ Settings',pDept);\nCellPutN(s,'Result',pDept);",
+        "s=CellGetN('}ElementAttributes_Dept',pDept);\nCellPutN(s,'Result',pDept);",
         json.dumps([dict(name='pDept')])])
     con.close()
 
@@ -50,7 +50,7 @@ def test_system_reads_are_folded_but_named(client):
     page = client.get('/calculation', params={'name': 'Mixed'})
     assert page.status_code == 200
     section = _section(page.text)
-    assert '另有 1 条读取依赖未显示（1 条指向系统立方体）：}APQ Settings' in section
+    assert '另有 1 条读取依赖未显示（1 条指向系统立方体）：}ElementAttributes_Dept' in section
     assert '隐藏不等于这个值没有来源' in section
     assert 'CellGetN · <a' in section and '>Input</a>' in section
 
@@ -61,8 +61,8 @@ def test_system_reads_are_folded_but_named(client):
     # DAG 不裁剪：read_nodes 仍是两条；页面显示的那条单独记在 reads_shown
     assert len(write['read_nodes']) == 2
     assert [nodes[i]['cube'] for i in write['reads_shown']] == ['Input']
-    assert [nodes[i]['cube'] for i in write['reads_hidden']] == ['}APQ Settings']
-    assert write['reads_hidden_cubes'] == ['}APQ Settings'] and write['reads_hidden_system'] == 1
+    assert [nodes[i]['cube'] for i in write['reads_hidden']] == ['}ElementAttributes_Dept']
+    assert write['reads_hidden_cubes'] == ['}ElementAttributes_Dept'] and write['reads_hidden_system'] == 1
     assert data['scope_view']['reads_hidden'] == 1 and data['scope_view']['reads_total'] == 2
 
 
@@ -79,7 +79,7 @@ def test_switching_to_full_shows_the_reads_without_the_warning(client):
     _seed_reads(client)
     page = client.get('/calculation', params={'name': 'Mixed', 'system': 1})
     section = _section(page.text)
-    assert '}APQ Settings' in section and 'Input' in section
+    assert '}ElementAttributes_Dept' in section and 'Input' in section
     assert '未显示' not in section
 
 

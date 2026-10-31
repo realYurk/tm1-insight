@@ -34,7 +34,7 @@ def prepare_invocation(client):
     seed(client)
     con = Store(get_settings()).connect()
     con.execute('INSERT INTO processes (name,data,parameters) VALUES (?,?,?)', ['Child',
-        "v=CellGetN('Input',pDept)*pAmount; CellPutN(v,'Result',pDept); CellPutN(pAmount,'}Audit',pDept);",
+        "v=CellGetN('Input',pDept)*pAmount; CellPutN(v,'Result',pDept); CellPutN(pAmount,'}APQ Settings',pDept);",
         json.dumps([dict(name='pAmount'), dict(name='pDept')])])
     con.execute('INSERT INTO processes (name,prolog,parameters) VALUES (?,?,?)', ['Entry',
         "ExecuteProcess('Child','pAmount',1,'pDept','D1');",
@@ -54,11 +54,11 @@ def test_calculation_export_is_the_list_on_screen(client):
     assert _shown(page) == len(data['writes']) == 1
     assert data['writes'][0]['cube'] == 'Result'
     assert data['scope_view'] == dict(scope='business', visible=1, hidden=1, log=0, system=1,
-                                      cubes=['}Audit'], log_cubes=[], write_ids=[1], system_count=1,
+                                      cubes=['}APQ Settings'], log_cubes=[], write_ids=[1], system_count=1,
                                       reads_hidden=0, reads_total=2)
     full = client.get('/api/calculation/export',
                       params=dict(name='Compute', source=source, system=1)).json()
-    assert [w['cube'] for w in full['writes']] == ['Result', '}Audit']
+    assert [w['cube'] for w in full['writes']] == ['Result', '}APQ Settings']
     assert full['scope_view'] == dict(scope='all', visible=2, hidden=0, log=0, system=0, cubes=[],
                                       log_cubes=[], write_ids=[], system_count=1,
                                       reads_hidden=0, reads_total=2)
@@ -71,7 +71,7 @@ def test_export_explains_the_difference_in_its_own_text(client):
                     params=dict(name='Compute', source=source, format='markdown')).text
     assert '## 收录范围' in md
     assert '另有 1 条记录未包含在本文件内' in md
-    assert '`}Audit`' in md and 'system=1' in md
+    assert '`}APQ Settings`' in md and 'system=1' in md
     assert '会出现跳号' in md
     full = client.get('/api/calculation/export',
                       params=dict(name='Compute', source=source, format='markdown', system=1)).text
@@ -83,7 +83,7 @@ def test_hidden_rows_keep_their_original_numbers(client):
     seed(client)
     con = Store(get_settings()).connect()
     con.execute('UPDATE processes SET data=? WHERE name=?',
-                ["CellPutN(1,'}Audit',pDept);\nv=CellGetN('Input',pDept);\nCellPutN(v,'Result',pDept);", 'Compute'])
+                ["CellPutN(1,'}APQ Settings',pDept);\nv=CellGetN('Input',pDept);\nCellPutN(v,'Result',pDept);", 'Compute'])
     con.close()
     source = _source(client.get('/calculation', params={'name': 'Compute'}))
     data = client.get('/api/calculation/export', params=dict(name='Compute', source=source)).json()
@@ -105,7 +105,7 @@ def test_scope_bar_marks_a_clipped_view(client):
     mode, body = _scope_bar(client.get('/calculation', params={'name': 'Compute'}).text)
     assert mode == 'business'
     assert '当前范围：1 条写入点' in body
-    assert '另有 1 条写入点未显示（1 条指向系统立方体）：}Audit' in body
+    assert '另有 1 条写入点未显示（1 条指向系统立方体）：}APQ Settings' in body
     assert 'system=1' in body and '看全部（含 } 前缀）' in body
 
 
@@ -151,9 +151,9 @@ def test_invocation_hides_system_usage_and_warns_about_it(client):
     assert page.text.count('范围 · 还有 1 条使用位置指向日志或系统立方体') == 2
     narrow = client.get('/api/invocation/export',
                         params=dict(name='Entry', call=0, source=source)).json()
-    # 被波及的不止目标参数：pDept 作为 }Audit 的坐标也少了一条，
+    # 被波及的不止目标参数：pDept 作为 }APQ Settings 的坐标也少了一条，
     # 所以这里记 2 条使用位置 + 1 条子 TI 写入点。
-    assert narrow['scope_view'] == dict(scope='business', hidden=3, log=0, system=3, cubes=['}Audit'],
+    assert narrow['scope_view'] == dict(scope='business', hidden=3, log=0, system=3, cubes=['}APQ Settings'],
                                         log_cubes=[], uses=2, writes=1, bindings_affected=2,
                                         system_count=3, visible_uses=3, visible_writes=1)
     by_name = {b['parameter']: b for b in narrow['bindings']}
@@ -163,10 +163,10 @@ def test_invocation_hides_system_usage_and_warns_about_it(client):
 
     full = client.get('/api/invocation/export',
                       params=dict(name='Entry', call=0, source=source, system=1)).json()
-    # 全量 5 条：Result 3 条（pAmount 写入值、pDept 写入坐标、pDept 读取坐标）+ }Audit 2 条
-    assert Counter(u['cube'] for b in full['bindings'] for u in b['uses']) == {'Result': 3, '}Audit': 2}
+    # 全量 5 条：Result 3 条（pAmount 写入值、pDept 写入坐标、pDept 读取坐标）+ }APQ Settings 2 条
+    assert Counter(u['cube'] for b in full['bindings'] for u in b['uses']) == {'Result': 3, '}APQ Settings': 2}
     assert narrow['scope_view']['visible_uses'] == 3
-    assert [w['cube'] for w in full['child']['writes']] == ['Result', '}Audit']
+    assert [w['cube'] for w in full['child']['writes']] == ['Result', '}APQ Settings']
 
     md = client.get('/api/invocation/export',
                     params=dict(name='Entry', call=0, source=source, format='markdown')).text
@@ -178,10 +178,10 @@ def test_invocation_page_can_switch_back_to_full(client):
     source = prepare_invocation(client)
     page = client.get('/invocation', params=dict(name='Entry', call=0, source=source))
     assert 'class="scope-bar" data-mode="business"' in page.text
-    assert '另有 3 条记录未显示（3 条指向系统立方体）：}Audit' in page.text
+    assert '另有 3 条记录未显示（3 条指向系统立方体）：}APQ Settings' in page.text
     assert '看全部（含 } 前缀）' in page.text
     wide = client.get('/invocation', params=dict(name='Entry', call=0, source=source, system=1))
-    assert wide.status_code == 200 and '}Audit' in wide.text
+    assert wide.status_code == 200 and '}APQ Settings' in wide.text
     assert 'data-mode="all"' in wide.text and '只看业务对象' in wide.text
 
 
@@ -199,10 +199,30 @@ def test_target_kind_splits_logs_from_other_system_objects():
     from tm1_insight.store.scope_view import target_kind
     assert target_kind('Result') == 'plain'
     assert target_kind('}APQ Process Response Message') == 'log'
+    # 紧凑写法与带空格写法是同一个 cube 的两种叫法。真实库里是带空格的，
+    # 只认紧凑写法会让它在页面上被降级成「系统立方体」。
     assert target_kind('}APQProcessExecutionLog') == 'log'
-    assert target_kind('Sys Process Execution Log') == 'log'
-    assert target_kind('}Audit') == 'system'
+    assert target_kind('}APQ Process Execution Log') == 'log'
+    assert target_kind('}CubeDrill_}APQ Process Execution Log') == 'log'
+    assert target_kind('Sys Versioning Log') == 'log'
+    assert target_kind('}APQ Settings') == 'system'
+    # 注册表，不是日志：原来按字面清单被误判成日志
+    assert target_kind('}APQ Dimension Subsets') == 'system'
     assert target_kind(None) == 'plain'
+
+
+def test_one_log_criterion_not_two():
+    """判据只有一份实现。两份判据就是两个答案，迟早对不上。"""
+    from tm1_insight.ingest import hard_extract, lineage
+    samples = [
+        '}APQ Process Execution Log', '}APQProcessExecutionLog',
+        '}APQCubeLastUpdatedbyProcess', '}APQ Process Response Message',
+        '}Sys Process Execution Log', '}APQ Settings', 'Result', '',
+        'Sys Versioning Log', '}APQ Dimension Subsets',
+    ]
+    for name in samples:
+        assert lineage.is_log_cube(name) == hard_extract.is_log_cube(name), name
+    assert not hasattr(lineage, 'LOG_CUBE_PATTERNS')
 
 
 def test_log_writes_are_named_as_logs_not_as_system_objects(client):
@@ -224,3 +244,87 @@ def test_log_writes_are_named_as_logs_not_as_system_objects(client):
     assert '日志写入是每跑一次就写一条的执行记录' in md
     data = client.get('/api/calculation/export', params=dict(name='Compute', source=source)).json()
     assert data['scope_view']['log'] == 1 and data['scope_view']['system'] == 0
+
+
+def test_log_cube_named_with_spaces_is_still_a_log(client):
+    """真实框架里日志 cube 叫 `}APQ Process Execution Log`（带空格）。
+
+    合成模型里叫紧凑写法。判据只认紧凑写法时，这个 cube 在真实库上会被
+    降级成「系统立方体」，测试却全绿——因为测试造的就是紧凑名字。
+    """
+    seed(client)
+    con = Store(get_settings()).connect()
+    con.execute("INSERT INTO cubes (name,dimension_count) VALUES ('}APQ Process Execution Log',1)")
+    con.execute("INSERT INTO cube_has_dimension VALUES ('}APQ Process Execution Log','Dept',0)")
+    con.execute('UPDATE processes SET data=? WHERE name=?', [
+        "v=CellGetN('Input',pDept);\nCellPutN(v,'Result',pDept);\n"
+        "CellPutN(1,'}APQ Process Execution Log',pDept);", 'Compute'])
+    con.close()
+    page = client.get('/calculation', params={'name': 'Compute'})
+    assert '另有 1 条写入点未显示（1 条日志写入）' in page.text
+    assert '1 条指向系统立方体' not in page.text
+
+
+def test_all_writes_folded_is_not_reported_as_no_writes(client):
+    """6 条写入点全被收起时说「没有写入点」，等于说这个 TI 不写数据。"""
+    seed(client)
+    con = Store(get_settings()).connect()
+    con.execute("INSERT INTO cubes (name,dimension_count) VALUES ('}APQ Process Execution Log',1)")
+    con.execute("INSERT INTO cube_has_dimension VALUES ('}APQ Process Execution Log','Dept',0)")
+    con.execute('INSERT INTO processes (name,prolog,parameters) VALUES (?,?,?)', [
+        'Logger',
+        "CellPutN(1,'}APQ Process Execution Log',pDept);\n"
+        "CellPutN(2,'}APQ Process Execution Log',pDept);",
+        json.dumps([dict(name='pDept')])])
+    con.close()
+
+    page = client.get('/calculation', params={'name': 'Logger'})
+    assert '当前范围没有可展示' not in page.text
+    assert '2 条写入点全部落在日志立方体上，已按页面范围收起' in page.text
+    assert '这个 TI 的写入点全在日志或系统立方体上' in page.text
+    # 展开后必须真的看得到这两条
+    wide = client.get('/calculation', params={'name': 'Logger', 'system': 1})
+    assert wide.text.count('}APQ Process Execution Log') >= 2
+    assert '当前范围没有可展示' not in wide.text
+
+
+def test_log_cube_named_with_spaces_is_still_a_log(client):
+    """真实框架里日志 cube 叫 `}APQ Process Execution Log`（带空格）。
+
+    合成模型里叫紧凑写法。判据只认紧凑写法时，这个 cube 在真实库上会被
+    降级成「系统立方体」，测试却全绿——因为测试造的就是紧凑名字。
+    """
+    seed(client)
+    con = Store(get_settings()).connect()
+    con.execute("INSERT INTO cubes (name,dimension_count) VALUES ('}APQ Process Execution Log',1)")
+    con.execute("INSERT INTO cube_has_dimension VALUES ('}APQ Process Execution Log','Dept',0)")
+    con.execute('UPDATE processes SET data=? WHERE name=?', [
+        "v=CellGetN('Input',pDept);\nCellPutN(v,'Result',pDept);\n"
+        "CellPutN(1,'}APQ Process Execution Log',pDept);", 'Compute'])
+    con.close()
+    page = client.get('/calculation', params={'name': 'Compute'})
+    assert '另有 1 条写入点未显示（1 条日志写入）' in page.text
+    assert '1 条指向系统立方体' not in page.text
+
+
+def test_all_writes_folded_is_not_reported_as_no_writes(client):
+    """6 条写入点全被收起时说「没有写入点」，等于说这个 TI 不写数据。"""
+    seed(client)
+    con = Store(get_settings()).connect()
+    con.execute("INSERT INTO cubes (name,dimension_count) VALUES ('}APQ Process Execution Log',1)")
+    con.execute("INSERT INTO cube_has_dimension VALUES ('}APQ Process Execution Log','Dept',0)")
+    con.execute('INSERT INTO processes (name,prolog,parameters) VALUES (?,?,?)', [
+        'Logger',
+        "CellPutN(1,'}APQ Process Execution Log',pDept);\n"
+        "CellPutN(2,'}APQ Process Execution Log',pDept);",
+        json.dumps([dict(name='pDept')])])
+    con.close()
+
+    page = client.get('/calculation', params={'name': 'Logger'})
+    assert '当前范围没有可展示' not in page.text
+    assert '2 条写入点全部落在日志立方体上，已按页面范围收起' in page.text
+    assert '这个 TI 的写入点全在日志或系统立方体上' in page.text
+    # 展开后必须真的看得到这两条
+    wide = client.get('/calculation', params={'name': 'Logger', 'system': 1})
+    assert wide.text.count('}APQ Process Execution Log') >= 2
+    assert '当前范围没有可展示' not in wide.text

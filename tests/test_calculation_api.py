@@ -11,12 +11,12 @@ from tm1_insight.store.db import Store
 def seed(client):
     client.get('/')
     con=Store(get_settings()).connect()
-    for name in ['Input','Driver','Result','}Audit']:
+    for name in ['Input','Driver','Result','}APQ Settings']:
         con.execute('INSERT INTO cubes (name,dimension_count) VALUES (?,1)',[name])
         con.execute('INSERT INTO cube_has_dimension VALUES (?,\'Dept\',0)',[name])
     con.execute("INSERT INTO dimensions (name) VALUES ('Dept')")
     con.execute('INSERT INTO processes (name,data,parameters) VALUES (?,?,?)',['Compute',
-        "base=CellGetN('Input',pDept);\nrate=CellGetN('Driver',pDept);\nv=base*rate/100;\nCellPutN(v,'Result',pDept);\nCellPutN(1,'}Audit',pDept);\nExecuteProcess(pChild);",
+        "base=CellGetN('Input',pDept);\nrate=CellGetN('Driver',pDept);\nv=base*rate/100;\nCellPutN(v,'Result',pDept);\nCellPutN(1,'}APQ Settings',pDept);\nExecuteProcess(pChild);",
         json.dumps([dict(name='pDept'),dict(name='pChild')])])
     con.close()
 
@@ -27,7 +27,7 @@ def test_selected_ti_page_exports_and_original_source_unchanged(client):
     response=client.get('/calculation?name=Compute')
     assert response.status_code==200
     assert 'base * rate / 100' in response.text and '读取依赖' in response.text
-    assert '另有 1 条写入点未显示（1 条指向系统立方体）：}Audit' in response.text
+    assert '另有 1 条写入点未显示（1 条指向系统立方体）：}APQ Settings' in response.text
     assert 'class="scope-bar" data-mode="business"' in response.text
     assert '当前范围：1 条写入点' in response.text
     assert '看全部（含 } 前缀）' in response.text
@@ -39,7 +39,7 @@ def test_selected_ti_page_exports_and_original_source_unchanged(client):
     # 导出与页面同一把尺子：屏幕上 1 条，文件里就是 1 条，差的那条要留名字
     assert len(result['writes'])==1 and result['writes'][0]['cube']=='Result'
     assert result['scope_view']==dict(scope='business',visible=1,hidden=1,log=0,system=1,
-                                      cubes=['}Audit'],log_cubes=[],write_ids=[1],system_count=1,
+                                      cubes=['}APQ Settings'],log_cubes=[],write_ids=[1],system_count=1,
                                       reads_hidden=0,reads_total=2)
     assert result['calls'][0]['target'] is None
     assert result['model_fingerprint']==source and not result['runtime_verified']
@@ -47,7 +47,7 @@ def test_selected_ti_page_exports_and_original_source_unchanged(client):
     assert len(full['writes'])==2 and full['scope_view']['scope']=='all'
     md=client.get('/api/calculation/export',params=dict(name='Compute',source=source,format='markdown'))
     assert '静态读取依赖：Input' in md.text and 'TI_Calculation.md' in md.headers['content-disposition']
-    assert '另有 1 条记录未包含在本文件内' in md.text and '`}Audit`' in md.text
+    assert '另有 1 条记录未包含在本文件内' in md.text and '`}APQ Settings`' in md.text
     assert '静态读取依赖：Input' in client.get('/api/calculation/export',
         params=dict(name='Compute',source=source,format='markdown',system=1)).text
     assert client.get('/calculation',params=dict(name='Compute',write=1)).status_code==404

@@ -75,10 +75,17 @@ def _var_name(dim: str) -> str:
 def framework_objects(prefix: str) -> dict[str, str]:
     """根据前缀派生出框架全部对象名（日志 cube、Settings cube、维度等）。
 
-    注意：真实框架里日志 cube 名是「紧凑无空格」的，例如：
-      }APQProcessExecutionLog（不是 }APQ Process Execution Log）
-      }APQCubeLastUpdatedbyProcess
-    而 Settings 参数 cube 是带空格的：}APQ Settings
+    命名注意：**同一个日志 cube 有两种写法，判据必须都认**。
+
+      }APQProcessExecutionLog   ← 本函数生成的合成模型用这种紧凑写法
+      }APQ Process Execution Log ← 真实企业模型里是这种带空格的写法
+
+    Settings 参数 cube 两侧都是带空格的 ``}APQ Settings``。
+
+    历史教训：日志判据曾按紧凑写法写成字面清单，遇到真实库直接失配，
+    那个 cube 在页面上被降级成「系统立方体」，而全部测试仍绿——
+    因为测试造的是紧凑名字。判据现在只在 ``ingest.hard_extract`` 一处，
+    用正则同时覆盖两种写法。
     """
     p = _norm_prefix(prefix)
     body = p[1:]  # 去掉 } 后的名字主体，如 APQ / Sys

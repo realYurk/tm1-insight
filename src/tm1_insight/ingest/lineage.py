@@ -8,16 +8,8 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
+from tm1_insight.ingest.hard_extract import is_log_cube as _extract_is_log_cube
 from tm1_insight.ingest.hard_extract import process_ti
-
-LOG_CUBE_PATTERNS = [
-    "}APQProcessExecutionLog",
-    "}APQCubeLastUpdatedbyProcess",
-    "}APQ Process Response Message",
-    "}Sys Process Execution Log",
-    "Sys Process Execution Log",
-    "}APQ Dimension Subsets",
-]
 
 LOG_MEASURE_VALUES = {
     "nProcessStartTime", "nProcessFinishTime", "nProcessStartedFlag",
@@ -33,15 +25,16 @@ LOG_MEASURE_VALUES = {
 
 
 def is_log_cube(name):
-    """按名字判断是不是日志 cube。
+    """日志 cube 判据——唯一实现在 ``hard_extract``，这里只转发。
 
-    写入侧（``process_writes_cube``）与计算检查页（``worksheet`` 解析出的写入点）
-    是两条独立的生产链路，唯一的口径差就是这一类：血缘图**有意**不追踪日志写入，
-    计算页则把源码里每一处 ``CellPutN`` 都列出来。两边都不算错，但不能各判各的——
-    这份清单是唯一判据，谁要过滤或标注都调它。
+    这里曾另有一份字面清单（``}APQProcessExecutionLog`` 等六项），是按**合成模型**
+    的紧凑命名写的。真实框架里那个 cube 叫 ``}APQ Process Execution Log``（带空格），
+    子串匹配落空，于是同一个日志在计算检查页被降级成「系统立方体」，
+    「日志是每跑一次写一条的执行记录」这句解释也随之丢失。
+
+    两份判据就是两个答案。测试全绿而真实库出错，原因正是测试造的是紧凑名字。
     """
-    target = name or ""
-    return any(pat in target for pat in LOG_CUBE_PATTERNS)
+    return _extract_is_log_cube(name)
 
 
 def is_log_write(wp):
