@@ -36,6 +36,11 @@
 砍掉节点会打断 ``children`` 引用，而依赖图本来也不是「收录清单」，
 它是「这张图的推理依据」，缺一个节点就说不出为什么这么推。
 
+读取依赖同理，但更危险。写入点少一条，读者知道还有别的写入；
+读取依赖少一条，读者会认定**这个值没有来源**。所以它连"删"都不做——
+``read_nodes`` 原样保留、``nodes`` 一个不动，另外给 ``reads_shown`` /
+``reads_hidden`` 两个索引清单，谁渲染都得把两边都说出来。
+
 编号（``write.id``）一律保持原值，绝不重新编号——否则「写入 3」
 在页面和导出里指向两条不同的记录，等于把对账做成了新的坑。
 """
@@ -82,7 +87,46 @@ def _summary(dropped: list[dict]) -> dict:
 
 
 def _empty(scope: str = ALL) -> dict:
-    return dict(scope=scope, visible=0, hidden=0, log=0, system=0, cubes=[], log_cubes=[], write_ids=[])
+    return dict(scope=scope, visible=0, hidden=0, log=0, system=0, cubes=[], log_cubes=[],
+                write_ids=[], reads_hidden=0, reads_total=0)
+
+
+def split_reads(writes: list[dict], nodes: dict, include_system: bool):
+    """给每个写入点分出「留着的读取依赖」与「被范围收走的读取依赖」。
+
+    读取依赖不是独立清单，它是某个写入点的定义链证据。收它的风险和收写入点
+    完全不同：写入点少一条，读者知道有别的写入；读取依赖少一条，读者会以为
+    **这个值没有来源**。所以这里只分类、不删除——``read_nodes`` 原样保留，
+    另给 ``reads_shown`` / ``reads_hidden`` 两个索引清单，谁渲染都得两边都说。
+
+    返回 ``(新 writes 列表, 被收走的读取依赖总条数)``。
+    """
+    annotated, total_hidden = [], 0
+    for write in writes:
+        item = dict(write)
+        indices = list(write.get('read_nodes') or [])
+        shown, hidden = [], []
+        for index in indices:
+            cube = (nodes.get(index) or {}).get('cube')
+            if not include_system and is_hidden_target(cube):
+                hidden.append(index)
+            else:
+                shown.append(index)
+        item['reads_shown'] = shown
+        item['reads_hidden'] = hidden
+        if hidden:
+            cubes = []
+            for index in hidden:
+                cube = (nodes.get(index) or {}).get('cube')
+                if cube and cube not in cubes:
+                    cubes.append(cube)
+            kinds = Counter(target_kind((nodes.get(index) or {}).get('cube')) for index in hidden)
+            item['reads_hidden_cubes'] = sorted(cubes)
+            item['reads_hidden_log'] = kinds.get(KIND_LOG, 0)
+            item['reads_hidden_system'] = kinds.get(KIND_SYSTEM, 0)
+        total_hidden += len(hidden)
+        annotated.append(item)
+    return annotated, total_hidden
 
 
 def narrow_report(report: dict | None, include_system: bool = False):
@@ -93,18 +137,24 @@ def narrow_report(report: dict | None, include_system: bool = False):
     """
     if not report:
         return report, _empty()
+    nodes = {node['id']: node for node in (report.get('nodes') or [])}
     writes = list(report.get('writes') or [])
     hidden_writes = [w for w in writes if is_hidden_target(w.get('cube'))]
     if include_system:
         view = dict(report)
-        info = dict(scope=ALL, visible=len(writes), **_summary([]), system_count=len(hidden_writes))
+        shown, _ = split_reads(writes, nodes, True)
+        view['writes'] = shown
+        info = dict(scope=ALL, visible=len(writes), **_summary([]), system_count=len(hidden_writes),
+                    reads_hidden=0, reads_total=sum(len(w.get('read_nodes') or []) for w in writes))
         view['scope_view'] = info
         return view, info
     kept = [w for w in writes if not is_hidden_target(w.get('cube'))]
+    shown, reads_hidden = split_reads(kept, nodes, False)
     view = dict(report)
-    view['writes'] = kept
+    view['writes'] = shown
     info = dict(scope=BUSINESS, visible=len(kept), **_summary(hidden_writes),
-                system_count=len(hidden_writes))
+                system_count=len(hidden_writes), reads_hidden=reads_hidden,
+                reads_total=sum(len(w.get('read_nodes') or []) for w in kept))
     view['scope_view'] = info
     return view, info
 
@@ -192,6 +242,32 @@ def hidden_text(info: dict | None, noun: str = '写入点') -> str:
     return text
 
 
+def reads_text(write: dict | None) -> str:
+    """一个写入点的读取依赖被收起多少、为什么——一句话。
+
+    写「读取依赖被隐藏」而不解释的人，是在制造一个更坏的误解：
+    读者看到定义链上只剩常量，会认定这个值不来自任何地方。
+    """
+    if not write:
+        return ''
+    hidden = write.get('reads_hidden') or []
+    if not hidden:
+        return ''
+    log, system = write.get('reads_hidden_log', 0), write.get('reads_hidden_system', 0)
+    parts = []
+    if log:
+        parts.append('%d 条指向日志' % log)
+    if system:
+        parts.append('%d 条指向系统立方体' % system)
+    text = '另有 %d 条读取依赖未显示' % len(hidden)
+    if parts:
+        text += '（' + '、'.join(parts) + '）'
+    cubes = write.get('reads_hidden_cubes') or []
+    if cubes:
+        text += '：' + '、'.join(cubes[:3])
+    return text + '。隐藏不等于这个值没有来源'
+
+
 def scope_lines(info: dict | None) -> list[str]:
     """把范围账写成导出正文里的几句话。
 
@@ -202,30 +278,43 @@ def scope_lines(info: dict | None) -> list[str]:
         return []
     if info.get('scope') == ALL:
         return ['- 范围：全量（含 } 前缀与日志立方体），未被页面范围过滤。']
-    if not info.get('hidden'):
+    hidden = info.get('hidden') or 0
+    reads = info.get('reads_hidden') or 0
+    if not hidden and not reads:
         return ['- 范围：业务对象（不含 } 前缀与日志立方体）；本次没有需要隐藏的记录。']
-    parts = ['- 范围：业务对象（不含 } 前缀与日志立方体），另有 %d 条记录未包含在本文件内。'
-             % info['hidden']]
-    detail = []
-    if info.get('log'):
-        detail.append('%d 条日志写入' % info['log'])
-    if info.get('system'):
-        detail.append('%d 条系统立方体写入' % info['system'])
-    if info.get('uses'):
-        detail.append('其中 %d 条是参数使用位置' % info['uses'])
-    if detail:
-        parts.append('  - 构成：' + '、'.join(detail) + '。')
-    cubes = info.get('cubes') or []
-    if cubes:
-        shown = '、'.join('`' + name.replace('`', "'") + '`' for name in cubes[:8])
-        rest = ' 等 %d 个} 前缀立方体' % len(cubes) if len(cubes) > 8 else ''
-        parts.append('  - 被隐藏的记录指向：%s%s。' % (shown, rest))
-    if info.get('log'):
-        parts.append('  - 日志写入是每跑一次就写一条的执行记录，血缘图有意不追踪；'
-                     '它不代表业务数据流向。')
+    if hidden:
+        parts = ['- 范围：业务对象（不含 } 前缀与日志立方体），另有 %d 条记录未包含在本文件内。'
+                 % hidden]
+        detail = []
+        if info.get('log'):
+            detail.append('%d 条日志写入' % info['log'])
+        if info.get('system'):
+            detail.append('%d 条系统立方体写入' % info['system'])
+        if info.get('uses'):
+            detail.append('其中 %d 条是参数使用位置' % info['uses'])
+        if detail:
+            parts.append('  - 构成：' + '、'.join(detail) + '。')
+        cubes = info.get('cubes') or []
+        if cubes:
+            shown = '、'.join('`' + name.replace('`', "'") + '`' for name in cubes[:8])
+            rest = ' 等 %d 个} 前缀立方体' % len(cubes) if len(cubes) > 8 else ''
+            parts.append('  - 被隐藏的记录指向：%s%s。' % (shown, rest))
+        if info.get('log'):
+            parts.append('  - 日志写入是每跑一次就写一条的执行记录，血缘图有意不追踪；'
+                         '它不代表业务数据流向。')
+    else:
+        # 写入点一条没少，读取依赖少了——这两句话必须分开：
+        # 合成一句「有记录被隐藏」会让读者去列表里找一条并不存在的短项。
+        parts = ['- 范围：业务对象（不含 } 前缀与日志立方体）；没有写入点因范围被排除。']
+    if reads:
+        parts.append('  - 另有 %d 条读取依赖指向日志或系统立方体，各写入点的「静态读取依赖」'
+                     '一栏因此偏短；隐藏不等于该值没有来源。' % reads)
+        parts.append('  - JSON 里 writes[].read_nodes 仍是完整定义链（节点不裁剪，否则推不出结论）；'
+                     '同一写入点的 reads_shown 才是页面上那几条。')
     if info.get('bindings_affected'):
         parts.append('  - 其中 %d 个参数的「子 TI 使用」一栏因此变短；'
                      '空白不等于未使用，需按全量重新导出一份再判读。' % info['bindings_affected'])
     parts.append('  - 需要全量：同一地址加 `system=1`，本段会随之变成「全量」。')
-    parts.append('  - 编号沿用页面的原始编号，所以下面会出现跳号——缺的那几个就是上面被隐藏的记录。')
+    if hidden:
+        parts.append('  - 编号沿用页面的原始编号，所以下面会出现跳号——缺的那几个就是上面被隐藏的记录。')
     return parts

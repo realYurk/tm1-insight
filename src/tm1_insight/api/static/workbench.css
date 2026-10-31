@@ -537,3 +537,16 @@ details summary { cursor: pointer; padding: 12px 0; }
 [data-theme="dark"] .scope-bar[data-mode="all"] .scope-bar-tag { color: var(--accent); }
 [data-theme="dark"] .scope-bar[data-mode="none"] .scope-bar-tag,
 [data-theme="dark"] .scope-bar[data-mode="none"] .scope-bar-note { color: var(--muted); }
+
+/* ==== 局部范围说明：定义链上少了东西，就在定义链旁边说 ====
+   状态条管整页，这里管「这一个写入点的读取依赖」。分开是因为
+   少了写入点看得见（列表变短），少了读取依赖看不见（还以为没来源）。 */
+.scope-inline {
+  margin: 8px 0; padding: 7px 11px;
+  border-left: 3px solid #b45309; border-radius: 0 6px 6px 0;
+  background: rgba(180, 83, 9, .06);
+  font-size: 13px; line-height: 1.55; color: #92400e;
+}
+.scope-inline a { color: inherit; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.scope-inline a:hover { text-decoration: underline; }
+[data-theme="dark"] .scope-inline { background: rgba(180, 83, 9, .16); color: #f6c177; }

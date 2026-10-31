@@ -39,7 +39,8 @@ def test_selected_ti_page_exports_and_original_source_unchanged(client):
     # 导出与页面同一把尺子：屏幕上 1 条，文件里就是 1 条，差的那条要留名字
     assert len(result['writes'])==1 and result['writes'][0]['cube']=='Result'
     assert result['scope_view']==dict(scope='business',visible=1,hidden=1,log=0,system=1,
-                                      cubes=['}Audit'],log_cubes=[],write_ids=[1],system_count=1)
+                                      cubes=['}Audit'],log_cubes=[],write_ids=[1],system_count=1,
+                                      reads_hidden=0,reads_total=2)
     assert result['calls'][0]['target'] is None
     assert result['model_fingerprint']==source and not result['runtime_verified']
     full=client.get('/api/calculation/export',params=dict(name='Compute',source=source,system=1)).json()

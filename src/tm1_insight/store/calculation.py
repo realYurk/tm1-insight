@@ -110,7 +110,7 @@ def node_label(node):
 
 def markdown(report):
     from html import escape
-    from tm1_insight.store.scope_view import scope_lines
+    from tm1_insight.store.scope_view import scope_lines, reads_text
     def esc(value): return escape(str(value)).replace('`','\\`').replace('\n',' ')
     nodes = {n['id']:n for n in report['nodes']}
     lines = ['# TI 计算检查', '', f"过程：{esc(report['process'])}", f"源码哈希：{report['source_hash']}",
@@ -136,10 +136,12 @@ def markdown(report):
         for index in write['definition_nodes']:
             n=nodes[index];e=n['evidence']
             lines.append(f"- 定义 `{esc(n['variable'])} = {esc(n['expression'])}` · {e['section']}:{e['line']}:{e['column']}")
-        for index in write['read_nodes']:
+        for index in write.get('reads_shown', write['read_nodes']):
             n=nodes[index];e=n['evidence']
             lines.append(f"- 静态读取依赖：{esc(n.get('cube') or 'UNKNOWN')} · {n['operation']} · {e['section']}:{e['line']}:{e['column']}")
             lines += coordinate_lines(n['coordinate_mapping'], '读取坐标')
+        if write.get('reads_hidden'):
+            lines.append(f"- {esc(reads_text(write))}。")
         lines += coordinate_lines(write['coordinate_mapping'], '目标坐标')
         for index in write['unknown_nodes']:
             lines.append(f"- UNKNOWN：{esc(node_label(nodes[index]))} · {esc(nodes[index].get('reason','对象尚未解析'))}")

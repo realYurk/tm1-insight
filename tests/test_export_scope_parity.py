@@ -54,12 +54,14 @@ def test_calculation_export_is_the_list_on_screen(client):
     assert _shown(page) == len(data['writes']) == 1
     assert data['writes'][0]['cube'] == 'Result'
     assert data['scope_view'] == dict(scope='business', visible=1, hidden=1, log=0, system=1,
-                                      cubes=['}Audit'], log_cubes=[], write_ids=[1], system_count=1)
+                                      cubes=['}Audit'], log_cubes=[], write_ids=[1], system_count=1,
+                                      reads_hidden=0, reads_total=2)
     full = client.get('/api/calculation/export',
                       params=dict(name='Compute', source=source, system=1)).json()
     assert [w['cube'] for w in full['writes']] == ['Result', '}Audit']
     assert full['scope_view'] == dict(scope='all', visible=2, hidden=0, log=0, system=0, cubes=[],
-                                      log_cubes=[], write_ids=[], system_count=1)
+                                      log_cubes=[], write_ids=[], system_count=1,
+                                      reads_hidden=0, reads_total=2)
 
 
 def test_export_explains_the_difference_in_its_own_text(client):
