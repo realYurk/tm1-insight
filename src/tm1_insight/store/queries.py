@@ -6,6 +6,8 @@ import re
 
 import duckdb
 
+from tm1_insight.store import calls
+
 
 def _source_from_value(value: str | None) -> str | None:
     """从 dim_value 里解析嵌套 CellGet 的源头 Cube（格式 ←cube[dim...]→measure）。"""
@@ -390,33 +392,46 @@ def process_call_tree(
     层数最小的位置。可达集合不变，只是重复出现的深度更浅、结果更确定。
     """
     root_limit = max_breadth if root_breadth is None else root_breadth
+    # 一次取回统一口径的邻接表，再在内存里逐层展开。
+    # 之前每层一条 SQL：口径要跨三张来源表做合并去重，重算 12 次约 60–70 ms；
+    # 现在整棵树只发一条 SQL（≈15 ms），预算与截断判断逻辑完全不变。
+    cte = calls.edges_cte(con)
+    down: dict[str, list[tuple[str, str]]] = {}
+    up: dict[str, list[tuple[str, str]]] = {}
+    dynamic_targets = 0
+    for caller, callee, kind in con.execute(
+        cte + " SELECT caller, callee, kind FROM call_edge"
+    ).fetchall():
+        if kind == calls.KIND_DYNAMIC:
+            # 动态目标不是固定成员：不进入图，只按调用方计数。
+            if caller == root:
+                dynamic_targets += 1
+            continue
+        down.setdefault(caller, []).append((callee, kind))
+        up.setdefault(callee, []).append((caller, kind))
+    for adjacency in (down, up):
+        for children in adjacency.values():
+            children.sort()
+    edges_by_direction = {"down": down, "up": up}
+
     state = {"nodes": 1, "nodes_capped": False, "breadth_parents": 0, "depth_capped": False,
              "root_capped": {"callers": False, "callees": False}}
 
-    def _children_of_level(parents: list[str], direction: str, breadth: int) -> tuple[dict[str, list[str]], dict[str, int]]:
-        """一层节点 → 各自的前 breadth 个子节点（一条 SQL），并回报每个父节点的真实子节点数。"""
-        col = "callee" if direction == "down" else "caller"
-        other = "caller" if direction == "down" else "callee"
-        if not parents:
-            return {}, {}
-        placeholders = ",".join("?" for _ in parents)
-        rows = con.execute(
-            f"""
-            SELECT other_side, child, total FROM (
-                SELECT {other} AS other_side, {col} AS child,
-                       row_number() OVER (PARTITION BY {other} ORDER BY {col}) AS rn,
-                       count(*) OVER (PARTITION BY {other}) AS total
-                FROM (SELECT DISTINCT {other}, {col} FROM process_calls_process
-                      WHERE {other} IN ({placeholders}))
-            ) WHERE rn <= ? ORDER BY other_side, child
-            """,
-            [*parents, breadth],
-        ).fetchall()
-        grouped: dict[str, list[str]] = {}
+    def _children_of_level(parents: list[str], direction: str, breadth: int) -> tuple[dict[str, list[tuple[str, str]]], dict[str, int]]:
+        """一层节点 → 各自的前 breadth 个子节点，并回报每个父节点的真实子节点数。
+
+        数据来自 store.calls 的统一口径（正则表 + 变量解析表 + 框架表去重），
+        kind 随节点带出，供页面区分「字面 / 框架 / 目录中不存在」。
+        """
+        adjacency = edges_by_direction[direction]
+        grouped: dict[str, list[tuple[str, str]]] = {}
         totals: dict[str, int] = {}
-        for parent, child, total in rows:
-            grouped.setdefault(parent, []).append(child)
-            totals[parent] = int(total)
+        for parent in parents:
+            children = adjacency.get(parent) or []
+            if not children:
+                continue
+            grouped[parent] = children[:breadth]
+            totals[parent] = len(children)
         return grouped, totals
 
     # 根节点自身不是子节点，这里直接按层展开，结果挂在 root 的 callers / callees 上。
@@ -447,7 +462,7 @@ def process_call_tree(
             for item in frontier:
                 owner = holder if item["_node"] is None else item["_node"]
                 kids = []
-                for child in grouped.get(item["name"], []):
+                for child, child_kind in grouped.get(item["name"], []):
                     if child in visited:
                         continue
                     if max_nodes is not None and state["nodes"] >= max_nodes:
@@ -455,7 +470,7 @@ def process_call_tree(
                         break
                     visited.add(child)
                     state["nodes"] += 1
-                    child_node: dict = {"name": child}
+                    child_node: dict = {"name": child, "kind": child_kind}
                     kids.append(child_node)
                     next_frontier.append({"name": child, "_node": child_node})
                 if kids:
@@ -477,10 +492,15 @@ def process_call_tree(
     truncated = bool(state["nodes_capped"] or state["breadth_parents"]
                      or state["depth_capped"]
                      or any(state["root_capped"].values()))
+    # 动态目标不是固定成员：只报「有几处」，不点名、不展开（上方统计）。
+    # 自环会被 visited 去重挡住，如果不单独回报，页面就等于把「自己调自己」删掉了。
+    recursive_self_call = any(callee == root for callee, _ in down.get(root, []))
     return {
         "name": root,
         "callers": callers,
         "callees": callees,
+        "dynamic_targets": int(dynamic_targets),
+        "recursive_self_call": recursive_self_call,
         "node_count": state["nodes"],
         "truncated": truncated,
         "limits": {"max_depth": max_depth, "max_breadth": max_breadth,
@@ -509,20 +529,18 @@ def process_relation_graph(
     }
     其中 link 为对应详情页路径（process 或 cube）。
 
-    过滤规则（用户明确要求）：
-    - 调用关系只取 process_calls_process（业务进程调用），忽略 ti_framework_calls（全是 bedrock 框架调用）；
-    - cube 读写只取 process_reads_cube / process_writes_cube（ingest 阶段已过滤掉 `}` 开头与 bedrock 系统 cube）。
+    注意（阶段 2 起）：本函数目前**没有页面消费者**，新的调用关系请走
+    ``store.calls``（TI 页页头、调用树、学习报告都已统一到那里）。
+    这里保留旧返回结构做兼容，调用边已改为同一口径，避免被重新启用时口径又不一致。
+    动态目标（``<Proc>`` 占位）不作为节点。
     """
     upstream: list[dict] = []
     downstream: list[dict] = []
 
     # 上游：谁调用我（TI）
-    for (caller,) in con.execute(
-        "SELECT DISTINCT caller FROM process_calls_process WHERE callee = ? ORDER BY 1 LIMIT ?",
-        [name, max_up],
-    ).fetchall():
-        upstream.append({"name": caller, "kind": "process",
-                         "link": f"/explorer/process/{caller}"})
+    for edge in calls.edges(con, callee=name, kinds=calls.NODE_KINDS)[:max_up]:
+        upstream.append({"name": edge["caller"], "kind": "process",
+                         "link": f"/explorer/process/{edge['caller']}"})
 
     # 上游：我读取的 cube（数据来源）
     for (cube,) in con.execute(
@@ -532,12 +550,9 @@ def process_relation_graph(
         upstream.append({"name": cube, "kind": "cube", "link": f"/explorer/cube/{cube}"})
 
     # 下游：我调用谁（TI）
-    for (callee,) in con.execute(
-        "SELECT DISTINCT callee FROM process_calls_process WHERE caller = ? ORDER BY 1 LIMIT ?",
-        [name, max_down],
-    ).fetchall():
-        downstream.append({"name": callee, "kind": "process",
-                           "link": f"/explorer/process/{callee}"})
+    for edge in calls.edges(con, caller=name, kinds=calls.NODE_KINDS)[:max_down]:
+        downstream.append({"name": edge["callee"], "kind": "process",
+                           "link": f"/explorer/process/{edge['callee']}"})
 
     # 下游：我写入的 cube
     for (cube,) in con.execute(
@@ -1675,24 +1690,16 @@ def get_process(con: duckdb.DuckDBPyConnection, name: str) -> dict | None:
         for k, v in sorted(var_map.items())
     ]
 
-    # 调用关系：调用了谁（子进程）+ 被谁调用（上游 caller）
-    calls_process = [r[0] for r in con.execute(
-        "SELECT DISTINCT callee FROM process_calls_process WHERE caller = ? ORDER BY 1", [name]
-    ).fetchall()]
-    business_calls = [r[0] for r in con.execute(
-        "SELECT DISTINCT callee FROM ti_business_calls WHERE caller = ? ORDER BY 1", [name]
-    ).fetchall()]
-    framework_calls = [
-        {"callee": r[0], "purpose": r[1] or ""}
-        for r in con.execute(
-            "SELECT callee, purpose FROM ti_framework_calls WHERE process_name = ? ORDER BY 1", [name]
-        ).fetchall()
-    ]
-    called_by = sorted({r[0] for r in con.execute(
-        "SELECT caller FROM process_calls_process WHERE callee = ?", [name]
-    ).fetchall()} | {r[0] for r in con.execute(
-        "SELECT caller FROM ti_business_calls WHERE callee = ?", [name]
-    ).fetchall()})
+    # 调用关系：只走 store.calls 这一个生产者，页面与导出都不得自行拼表。
+    # 兼容字段（calls_process / business_calls / called_by）由同一份事实投影而来，
+    # 它们与调用树、学习报告的计数因此不会互相矛盾。
+    call_facts = calls.summary(con, name)
+    calls_process = [e["callee"] for e in call_facts["callees"]
+                     if e["kind"] in (calls.KIND_LITERAL, calls.KIND_FRAMEWORK)]
+    business_calls = [e["callee"] for e in call_facts["callees"] if e["kind"] == calls.KIND_LITERAL]
+    framework_calls = [{"callee": e["callee"], "purpose": e["detail"] or ""}
+                       for e in call_facts["callees"] if e["kind"] == calls.KIND_FRAMEWORK]
+    called_by = call_facts["callers"]
 
     # 维度操作：维护维度 + 更新属性
     maintains_dims = [r[0] for r in con.execute(
@@ -1724,6 +1731,9 @@ def get_process(con: duckdb.DuckDBPyConnection, name: str) -> dict | None:
         "business_calls": business_calls,
         "framework_calls": framework_calls,
         "called_by": called_by,
+        # 调用事实的唯一投影：页面与导出按需展示，不再各自拼表。
+        # counts.callees 里 dynamic 是「未解析的调用点数」，不是进程名。
+        "call_facts": call_facts,
         "maintains_dims": maintains_dims,
         "updates_attrs": updates_attrs,
         "section_lines": {

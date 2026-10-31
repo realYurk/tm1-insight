@@ -3,8 +3,12 @@
    两条使用路径共用这一个模板，保证调用关系的展示只有一个实现：
    1. GET /explorer/process/{name}/call-tree 直接返回本文件；
    2. process_view.html 通过 include 复用（仅作占位时不会被加载）。
+
+   节点 kind 来自 store.calls：literal / framework / missing / dynamic。
+   dynamic 不是固定成员，不会出现在节点里，只在树末尾报「几处未解析」。
 #}
 {% macro render_tree(node, kind) -%}
+{% set nk = node.kind|default('literal') %}
 <div class="tree-node-row">
   <details {% if node.children|default([])|length < 3 %}open{% endif %}>
     <summary>
@@ -13,7 +17,12 @@
       {% else %}
       <span class="tree-arrow">├─</span>
       {% endif %}
+      {% if nk == 'missing' %}
+      <span class="tree-node tree-node-missing" title="源码写了这个目标，但本地目录里没有同名 TI">{{ node.name }}</span><span class="tree-kind">目录中无此 TI</span>
+      {% else %}
       <a class="tree-node" href="/explorer/process/{{ node.name|urlencode }}">{{ node.name }}</a>
+      {% if nk == 'framework' %}<span class="tree-kind">框架</span>{% endif %}
+      {% endif %}
     </summary>
     {% if node.children %}
     <div class="tree-children">
@@ -47,6 +56,18 @@
 {% endif %}
 {% if not call_tree.callers and not call_tree.callees %}
 <p class="muted small call-tree-note">未记录静态调用关系；动态调用可能尚未解析。</p>
+{% endif %}
+{% if call_tree.recursive_self_call %}
+<p class="muted small call-tree-note">
+  本 TI 的源码里有调用自己的语句。上图不画这个自环（画出来会无限套娃）；
+  它表示存在递归或重入路径，不代表执行次数，也不代表运行时一定会发生。
+</p>
+{% endif %}
+{% if call_tree.dynamic_targets %}
+<p class="muted small call-tree-note">
+  本 TI 另有 {{ call_tree.dynamic_targets }} 处调用目标是从变量或表达式拼出来的，未能解析成固定成员；
+  它们不在上图里，也不能点开——可能是任何 TI。
+</p>
 {% endif %}
 {% if call_tree.truncated %}
 <p class="muted small call-tree-note">

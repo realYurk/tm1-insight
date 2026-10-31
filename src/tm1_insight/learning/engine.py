@@ -6,6 +6,7 @@ import hashlib
 import json
 
 from tm1_insight.knowledge import discover_scope
+from tm1_insight.store.calls import edges as call_edges
 from tm1_insight.learning.catalog import CATALOG, SOP, SOURCES
 from tm1_insight.learning.syntax import signals, statements
 from tm1_insight.learning.understanding import analyze, call_components,analyze_rule
@@ -26,8 +27,12 @@ def build_report(con, query="*", progress=None):
     selected = set(selection["objects"]["processes"])
     tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
     relations = {}
-    for table in ("process_reads_cube", "process_writes_cube", "process_calls_process"):
+    for table in ("process_reads_cube", "process_writes_cube"):
         relations[table] = con.execute(f"SELECT DISTINCT * FROM {table} ORDER BY 1,2").fetchall() if table in tables else []
+    # 调用边统一走 store.calls：与 TI 页页头、调用树同一口径。
+    # 动态目标（<sProc2> 之类）不是固定成员，不进入可达集合，避免把「可能」当成「确定了」。
+    relations["process_calls_process"] = sorted({(e["caller"], e["callee"]) for e in call_edges(con)
+                                                 if e["kind"] != "dynamic"})
     all_processes = {r[0] for r in con.execute("SELECT name FROM processes").fetchall()}
     catalogs={"process":all_processes,"cube":{r[0] for r in con.execute("SELECT name FROM cubes").fetchall()},
               "dimension":{r[0] for r in con.execute("SELECT name FROM dimensions").fetchall()}}
@@ -169,7 +174,8 @@ def build_report(con, query="*", progress=None):
               "runtime_verified_processes":0,"rules_uninterpreted":len(rules),"dimensions_inventory_only":len(dimensions),
               "source_gaps":["当前目录没有任何 Rule 文本，不能据此认定 TM1 服务器没有规则。请核对采集权限、采集版本和其他独立快照。"] if not rules and catalogs["cube"] else [],
               "meaning":"这是对象盘点与引用解析账本，不是业务理解百分比。已绑定对象名不代表理解了公式或运行结果。"}
-    used_tables={"processes","cubes","dimensions","chores","process_reads_cube","process_writes_cube","process_calls_process","cube_has_dimension"}
+    used_tables={"processes","cubes","dimensions","chores","process_reads_cube","process_writes_cube",
+                 "process_calls_process","ti_business_calls","ti_framework_calls","cube_has_dimension"}
     coverage["storage_inventory"]=[{"table":table,"rows":con.execute('SELECT count(*) FROM "'+table.replace('"','""')+'"').fetchone()[0],
                                       "used_by_learning":table in used_tables} for table in sorted(tables)]
     update("生成可携带学习包", 5)
@@ -181,6 +187,7 @@ def build_report(con, query="*", progress=None):
             "shared_dimensions":[{"dimension":name, "cube_count":count} for name,count in dimension_usage.most_common(30)],
             "findings":findings, "duplicate_groups":duplicate_groups, "sources":SOURCES,
             "limitations":["关键词仅用于选择范围，不证明业务分类；关联扩展包含直接 Cube 关系和最多两层下级调用。",
+                           "调用边取字面目标（含 } 框架进程）并合并变量已解析的调用；动态目标只计数、不点名，也不算作可达。",
                            "已过滤已知日志区域与调试文件输出；自定义日志和框架仍可能影响候选统计。",
                            "代码信号是复查候选，不能自动确认设计质量、完整算法或运行时执行顺序。",
                            "对象绑定使用保守分支合并与循环失效；公式仍是有限词法链。条件、循环未执行，跨过程传播与 Rule/Feeder 语义仍未解释。",

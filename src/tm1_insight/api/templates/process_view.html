@@ -26,6 +26,7 @@
       {{ proc.total_lines }} 行代码
       {% if proc.called_by %}| 被 {{ proc.called_by|length }} 个进程调用{% endif %}
       {% if proc.calls_process %}| 调用 {{ proc.calls_process|length }} 个子进程{% endif %}
+      {% if proc.call_facts and proc.call_facts.dynamic_callees %}| {{ proc.call_facts.dynamic_callees }} 处动态调用目标未解析{% endif %}
     </p>
   </div>
   <div class="study-actions">{% for target in proc.writes_cubes[:3] %}<a class="btn primary" href="/graph?cube={{ target|urlencode }}&amp;model={{ research_model() }}">查看 {{ target }} 血缘</a>{% else %}<a class="btn primary" href="/graph?model={{ research_model() }}">搜索 Cube 血缘</a>{% endfor %}{% if proc.writes_cubes|length > 3 %}<a class="btn ghost" href="/graph?model={{ research_model() }}">搜索其他 Cube 血缘</a>{% endif %}<a class="btn ghost" href="/calculation?name={{ proc.name|urlencode }}&amp;source={{ search_source }}">计算检查</a><button type="button" class="btn ghost" id="open-process-switcher" aria-haspopup="dialog">搜索 / 切换 TI</button></div>

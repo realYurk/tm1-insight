@@ -470,3 +470,5 @@ details summary { cursor: pointer; padding: 12px 0; }
 #call-tree-card #call-tree-load:disabled { opacity: .6; }
 #call-tree-card .call-tree-limits { margin: 6px 0 0; padding-left: 18px; }
 #call-tree-card .call-tree-limits li { margin: 2px 0; }
+#call-tree-card .tree-node-missing { color: var(--muted, #6b7280); border-bottom: 1px dashed currentColor; cursor: help; }
+#call-tree-card .tree-kind { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 8px; background: rgba(127,127,127,.16); vertical-align: 1px; }
