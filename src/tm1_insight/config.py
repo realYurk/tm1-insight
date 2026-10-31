@@ -141,6 +141,10 @@ class Settings(BaseSettings):
     tm1_max_workers: int = 8
     tm1_skip_existing: bool = True
     tm1_light_system_dims: bool = True
+    # 采集是否收录 } 开头的系统对象（}bedrock.* / }Cubes / }Dimensions …）。
+    # 默认 False：系统对象只作为「被引用但未收录」的名字存在，不进对象表。
+    # 调用边不会因此消失——边是事实，对象是否收录是范围。
+    tm1_include_system_objects: bool = False
 
     # ---- 本地数据目录 ----
     data_dir: Path = Field(default=Path("./data"))

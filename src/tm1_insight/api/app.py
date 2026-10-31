@@ -397,6 +397,14 @@ def processes_page(request: Request, q: str = Query("", max_length=1000),
         # 显式报出被排除的数量：列表可以只显示业务对象，但不能让人以为模型里没有系统对象。
         system_total = con.execute(
             "SELECT count(*) FROM processes WHERE name LIKE '}%'").fetchone()[0]
+        # 采集范围外的系统对象不在对象表里，但它们存在于服务器，也必须报数——
+        # 否则页面会说「模型里只有 3164 个 TI」，那是把采集配置说成模型事实。
+        has_scope_table = con.execute(
+            "SELECT count(*) FROM information_schema.tables WHERE table_name = 'excluded_objects'"
+        ).fetchone()[0]
+        excluded_system = con.execute(
+            "SELECT count(*) FROM excluded_objects WHERE kind = 'processes'"
+        ).fetchone()[0] if has_scope_table else 0
     finally:
         con.close()
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -408,6 +416,7 @@ def processes_page(request: Request, q: str = Query("", max_length=1000),
         "scope": scope,
         "objects": objects,
         "system_total": system_total,
+        "excluded_system": excluded_system,
         "search_source": _process_search_source(store.settings),
         "page": page,
         "total_pages": total_pages,

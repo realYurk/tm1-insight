@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from tm1_insight.ingest.scope import split_by_scope
 from tm1_insight.snapshot.schema import validate_snapshot_payload
 
 __all__ = [
@@ -164,15 +165,21 @@ class TM1Collector:
         self.client = client
         self.tm1 = tm1
 
-    def collect_snapshot(self, names: dict[str, list[str]] | None = None) -> dict:
+    def collect_snapshot(self, names: dict[str, list[str]] | None = None,
+                         include_system: bool = False) -> dict:
         """采集并返回 canonical Snapshot Payload。
 
         :param names: 对象名清单（可选）。若为 None，则调用 client.list_all_names()
             获取。传入可避免重复调用 list_all_names 并支持精确控制采集范围。
+        :param include_system: 是否收录 ``}`` 开头的系统对象。默认 False，
+            被排除的名字放在 payload 的 ``excluded`` 里，不丢事实。
         :return: 符合 Task 8 Schema 的 payload dict（processes/rules/cubes/dimensions）。
         """
         if names is None:
             names = self.client.list_all_names()
+        # 采集范围与 exporter 共用同一份规则（ingest.scope）。被排除的名字
+        # 作为 excluded 随 payload 返回，导入后可区分「未收录」与「不存在」。
+        names, excluded = split_by_scope(names, include_system)
 
         cubes = []
         rules = []
@@ -202,11 +209,15 @@ class TM1Collector:
             "cubes": cubes,
             "dimensions": dimensions,
         }
+        if excluded:
+            # 采集边界随 payload 走：导入方据此区分「未收录」与「不存在」。
+            payload["excluded"] = excluded
         return payload
 
-    def collect_and_validate(self, names: dict[str, list[str]] | None = None) -> dict:
+    def collect_and_validate(self, names: dict[str, list[str]] | None = None,
+                             include_system: bool = False) -> dict:
         """采集并校验 canonical payload；校验失败抛 SnapshotSchemaError。"""
-        payload = self.collect_snapshot(names)
+        payload = self.collect_snapshot(names, include_system)
         validate_snapshot_payload(payload)
         return payload
 

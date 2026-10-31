@@ -170,6 +170,45 @@ def status() -> None:
         typer.echo(f"  {table:32s}: {count}")
 
 
+@app.command("prune-system-objects")
+def prune_system_objects(
+    apply: bool = typer.Option(False, "--apply",
+                               help="真正写入；不加这个开关只统计、不动库"),
+) -> None:
+    """把 } 开头的系统对象移出已采集的快照（默认 dry-run）。
+
+    采集端从下一次起就不再拉这类对象的正文；这个命令把**已经采过**的旧库
+    对齐到同一范围。对象移出对象表，名字登记为「按范围未收录」——
+    引用它们的调用边一律保留，因为「谁调了 }bedrock.*」是事实，不是配置。
+    """
+    from tm1_insight.store.scope_prune import prune
+
+    settings = get_settings()
+    store = Store(settings)
+    con = store.connect()
+    try:
+        result = prune(con, apply=apply)
+    finally:
+        con.close()
+
+    removed = result.get("removed") or result.get("objects") or {}
+    typer.echo(f"数据库: {store.db_path}")
+    for table in ("processes", "cubes", "dimensions"):
+        if table in removed:
+            typer.echo(f"  {table:12s}: {removed[table]} 个系统对象（右花括号开头）")
+    edges = result.get("referencing_edges") or {}
+    if edges:
+        typer.echo("受影响但**不会删除**的调用边：")
+        for table, count in edges.items():
+            typer.echo(f"  {table:24s}: {count} 条指向系统对象的边")
+    if result.get("applied"):
+        typer.echo(f"已移出 {result['excluded']} 个对象，名字记入 excluded_objects。")
+        typer.echo("提示：页面据此显示「按采集范围未收录」，而不是「目录中不存在」。")
+    else:
+        total = result.get("object_total", 0)
+        typer.echo(f"未做任何修改。以上共 {total} 个对象；确认后加 --apply 执行。")
+
+
 @app.command("recollect-dimension")
 def recollect_dimension(
     name: str = typer.Argument(..., help="要补采的维度名称（如 'Car Model'）"),

@@ -138,6 +138,19 @@ def available_sources(con: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
     return tuple(name for name, *_ in _SOURCES if name in present)
 
 
+def excluded_names(con: duckdb.DuckDBPyConnection) -> set[str]:
+    """本次采集按范围排除、但仍存在于服务器的对象名。
+
+    存在的意义只有一个：让下游能说「按采集范围未收录」，而不是
+    「目录中不存在」。二者在页面上是两句话，在事实层是两件事。
+    旧快照没有这张表时返回空集，行为与改造前一致。
+    """
+    try:
+        return {row[0] for row in con.execute("SELECT name FROM excluded_objects").fetchall()}
+    except duckdb.CatalogException:
+        return set()
+
+
 def _classify_cte(union: str, name: str) -> str:
     """把「三张表合并 + 分类 + 记录来源」的规则写成一份 SQL，供全量与单对象两条路径共用。
 
@@ -164,6 +177,10 @@ def _classify_cte(union: str, name: str) -> str:
                    WHEN known.name IS NULL THEN '{KIND_MISSING}'
                    ELSE '{KIND_LITERAL}'
                END AS kind,
+               -- 目标是否在本次采集的目录里。框架对象（右花括号开头）默认不进快照，
+               -- 所以「不在目录」有两种含义：按范围未收录，或源码写了个不存在的名字。
+               -- 两者必须能分开——把前者说成后者，就是把采集范围当成数据事实。
+               CASE WHEN known.name IS NULL THEN FALSE ELSE TRUE END AS in_catalog,
                -- 调用方自己也要分类：图上「谁调用我」显示的是调用方，
                -- 若把被调用方的 kind 贴到调用方身上，框架进程的 1996 个上游
                -- 会被全部标成「框架」，而它们其实是普通业务 TI。
@@ -184,6 +201,7 @@ _EMPTY_CTE = (
     "WITH {name} AS (SELECT CAST(NULL AS VARCHAR) AS caller, CAST(NULL AS VARCHAR) AS callee,"
     " CAST(NULL AS VARCHAR) AS detail, CAST(NULL AS VARCHAR) AS kind,"
     " CAST(NULL AS VARCHAR) AS caller_kind,"
+    " CAST(FALSE AS BOOLEAN) AS in_catalog,"
     " CAST(0 AS INTEGER) AS from_regex, CAST(0 AS INTEGER) AS from_resolved,"
     " CAST(0 AS INTEGER) AS from_framework WHERE FALSE)"
 )
@@ -263,7 +281,7 @@ def edges(
     rows = con.execute(
         (cte or edges_cte(con))
         + " SELECT DISTINCT caller, callee, kind, caller_kind, detail,"
-          " from_regex, from_resolved, from_framework FROM call_edge"
+          " from_regex, from_resolved, from_framework, in_catalog FROM call_edge"
         + clause
         + " ORDER BY callee, caller",
         params,
@@ -273,6 +291,7 @@ def edges(
             "caller": r[0], "callee": r[1], "kind": r[2], "caller_kind": r[3], "detail": r[4],
             "source": primary_source(r[5], r[6], r[7]),
             "sources": sources_of(r[5], r[6], r[7]),
+            "in_catalog": bool(r[8]),
         }
         for r in rows
     ]
@@ -310,7 +329,8 @@ def summary(con: duckdb.DuckDBPyConnection, name: str) -> dict:
     cte, params = object_edges_cte(con, name)
     rows = con.execute(
         cte + " SELECT DISTINCT caller, callee, kind, caller_kind, detail,"
-              " from_regex, from_resolved, from_framework FROM call_edge ORDER BY callee, caller",
+              " from_regex, from_resolved, from_framework, in_catalog FROM call_edge"
+              " ORDER BY callee, caller",
         params,
     ).fetchall()
     inbound = [r for r in rows if r[1] == name]
@@ -334,7 +354,8 @@ def summary(con: duckdb.DuckDBPyConnection, name: str) -> dict:
     callees = [
         {"caller": r[0], "callee": r[1], "kind": r[2], "detail": r[4],
          "source": primary_source(r[5], r[6], r[7]),
-         "sources": sources_of(r[5], r[6], r[7])}
+         "sources": sources_of(r[5], r[6], r[7]),
+         "in_catalog": bool(r[8])}
         for r in sorted(outbound, key=lambda r: (KINDS.index(r[2]) if r[2] in KINDS else 99, r[1]))
     ]
     callees_by_scope = {SCOPE_BUSINESS: 0, SCOPE_SYSTEM: 0, KIND_DYNAMIC: 0}

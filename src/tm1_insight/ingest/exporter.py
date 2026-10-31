@@ -17,6 +17,7 @@ from TM1py.Exceptions import TM1pyException
 
 from tm1_insight.config import Settings
 from tm1_insight.ingest.progress import Progress
+from tm1_insight.ingest.scope import EXCLUDED_REASON, split_by_scope
 from tm1_insight.ingest.storage import Manifest, resolve_object_path
 from tm1_insight.tm1.client import TM1Client
 
@@ -210,6 +211,16 @@ class Exporter:
         logger.info("增量补采完成: %s → %s", name, filepath)
         return summary
 
+    # ---- 采集范围 ----
+    def _apply_scope(self, names: dict[str, list[str]]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+        """按配置裁掉 ``}`` 开头的系统对象，并返回被裁掉的名字。
+
+        规则本身在 ``ingest.scope``（唯一实现）：裁掉的是**对象正文**
+        （源码、控件、维度成员），不是引用它的调用边——
+        ``}bedrock.cube.data.clear`` 不再进对象表，但「谁调用了它」仍是事实。
+        """
+        return split_by_scope(names, self.settings.tm1_include_system_objects)
+
     # ---- 主流程 ----
     def export_all(self) -> dict:
         self.settings.ensure_dirs()
@@ -220,6 +231,13 @@ class Exporter:
         self._report("enumerate")
         logger.info("连接 TM1: %s:%s", self.settings.tm1_address, self.settings.tm1_port)
         names = self.client.list_all_names()
+        names, excluded = self._apply_scope(names)
+        if excluded:
+            logger.info(
+                "采集范围排除系统对象: %s（tm1_include_system_objects=false）",
+                ", ".join(f"{k}={len(v)}" for k, v in excluded.items()),
+            )
+            save_json(excluded, self.raw_dir / "_excluded.json")
         logger.info(
             "连接成功: Cube=%d, Process=%d, Dimension=%d, Chore=%d",
             len(names["cubes"]), len(names["processes"]),
@@ -265,6 +283,8 @@ class Exporter:
             "dimensions_business": [n for n, _ in business_dims],
             "dimensions_system": [n for n, _ in system_dims],
             "chores": names["chores"],
+            # 采集边界：这些名字存在于服务器，但按配置没有收入本次快照。
+            "excluded": excluded,
         }
         save_json(index, self.raw_dir / "_index.json")
         # 保存短名 manifest（只含被短名化的对象），供排查与反向查找。

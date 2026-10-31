@@ -402,21 +402,32 @@ def process_call_tree(
     # 之前每层一条 SQL：口径要跨三张来源表做合并去重，重算 12 次约 60–70 ms；
     # 现在整棵树只发一条 SQL（≈15 ms），预算与截断判断逻辑完全不变。
     cte = calls.edges_cte(con)
-    down: dict[str, list[tuple[str, str]]] = {}
-    up: dict[str, list[tuple[str, str]]] = {}
+    # 按采集范围被排除、但确实存在于服务器的对象名。有了它，「不在目录」
+    # 才能分成两种说法：按范围未收录 / 目录中真的没有。
+    excluded_set = calls.excluded_names(con)
+
+    def _catalog(name: str, in_catalog: bool | None = None) -> str:
+        """节点的目录状态：收录 / 按范围排除 / 不存在。"""
+        present = (name not in excluded_set) if in_catalog is None else in_catalog
+        if present:
+            return "included"
+        return "excluded" if name in excluded_set else "missing"
+
+    down: dict[str, list[tuple[str, str, str]]] = {}
+    up: dict[str, list[tuple[str, str, str]]] = {}
     dynamic_targets = 0
-    for caller, callee, kind, caller_kind in con.execute(
-        cte + " SELECT caller, callee, kind, caller_kind FROM call_edge"
+    for caller, callee, kind, caller_kind, in_catalog in con.execute(
+        cte + " SELECT caller, callee, kind, caller_kind, in_catalog FROM call_edge"
     ).fetchall():
         if kind == calls.KIND_DYNAMIC:
             # 动态目标不是固定成员：不进入图，只按调用方计数。
             if caller == root:
                 dynamic_targets += 1
             continue
-        down.setdefault(caller, []).append((callee, kind))
+        down.setdefault(caller, []).append((callee, kind, _catalog(callee, bool(in_catalog))))
         # 上游节点的类型描述的是「调用方自己」，不能沿用被调用方的 kind：
         # 否则框架进程的每个上游都会被标成「框架」，而它们其实是普通业务 TI。
-        up.setdefault(callee, []).append((caller, caller_kind))
+        up.setdefault(callee, []).append((caller, caller_kind, _catalog(caller)))
     for adjacency in (down, up):
         for children in adjacency.values():
             children.sort()
@@ -429,30 +440,32 @@ def process_call_tree(
              "hidden_system": {"callers": set(), "callees": set(), "deeper": set()},
              # 图中每个节点按 kind 计数：页面据此说明「这一屏节点里有多少是框架调用、
              # 多少在目录里根本不存在」，而不是让用户以为图上全是同一类证据。
-             "kind_counts": {kind: 0 for kind in calls.NODE_KINDS}}
+             "kind_counts": {kind: 0 for kind in calls.NODE_KINDS},
+             # 目录状态：收录 / 按采集范围未收录 / 真不存在。第三种才是「写错了名字」。
+             "catalog_counts": {"included": 0, "excluded": 0, "missing": 0}}
 
     def _children_of_level(parents: list[str], direction: str, breadth: int,
-                           at_root: bool = False) -> tuple[dict[str, list[tuple[str, str]]], dict[str, int]]:
+                           at_root: bool = False) -> tuple[dict[str, list[tuple[str, str, str]]], dict[str, int]]:
         """一层节点 → 各自的前 breadth 个子节点，并回报每个父节点的真实子节点数。
 
         数据来自 store.calls 的统一口径（正则表 + 变量解析表 + 框架表去重），
         kind 随节点带出，供页面区分「字面 / 框架 / 目录中不存在」。
         """
         adjacency = edges_by_direction[direction]
-        grouped: dict[str, list[tuple[str, str]]] = {}
+        grouped: dict[str, list[tuple[str, str, str]]] = {}
         totals: dict[str, int] = {}
         scope_key = "callers" if direction == "up" else "callees"
         for parent in parents:
             children = adjacency.get(parent) or []
             if not children:
                 continue
-            kept: list[tuple[str, str]] = []
-            for child, child_kind in children:
+            kept: list[tuple[str, str, str]] = []
+            for child, child_kind, child_catalog in children:
                 if not include_system and calls.is_system_object(child):
                     # 折叠但要留账：根层与更下层分开记，页面才能和页头的数字对齐。
                     state["hidden_system"][scope_key if at_root else "deeper"].add(child)
                     continue
-                kept.append((child, child_kind))
+                kept.append((child, child_kind, child_catalog))
             if not kept:
                 continue
             grouped[parent] = kept[:breadth]
@@ -487,7 +500,7 @@ def process_call_tree(
             for item in frontier:
                 owner = holder if item["_node"] is None else item["_node"]
                 kids = []
-                for child, child_kind in grouped.get(item["name"], []):
+                for child, child_kind, child_catalog in grouped.get(item["name"], []):
                     if child in visited:
                         continue
                     if max_nodes is not None and state["nodes"] >= max_nodes:
@@ -497,7 +510,10 @@ def process_call_tree(
                     state["nodes"] += 1
                     if child_kind in state["kind_counts"]:
                         state["kind_counts"][child_kind] += 1
-                    child_node: dict = {"name": child, "kind": child_kind}
+                    state["catalog_counts"][child_catalog] = \
+                        state["catalog_counts"].get(child_catalog, 0) + 1
+                    child_node: dict = {"name": child, "kind": child_kind,
+                                        "catalog": child_catalog}
                     kids.append(child_node)
                     next_frontier.append({"name": child, "_node": child_node})
                 if kids:
@@ -520,7 +536,7 @@ def process_call_tree(
                      or state["depth_capped"]
                      or any(state["root_capped"].values()))
     # 自环会被 visited 去重挡住，如果不单独回报，页面就等于把「自己调自己」删掉了。
-    recursive_self_call = any(callee == root for callee, _ in down.get(root, []))
+    recursive_self_call = any(callee == root for callee, _, _ in down.get(root, []))
     return {
         "name": root,
         "callers": callers,
@@ -528,6 +544,7 @@ def process_call_tree(
         "dynamic_targets": int(dynamic_targets),
         "recursive_self_call": recursive_self_call,
         "kind_counts": dict(state["kind_counts"]),
+        "catalog_counts": dict(state["catalog_counts"]),
         "hidden_system": {
             "callers": len(state["hidden_system"]["callers"]),
             "callees": len(state["hidden_system"]["callees"]),

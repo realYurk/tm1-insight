@@ -13,6 +13,13 @@ from __future__ import annotations
 OBJECT_TABLES: dict[str, str] = {
     "process_source_metadata": """CREATE TABLE IF NOT EXISTS process_source_metadata (
         process_name TEXT PRIMARY KEY, payload TEXT)""",
+    # 采集范围之外的对象。名字必须落盘：否则「本次没收录」会被下游读成
+    # 「目录里不存在」，那是一个比噪音更坏的假事实。
+    "excluded_objects": """CREATE TABLE IF NOT EXISTS excluded_objects (
+        name TEXT PRIMARY KEY,
+        kind TEXT,
+        reason TEXT
+    )""",
     "cubes": """
         CREATE TABLE cubes (
             name TEXT PRIMARY KEY,

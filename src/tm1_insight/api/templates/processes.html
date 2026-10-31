@@ -37,8 +37,11 @@
      并写清当前排除了多少个——折叠可以，悄悄少给几条不行。 #}
   <p class="muted small">
     {% if objects == 'business' %}
-    当前<strong>只显示业务对象</strong>，已排除 {{ system_total }} 个 <code>}</code> 开头的系统对象（}bedrock.*、}APQ.* 等）。
+    当前<strong>只显示业务对象</strong>，已排除 {{ system_total + excluded_system }} 个 <code>}</code> 开头的系统对象（}bedrock.*、}APQ.* 等）。
     <a href="/processes?q={{ q|urlencode }}&scope={{ scope }}&objects=all">显示全部</a>
+    {% elif excluded_system %}
+    当前显示全部已收录对象。另有 {{ excluded_system }} 个系统对象按采集范围未收录
+    （只在调用关系里作为引用出现，没有源码，不能打开）。
     {% else %}
     当前显示全部对象，其中 {{ system_total }} 个是 <code>}</code> 开头的系统对象。
     <a href="/processes?q={{ q|urlencode }}&scope={{ scope }}&objects=business">只看业务对象</a>

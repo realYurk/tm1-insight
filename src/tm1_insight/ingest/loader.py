@@ -16,6 +16,7 @@ import duckdb
 
 from tm1_insight.config import Settings
 from tm1_insight.ingest.progress import Progress
+from tm1_insight.ingest.scope import EXCLUDED_REASON, is_system_object
 from tm1_insight.store.db import Store
 from tm1_insight.store.schema import ALL_TABLES
 
@@ -116,12 +117,15 @@ def _index_names(raw: Path, key: str) -> list[str]:
 
 
 def _reconcile_names(raw: Path, key: str, loaded: list[dict],
-                     read_failures: list[str]) -> dict:
+                     read_failures: list[str], excluded: set[str] | None = None) -> dict:
     """名称级对账：枚举名 vs 实际读入的对象名，产出缺失/重复明细。
 
     - 缺失：在 _index.json 中但未在 loaded 对象名中出现。
     - 重复：loaded 中同一名称出现多次（同名字段，可能被 PRIMARY KEY 覆盖）。
     - 读取失败的文件名也并入「缺失」证据，便于定位是「文件没写入」还是「写入但读不回」。
+
+    ``excluded`` 是按采集范围主动跳过的名字：它们没有进库是**设计如此**，
+    不能算进「缺失」，否则每次导入都会报一堆假缺失，把真缺失淹掉。
     """
     expected = _index_names(raw, key)
     actual_names = [obj.get("name") for obj in loaded]
@@ -134,7 +138,7 @@ def _reconcile_names(raw: Path, key: str, loaded: list[dict],
         seen.add(n)
         actual_set.add(n)
 
-    missing = [n for n in expected if n not in actual_set]
+    missing = [n for n in expected if n not in actual_set and n not in (excluded or set())]
     # 读取失败的文件名：若能反推对象名（去掉 .json）也补进缺失证据，避免「文件在但读不回」被遗漏。
     for fn in read_failures:
         stem = fn[:-5] if fn.endswith(".json") else fn
@@ -158,6 +162,23 @@ class Loader:
         self.progress = progress
         self.strict = strict
         self._reconcile: dict = {}
+        # 采集范围：默认不收 } 开头的系统对象。放在导入层而不是只放在采集层，
+        # 是因为旧采集包里仍然躺着它们——只改采集端的话，一次重导就让它们全回来。
+        self.include_system = bool(getattr(settings, "tm1_include_system_objects", False))
+        self._excluded: set[tuple[str, str]] = set()
+
+    def _drop_system(self, objects: list[dict], kind: str) -> list[dict]:
+        """按范围跳过系统对象，并记下名字（之后写进 excluded_objects）。"""
+        if self.include_system:
+            return objects
+        kept: list[dict] = []
+        for obj in objects:
+            name = obj.get("name")
+            if is_system_object(name):
+                self._excluded.add((name, kind))
+                continue
+            kept.append(obj)
+        return kept
 
     def _write_reconcile(self, raw: Path, reconcile: dict) -> None:
         """把名称级对账结果写入 raw/_reconcile.json，供校验层离线精确定位缺失对象。"""
@@ -183,6 +204,9 @@ class Loader:
         cubes, cube_failures = _load_json_dir(raw, "cubes")
         processes, process_failures = _load_json_dir(raw, "processes")
         chores, chore_failures = _load_json_dir(raw, "chores")
+        cubes = self._drop_system(cubes, "cubes")
+        processes = self._drop_system(processes, "processes")
+        chores = self._drop_system(chores, "chores")
         logger.info(
             "加载 JSON: cube=%d process=%d chore=%d (耗时 %.1fs)",
             len(cubes), len(processes), len(chores), time.time() - t0,
@@ -190,10 +214,17 @@ class Loader:
 
         # 名称级对账：把「枚举名 vs 实际读入对象名」的差异落盘，供校验层精确报告。
         # 这是 3442 vs 3437 这类问题的可定位证据来源。
+        # 按范围主动跳过的名字要排除在外，否则每次导入都报一堆假「缺失」。
+        excluded_by_kind: dict[str, set[str]] = {}
+        for excluded_name, excluded_kind in self._excluded:
+            excluded_by_kind.setdefault(excluded_kind, set()).add(excluded_name)
         self._reconcile = {
-            "cubes": _reconcile_names(raw, "cubes", cubes, cube_failures),
-            "processes": _reconcile_names(raw, "processes", processes, process_failures),
-            "chores": _reconcile_names(raw, "chores", chores, chore_failures),
+            "cubes": _reconcile_names(raw, "cubes", cubes, cube_failures,
+                                      excluded_by_kind.get("cubes")),
+            "processes": _reconcile_names(raw, "processes", processes, process_failures,
+                                          excluded_by_kind.get("processes")),
+            "chores": _reconcile_names(raw, "chores", chores, chore_failures,
+                                       excluded_by_kind.get("chores")),
         }
         for key, rec in self._reconcile.items():
             if rec["missing"] or rec["duplicates"] or rec["read_failures"]:
@@ -212,6 +243,7 @@ class Loader:
             self._report("load_objects")
             self._insert_objects(con, cubes, processes, chores)
             self._stream_insert_dimensions(con, raw)
+            self._insert_excluded(con, raw)
             logger.info("对象入库完成 (耗时 %.1fs)", time.time() - t0)
 
             t0 = time.time()
@@ -233,6 +265,41 @@ class Loader:
         return stats
 
     # ---- 对象表 ----
+    def _insert_excluded(self, con: duckdb.DuckDBPyConnection, raw: Path) -> None:
+        """把采集边界写入 ``excluded_objects``。
+
+        没有这份记录，页面只能把「按范围未收录的 ``}bedrock.*``」显示成
+        「目录中不存在」——那是把采集配置说成数据事实。
+        """
+        rows: list[tuple[str, str, str]] = []
+        seen: set[str] = set()
+        # 两个来源：采集端写下的清单（新包），以及本次导入实际跳过的对象（旧包）。
+        # 合并去重，保证「排除了什么」永远是完整的一份账。
+        collected: dict[str, list[str]] = {}
+        for filename in ("_excluded.json",):
+            path = raw / filename
+            if not path.is_file():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                logger.warning("排除清单读取失败: %s（按未排除处理）", path)
+                continue
+            for kind, names in (payload or {}).items():
+                collected.setdefault(kind, []).extend(names or [])
+        for name, kind in self._excluded:
+            collected.setdefault(kind, []).append(name)
+        for kind, names in collected.items():
+            for name in names:
+                if name in seen:
+                    continue
+                seen.add(name)
+                rows.append((name, kind, EXCLUDED_REASON))
+        if not rows:
+            return
+        _bulk(con, "INSERT INTO excluded_objects VALUES (?, ?, ?)", rows)
+        logger.info("采集边界: %d 个对象按范围未收录（仍可能是被引用的目标）", len(rows))
+
     def _insert_objects(self, con: duckdb.DuckDBPyConnection,
                         cubes, processes, chores) -> None:
         from tm1_insight.store.data_row import save_metadata
@@ -312,6 +379,11 @@ class Loader:
                 logger.warning("读取维度 %s 失败: %s", fn, e)
                 if self.strict:
                     raise RuntimeError("Dimension input could not be read") from None
+                continue
+            if not self.include_system and is_system_object(d.get("name")):
+                # 维度文件近 1 GB，这里跳过是省钱也省时间；名字照旧登记。
+                self._excluded.add((d.get("name"), "dimensions"))
+                self._report("load_dimensions", index, len(files))
                 continue
             batch.append((
                 d.get("name"),
