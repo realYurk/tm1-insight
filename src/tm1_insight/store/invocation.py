@@ -111,10 +111,14 @@ def inspect_call(con, name, call_id):
 
 def markdown(report):
     from html import escape
+    from tm1_insight.store.scope_view import scope_lines
     def clean(value):
         return escape(str(value)).replace('`','\\`').replace('\n',' ')
     lines = ['# 单次子 TI 参数检查', f"调用方：{clean(report['process'])}", f"源码哈希：{report['source_hash']}",
              f"模型指纹：{report.get('model_fingerprint','UNKNOWN')}", '范围：一个调用点与一个子 TI；未执行、未替换公式。']
+    scope = scope_lines(report.get('scope_view'))
+    if scope:
+        lines += ['', '## 收录范围', *scope]
     child = report['child']
     if child:
         lines += [f"子 TI：{clean(child['process'])}", f"子 TI 源码哈希：{child['source_hash']}"]

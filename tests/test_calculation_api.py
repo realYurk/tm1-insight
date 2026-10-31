@@ -33,10 +33,18 @@ def test_selected_ti_page_exports_and_original_source_unchanged(client):
     exported=client.get('/api/calculation/export',params=dict(name='Compute',source=source))
     assert exported.status_code==200 and exported.headers['cache-control']=='no-store'
     result=exported.json()
-    assert len(result['writes'])==2 and result['calls'][0]['target'] is None
+    # 导出与页面同一把尺子：屏幕上 1 条，文件里就是 1 条，差的那条要留名字
+    assert len(result['writes'])==1 and result['writes'][0]['cube']=='Result'
+    assert result['scope_view']==dict(scope='business',visible=1,hidden=1,cubes=['}Audit'],write_ids=[1],system_count=1)
+    assert result['calls'][0]['target'] is None
     assert result['model_fingerprint']==source and not result['runtime_verified']
+    full=client.get('/api/calculation/export',params=dict(name='Compute',source=source,system=1)).json()
+    assert len(full['writes'])==2 and full['scope_view']['scope']=='all'
     md=client.get('/api/calculation/export',params=dict(name='Compute',source=source,format='markdown'))
     assert '静态读取依赖：Input' in md.text and 'TI_Calculation.md' in md.headers['content-disposition']
+    assert '另有 1 条记录未包含在本文件内' in md.text and '`}Audit`' in md.text
+    assert '静态读取依赖：Input' in client.get('/api/calculation/export',
+        params=dict(name='Compute',source=source,format='markdown',system=1)).text
     assert client.get('/calculation',params=dict(name='Compute',write=1)).status_code==404
     assert client.get('/calculation',params=dict(name='Compute',write=1,system='true')).status_code==200
     assert hashlib.sha256(settings.db_path.read_bytes()).hexdigest()==before

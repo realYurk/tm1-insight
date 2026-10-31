@@ -110,11 +110,16 @@ def node_label(node):
 
 def markdown(report):
     from html import escape
+    from tm1_insight.store.scope_view import scope_lines
     def esc(value): return escape(str(value)).replace('`','\\`').replace('\n',' ')
     nodes = {n['id']:n for n in report['nodes']}
     lines = ['# TI 计算检查', '', f"过程：{esc(report['process'])}", f"源码哈希：{report['source_hash']}",
              f"模型指纹：{report.get('model_fingerprint','未提供模型上下文')}",
-             '', '范围：单个 TI，未展开子进程。静态定义依赖不证明运行时值或迁移等价。字符串常量已隐藏。', '']
+             '', '范围：单个 TI，未展开子进程。静态定义依赖不证明运行时值或迁移等价。字符串常量已隐藏。']
+    scope = scope_lines(report.get('scope_view'))
+    if scope:
+        lines += ['', '## 收录范围', *scope]
+    lines.append('')
     def coordinate_lines(mapping, label):
         values = [f"- {label}映射：{mapping['status']} · 实际 {mapping['actual']} / 结构要求 {mapping['expected'] if mapping['expected'] is not None else 'UNKNOWN'}"]
         for c in mapping['items']:

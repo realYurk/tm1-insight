@@ -25,7 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from tm1_insight import __version__
 from tm1_insight.config import Settings, get_settings
 from tm1_insight.store.db import Store
-from tm1_insight.store import queries, calls
+from tm1_insight.store import queries, calls, scope_view
 from tm1_insight.store.graph_adapter import dependencies_from_store
 from tm1_insight.ingest.progress import INGEST_STAGES, AUDIT_STAGES, stage_progress
 from tm1_insight.tasks import TaskCancelled
@@ -828,7 +828,8 @@ def calculation_page(request: Request, name: str = Query(..., min_length=1, max_
     from urllib.parse import urlencode
     from tm1_insight.store.calculation import node_label
     report = _calculation_report(name, source)
-    items = [w for w in report['writes'] if system or not (w['cube'] or '').startswith('}')]
+    report, scope = scope_view.narrow_report(report, system)
+    items = report['writes']
     pages = max(1, (len(items)+49)//50); page = min(page,pages)
     selected = next((w for w in items if w['id']==write), None) if write is not None else (items[(page-1)*50] if items else None)
     if write is not None and selected is None: raise StarletteHTTPException(404, "写入点不存在或被前缀筛选隐藏。")
@@ -837,16 +838,23 @@ def calculation_page(request: Request, name: str = Query(..., min_length=1, max_
         params.update(updates)
         return '/calculation?'+urlencode({k:v for k,v in params.items() if v is not None})
     return templates.TemplateResponse(request, "calculation.html", dict(report=report, selected=selected,
-        writes=items[(page-1)*50:page*50], hidden=len(report['writes'])-len(items), total=len(items), pages=pages, page=page,
+        writes=items[(page-1)*50:page*50], hidden=scope['hidden'], scope=scope,
+        total=len(items), pages=pages, page=page,
         system=system, url=url, nodes={n['id']:n for n in report['nodes']}, node_label=node_label))
 
 
 @app.get("/api/calculation/export")
 def calculation_export(name: str = Query(..., min_length=1, max_length=1000),
-                       source: str = Query(..., min_length=64, max_length=64), format: Literal['json','markdown']='json'):
+                       source: str = Query(..., min_length=64, max_length=64), format: Literal['json','markdown']='json',
+                       system: bool = False):
+    """导出的范围与页面一致：默认不带 } 系统对象，``system=1`` 才全量。
+
+    差异写在文件正文里（``scope_view`` 段 / Markdown「范围」小节），
+    不指望用户自己拿两个数字去对。
+    """
     from fastapi.responses import Response
     from tm1_insight.store.calculation import markdown
-    report = _calculation_report(name, source)
+    report, _scope = scope_view.narrow_report(_calculation_report(name, source), system)
     content = markdown(report) if format=='markdown' else json.dumps(report,ensure_ascii=False,indent=2)
     suffix, media = ('md','text/markdown') if format=='markdown' else ('json','application/json')
     return Response(content, media_type=media, headers={'Content-Disposition':f'attachment; filename=TI_Calculation.{suffix}',
@@ -855,19 +863,27 @@ def calculation_export(name: str = Query(..., min_length=1, max_length=1000),
 
 @app.get('/invocation', response_class=HTMLResponse)
 def invocation_page(request: Request, name: str = Query(..., min_length=1, max_length=1000),
-                    call: int = Query(..., ge=0), source: str = Query(..., min_length=64, max_length=64)):
+                    call: int = Query(..., ge=0), source: str = Query(..., min_length=64, max_length=64),
+                    system: bool = False):
     from tm1_insight.store.calculation import node_label
-    report = _calculation_report(name, source, call)
-    return templates.TemplateResponse(request, 'invocation.html', dict(report=report,
-        nodes={n['id']:n for n in report['nodes']}, node_label=node_label))
+    from urllib.parse import urlencode
+    report, scope = scope_view.narrow_invocation(_calculation_report(name, source, call), system)
+    base = dict(name=name, call=call, source=report['model_fingerprint'])
+    def url(**updates):
+        params = dict(base, system=system)
+        params.update(updates)
+        return '/invocation?'+urlencode({k:v for k,v in params.items() if v is not None})
+    return templates.TemplateResponse(request, 'invocation.html', dict(report=report, scope=scope, system=system,
+        url=url, nodes={n['id']:n for n in report['nodes']}, node_label=node_label))
 
 
 @app.get('/api/invocation/export')
 def invocation_export(name: str = Query(..., min_length=1, max_length=1000), call: int = Query(..., ge=0),
-                      source: str = Query(..., min_length=64, max_length=64), format: Literal['json','markdown']='json'):
+                      source: str = Query(..., min_length=64, max_length=64), format: Literal['json','markdown']='json',
+                      system: bool = False):
     from fastapi.responses import Response
     from tm1_insight.store.invocation import markdown
-    report = _calculation_report(name, source, call)
+    report, _scope = scope_view.narrow_invocation(_calculation_report(name, source, call), system)
     content = markdown(report) if format=='markdown' else json.dumps(report,ensure_ascii=False,indent=2)
     suffix, media = ('md','text/markdown') if format=='markdown' else ('json','application/json')
     return Response(content, media_type=media, headers={'Content-Disposition':f'attachment; filename=TI_Invocation.{suffix}',
