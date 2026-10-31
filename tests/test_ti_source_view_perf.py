@@ -228,6 +228,9 @@ def test_first_paint_renders_source_without_call_tree(client):
     assert "tree-node" not in html
     assert 'id="call-tree-load"' in html
     assert "/explorer/process/Wide.Hub/call-tree" in html
+    # 加载器是独立静态文件，便于缓存与行为测试；不再内联在模板里
+    assert "/static/call-tree.js?v=" in html
+    assert "response.text().then" not in html
 
 
 def test_call_tree_fragment_is_bounded_and_explains_truncation(client):
@@ -316,3 +319,21 @@ def test_source_viewer_renders_lazily_and_stays_searchable():
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_call_tree_loader_failure_stays_one_readable_sentence():
+    """失败路径契约（Node + DOM 桩）：整页 404 不得被当成错误信息倒进卡片。"""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node 不可用；行为由浏览器验收覆盖。")
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [node, str(root / "tests" / "ui" / "call_tree_loader.js"),
+         str(root / "src" / "tm1_insight" / "api" / "static" / "call-tree.js")],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert '"whole_page_404_is_one_sentence":true' in result.stdout

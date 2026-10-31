@@ -155,6 +155,7 @@
 {% block scripts %}
 <script id="process-search-context" type="application/json">{{ {'source': search_source}|tojson }}</script>
 <script src="/static/process-search.js?v=process-source-1" defer></script>
+<script src="/static/call-tree.js?v=call-tree-1" defer></script>
 <script>
 (function () {
   'use strict';
@@ -334,58 +335,6 @@
     return (marked || tabs[0]).getAttribute('data-tab');
   }
 
-  // ===== 调用关系：空闲时按需加载，可取消、可重试 =====
-  var card = document.getElementById('call-tree-card');
-  var body = document.getElementById('call-tree-body');
-  var statusEl = document.getElementById('call-tree-status');
-  var loadBtn = document.getElementById('call-tree-load');
-  var controller = null;
-  var loaded = false;
-
-  function setBusy(busy) {
-    loadBtn.disabled = busy;
-    loadBtn.textContent = busy ? '取消加载' : (loaded ? '重新加载' : '加载调用树');
-  }
-  function render(html) {
-    body.innerHTML = html;
-    body.hidden = false;
-    loaded = true;
-    statusEl.textContent = '调用关系为静态识别结果（源码中可直接读到的进程名）；动态构造的调用目标与运行顺序不在其中。';
-    setBusy(false);
-  }
-  function load() {
-    if (controller) { controller.abort(); return; }
-    controller = new AbortController();
-    setBusy(true);
-    statusEl.textContent = '正在加载调用关系…';
-    body.hidden = true;
-    body.replaceChildren();
-    fetch(card.getAttribute('data-endpoint'), { signal: controller.signal, cache: 'no-store' })
-      .then(function (response) {
-        return response.text().then(function (text) {
-          if (!response.ok) throw new Error(text || '调用树加载失败');
-          return text;
-        });
-      })
-      .then(render)
-      .catch(function (error) {
-        if (error.name === 'AbortError') {
-          statusEl.textContent = '已取消加载调用关系。源码不受影响。';
-        } else {
-          statusEl.textContent = '调用关系加载失败：' + (error.message || '未知错误') + '。可重试，或直接查看源码。';
-        }
-        setBusy(false);
-      })
-      .finally(function () { controller = null; });
-  }
-  loadBtn.addEventListener('click', load);
-
-  // 首屏可读后再加载调用关系：不抢占源码渲染。
-  function scheduleIdle(fn) {
-    if (typeof window.requestIdleCallback === 'function') { window.requestIdleCallback(fn, {timeout: 1200}); }
-    else { setTimeout(fn, 300); }
-  }
-  scheduleIdle(function () { if (!loaded && !controller) load(); });
 })();
 </script>
 

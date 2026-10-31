@@ -47,6 +47,7 @@
 | `src/tm1_insight/api/templates/process_view.html` | 代码段改为 `data-lazy-source` 惰性段；默认段服务端标 `active`；调用树卡片改为占位 + 加载/取消/重试；搜索改为文本检索 + 180 ms 防抖；深链接自行处理 |
 | `src/tm1_insight/api/static/syntax.js` | `scan()` 跳过未挂载的惰性段；`mount()` 支持分批渲染；新增 `revealLine()`、`isReady()`；超大源码仍走纯文本降级但支持按行高定位 |
 | `src/tm1_insight/api/static/process-search.js` | 页面自带 `TM1ProcessView` 时不再抢行节点 id 与 hash 定位，保留其余行为 |
+| `src/tm1_insight/api/static/call-tree.js` | 新增。调用树片段加载器：空闲加载、可取消、可重试、错误信息收敛为一句人话（见 5.2） |
 | `src/tm1_insight/api/static/workbench.css` | 调用树卡片样式 |
 | `src/tm1_insight/api/templates/base.html` | `syntax.js?v=2` → `v=3`（资源内容已变，必须失效旧缓存） |
 
@@ -95,6 +96,35 @@
 对应测试：`test_root_fan_in_shows_true_total_instead_of_silent_breadth_cap`、
 `test_depth_and_breadth_truncation_are_reported`。
 
+## 5.2 实施中发现并修复的缺陷：失败信息把整页 HTML 倒进面板
+
+使用者实际遇到的第一个反馈：调用关系区域显示的不只是一句错误，而是**整篇 404 页面的 HTML**
+（`<!DOCTYPE html> … 404 · 页面不存在 …`）。两个原因叠加：
+
+1. **触发原因（环境）**：调用树改成按需异步加载后，新增了
+   `GET /explorer/process/{name}/call-tree` 路由。模板由 Jinja 从磁盘热加载，
+   所以页面 UI 立刻是新版；但 Python 路由不会热加载，仍在运行的旧服务进程没有这个
+   接口，于是返回 404。**改代码后必须重启服务，页面不会自己变。**
+2. **放大原因（实现缺陷）**：原来的加载器在 `!response.ok` 时
+   `throw new Error(text)`，把整个响应体当错误信息写进状态栏。任何非 2xx 都会
+   把服务端页面的全量 HTML 灌进一个 `<p>`，既不可读，也掩盖了真实原因。
+
+处置：
+
+- 加载器从模板内联搬到 `static/call-tree.js`（可缓存、可测试），模板只留容器与占位文案。
+- 错误信息统一收敛为**一句人话**，且分级：
+  - `404` + 响应体是整页文档 → 「调用关系接口不存在：服务进程可能仍是更新前的旧版本，重启本地服务」；
+  - `404` + 片段（对象不在数据源）→ 说明对象维度，不误报为进程过期；
+  - `409` → 提示刷新本页（数据源指纹已变）；
+  - `5xx` → 带状态码，提示可重试，不显示服务端正文；
+  - 其它 → 去标签、并空白、截断到 180 字，仍不注入 HTML。
+- 失败时清空容器、保持隐藏，按钮变「重试加载」且始终可点（在途时按钮即「取消」，
+  不会把 busy 状态锁死）。
+
+对应测试：`test_call_tree_loader_failure_stays_one_readable_sentence`
+（Node + DOM 桩，7 组用例：成功/整页 404/片段 404/409/5xx/超长错误体/取消后重试）。
+
+
 ## 6. 测试命令与精确结果
 
 ```
@@ -102,7 +132,8 @@ PYTHONPATH=src ./.venv/Scripts/python.exe -m pytest -q
 ```
 
 - 全量离线回归：**1202 passed, 1 warning**（`163.95 s`，含新增 13 条）。
-- 新增针对性测试 `tests/test_ti_source_view_perf.py`（13 passed）覆盖：
+  修复 5.2 后复跑：**1214 passed, 1 warning**（`160.90 s`，+1 条前端失败路径用例）。
+- 新增针对性测试 `tests/test_ti_source_view_perf.py`（14 passed）覆盖：
   SQL 次数只与层数有关（宽窄两个模型计数相同）；节点预算 / 每层广度 / 根层广度 /
   深度四种截断各自被显式上报；根层被截断时给出「显示多少 / 共多少」而不是只报展开条数；
   环去重；广度限制按父节点生效；首屏 HTML 不含 `tree-node`；
@@ -111,6 +142,13 @@ PYTHONPATH=src ./.venv/Scripts/python.exe -m pytest -q
 - 新增前端行为验收 `tests/ui/source_viewer_lazy.js`（由上面的 pytest 调用）：
   2 000 行源码首屏只渲染 800 行、`text()` 仍返回全文、`revealLine(1600)` 追加到 1 600 行、
   >1 MB 走纯文本降级但仍可定位、尖括号转义不变、重复 `mount` 不重建。
+- 新增前端失败路径验收 `tests/ui/call_tree_loader.js`（由上面的 pytest 调用，7 组）：
+  空闲只自动请求一次且 `cache: no-store`；成功才渲染、成功不重复请求、手动可重新加载；
+  整页 404 变成一句话且状态栏 ≤160 字、不含 `<!DOCTYPE`；片段 404 不误报为进程过期；
+  409 提示刷新；5xx 带状态码；4 000 字错误体去标签并截断；在途点按钮即取消、取消后可重试。
+- 真实数据源复核（`data/demo` 库，最大 TI `Cub.Used Asset Payment Details Transfor …`，
+  源码 129 601 字符）：页面 `200 / 785 ms / 176 KB`，片段 `200 / 58 ms / 6.6 KB`，
+  片段响应不以 `<!DOCTYPE` 开头。
 - 既有 `tests/test_human_workbench.py` 有两处随实现更新：
   资源版本断言由 `syntax.js?v=2` 放宽为 `syntax.js?v=`；
   DOM 桩补齐 `replaceChildren` / `insertAdjacentHTML` / `getBoundingClientRect`
@@ -214,12 +252,18 @@ PYTHONPATH=src ./.venv/Scripts/python.exe -m pytest -q
 2. **调用树仍是逐层两条 SQL 起**（每层一条，上下游各一遍；到达深度上限时多一条探测
    是否有更深层），未改成单条递归 CTE。当前预算下实测 17–18 条 SQL、7–10 ms；
    若将来要更深，需换实现。
+   *（后续：阶段 2 的 `6796e7e` 已改为「一次取邻接表 + 内存 BFS」，1 条 SQL / 17–28 ms，
+   见 `DELIVERY_FACT_CONSISTENCY_2.md`；此处保留当时的记录。）*
 3. **分批渲染是追加式**：用户一路滚到底时 DOM 会重新增长到该段总行数。
    这是「用户显式要求读全文」的场景，未做窗口回收。
 4. **缓存只在进程内**：重启后第一次仍要重算；缓存上限 128 条，满了整体清空（非 LRU）。
 5. **纯文本降级段（>1 MB）无法高亮**，只保证可读与按行定位。
 6. **深链接与搜索的浏览器行为未实测**，只有 Node 桩与 HTML 契约测试。
-7. 交接验收（两名未参与实现的开发者完成固定任务）**待验收**，本次未组织。
+7. **改代码后必须重启本地服务**：模板由 Jinja 热加载，Python 路由不会——
+   这正是 5.2 那个 404 的成因。页面上无法自证「进程是否过期」，
+   只在片段返回 404 整页时提示「重启本地服务」。若要做到不重启即生效，
+   需要给 `web` 命令加 `--reload` 或做版本握手，属独立小任务，本次未做。
+8. 交接验收（两名未参与实现的开发者完成固定任务）**待验收**，本次未组织。
 
 ## 10. 下一阶段最小任务
 
