@@ -399,8 +399,8 @@ def process_call_tree(
     down: dict[str, list[tuple[str, str]]] = {}
     up: dict[str, list[tuple[str, str]]] = {}
     dynamic_targets = 0
-    for caller, callee, kind in con.execute(
-        cte + " SELECT caller, callee, kind FROM call_edge"
+    for caller, callee, kind, caller_kind in con.execute(
+        cte + " SELECT caller, callee, kind, caller_kind FROM call_edge"
     ).fetchall():
         if kind == calls.KIND_DYNAMIC:
             # 动态目标不是固定成员：不进入图，只按调用方计数。
@@ -408,14 +408,19 @@ def process_call_tree(
                 dynamic_targets += 1
             continue
         down.setdefault(caller, []).append((callee, kind))
-        up.setdefault(callee, []).append((caller, kind))
+        # 上游节点的类型描述的是「调用方自己」，不能沿用被调用方的 kind：
+        # 否则框架进程的每个上游都会被标成「框架」，而它们其实是普通业务 TI。
+        up.setdefault(callee, []).append((caller, caller_kind))
     for adjacency in (down, up):
         for children in adjacency.values():
             children.sort()
     edges_by_direction = {"down": down, "up": up}
 
     state = {"nodes": 1, "nodes_capped": False, "breadth_parents": 0, "depth_capped": False,
-             "root_capped": {"callers": False, "callees": False}}
+             "root_capped": {"callers": False, "callees": False},
+             # 图中每个节点按 kind 计数：页面据此说明「这一屏节点里有多少是框架调用、
+             # 多少在目录里根本不存在」，而不是让用户以为图上全是同一类证据。
+             "kind_counts": {kind: 0 for kind in calls.NODE_KINDS}}
 
     def _children_of_level(parents: list[str], direction: str, breadth: int) -> tuple[dict[str, list[tuple[str, str]]], dict[str, int]]:
         """一层节点 → 各自的前 breadth 个子节点，并回报每个父节点的真实子节点数。
@@ -470,6 +475,8 @@ def process_call_tree(
                         break
                     visited.add(child)
                     state["nodes"] += 1
+                    if child_kind in state["kind_counts"]:
+                        state["kind_counts"][child_kind] += 1
                     child_node: dict = {"name": child, "kind": child_kind}
                     kids.append(child_node)
                     next_frontier.append({"name": child, "_node": child_node})
@@ -491,8 +498,7 @@ def process_call_tree(
 
     truncated = bool(state["nodes_capped"] or state["breadth_parents"]
                      or state["depth_capped"]
-                     or any(state["root_capped"].values()))
-    # 动态目标不是固定成员：只报「有几处」，不点名、不展开（上方统计）。
+                     or any(state["root_capped"].values()))    # 动态目标不是固定成员：只报「有几处」，不点名、不展开（上方统计）。
     # 自环会被 visited 去重挡住，如果不单独回报，页面就等于把「自己调自己」删掉了。
     recursive_self_call = any(callee == root for callee, _ in down.get(root, []))
     return {
@@ -501,6 +507,7 @@ def process_call_tree(
         "callees": callees,
         "dynamic_targets": int(dynamic_targets),
         "recursive_self_call": recursive_self_call,
+        "kind_counts": dict(state["kind_counts"]),
         "node_count": state["nodes"],
         "truncated": truncated,
         "limits": {"max_depth": max_depth, "max_breadth": max_breadth,

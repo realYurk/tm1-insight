@@ -472,3 +472,28 @@ details summary { cursor: pointer; padding: 12px 0; }
 #call-tree-card .call-tree-limits li { margin: 2px 0; }
 #call-tree-card .tree-node-missing { color: var(--muted, #6b7280); border-bottom: 1px dashed currentColor; cursor: help; }
 #call-tree-card .tree-kind { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 8px; background: rgba(127,127,127,.16); vertical-align: 1px; }
+
+/* ==== 调用事实：来源拆解与口径差异（证据可见） ==== */
+.call-evidence { margin: 6px 0 2px; }
+.call-evidence > summary {
+  cursor: pointer; display: inline-block; font-size: 12px; color: var(--muted, #6b7280);
+}
+.call-evidence > summary:hover { color: var(--text, #111); }
+.call-evidence-body {
+  margin-top: 8px; padding: 10px 12px; max-width: 760px;
+  border: 1px solid var(--border, #e5e7eb); border-radius: 10px;
+  background: var(--surface-2, rgba(127, 127, 127, .05));
+}
+.call-evidence-body .table { margin: 4px 0 10px; }
+.call-evidence-body p { margin: 6px 0; }
+.table.compact td, .table.compact th { padding: 6px 8px; font-size: 12px; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.delta-up { color: #b45309; font-weight: 600; }
+.row-focus { background: rgba(180, 83, 9, .10); }
+.call-tree-legend { margin: 0 0 8px; }
+.source-explain { margin: 6px 0 10px; padding-left: 20px; }
+.source-explain li { margin: 8px 0; font-size: 13px; line-height: 1.65; }
+.source-explain code {
+  font-size: 12px; padding: 1px 4px; border-radius: 4px;
+  background: rgba(127, 127, 127, .12);
+}

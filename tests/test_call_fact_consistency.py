@@ -256,3 +256,88 @@ def test_learning_report_uses_the_same_callers(client):
         con.close()
     entry = next(p for p in report["processes"] if p["process"] == "Hub")
     assert "ViaVariable" in entry["called_by"]
+
+
+# ---------------------------------------------------------------------------
+# 证据可见：数字必须能拆回来源表，否则「更准了」无法被使用者核对
+# ---------------------------------------------------------------------------
+
+def test_source_breakdown_shows_which_table_produced_each_caller(con):
+    """页头那个数字必须能拆到来源表；同一次调用被两表记录时只算一个调用方。"""
+    for name in ("Hub", "Literal", "Var", "Fw"):
+        insert_process(con, name)
+    literal(con, "Literal", "Hub")
+    business(con, "Var", "Hub")
+    framework(con, "Fw", "Hub")
+    literal(con, "Fw", "Hub")          # 同一调用方被两张表记录
+
+    summary = calls.summary(con, "Hub")
+    assert summary["counts"]["callers"] == 3, "调用方必须按名字去重，不能按行数"
+    assert summary["callers_by_source"] == {
+        calls.SRC_REGEX: 2, calls.SRC_RESOLVED: 1, calls.SRC_FRAMEWORK: 1,
+    }
+    # 各来源之和 4 > 去重后 3：页面必须说明「可重叠」，否则会被人相加
+    assert sum(summary["callers_by_source"].values()) > summary["counts"]["callers"]
+
+
+def test_edge_carries_primary_source_and_all_sources(con):
+    for name in ("Hub", "Fw"):
+        insert_process(con, name)
+    framework(con, "Fw", "Hub")
+    literal(con, "Fw", "Hub")
+
+    edge = calls.edges(con, caller="Fw", callee="Hub")[0]
+    assert edge["source"] == calls.SRC_REGEX, "字面写死是最硬证据，优先展示"
+    assert set(edge["sources"]) == {calls.SRC_REGEX, calls.SRC_FRAMEWORK}
+
+
+def test_target_counts_separate_old_scope_from_merged_scope(con):
+    """全模型对照：旧口径（只有正则表）与新口径（三表合并）并排，且标出动态占位。"""
+    for name in ("Hub", "Literal", "Fw"):
+        insert_process(con, name)
+    literal(con, "Literal", "Hub")
+    framework(con, "Fw", "Hub")
+    business(con, "Literal", "<sProc2>")
+
+    rows = {row["callee"]: row for row in calls.caller_counts_by_target(con)}
+    hub = rows["Hub"]
+    assert (hub["regex"], hub["framework"], hub["total"], hub["delta"]) == (1, 1, 2, 1)
+    assert rows["<sProc2>"]["dynamic"] is True, "变量占位必须被标成不是成员"
+    assert hub["dynamic"] is False
+
+
+def test_header_and_sources_page_explain_the_numbers(client):
+    """页面上必须能点开看到拆解，并且差异清单能落到具体对象。"""
+    page = client.get("/explorer/process/Hub")
+    assert page.status_code == 200
+    assert "这些调用数字是怎么来的" in page.text
+    assert "正则扫源码" in page.text and "框架调用表" in page.text
+    assert "不是运行证据" in page.text
+    assert "/calls/sources" in page.text
+
+    sources = client.get("/calls/sources")
+    assert sources.status_code == 200
+    assert sources.headers["cache-control"] == "no-store"
+    assert "Hub" in sources.text, "有差异的对象必须出现在清单里"
+    # 占位名会按 HTML 转义展示，不能直接渲染成标签
+    assert "&lt;sProc2&gt;" in sources.text, "占位条目也要列出，但必须标注"
+    assert "动态占位" in sources.text
+
+
+def test_sources_page_marks_focus_object(client):
+    page = client.get("/calls/sources", params={"focus": "Hub"})
+    assert 'class="row-focus"' in page.text
+
+
+def test_tree_legend_states_what_the_nodes_are(con):
+    for name in ("Root", "Literal", "Ghost"):
+        insert_process(con, name)
+    literal(con, "Literal", "Root")
+    literal(con, "GhostOnly", "Root")      # 目录里没有 GhostOnly，但它是调用方
+    literal(con, "Root", "Ghost")
+
+    tree = queries.process_call_tree(con, "Root")
+    assert tree["kind_counts"][calls.KIND_MISSING] == 1
+    fragment = _render_fragment(tree)
+    assert "图中节点" in fragment
+    assert "目录中不存在 1 个" in fragment

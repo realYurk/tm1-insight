@@ -51,17 +51,39 @@ KIND_LABEL = {
 #: 可以当成「进程」展示的 kind（dynamic 不行）。
 NODE_KINDS = (KIND_LITERAL, KIND_FRAMEWORK, KIND_MISSING)
 
+#: 证据来源（哪张表产出这条边）。与 kind 是两个正交维度：
+#: kind 说「这条边指向什么」，source 说「这条边凭什么被记录下来」。
+#: 页面上的「为什么数字变了」只能靠 source 解释——131 与 1996 的差别就在这一层。
+SRC_REGEX = "regex"          # process_calls_process：正则扫源码，只认字面写死的进程名
+SRC_RESOLVED = "resolved"    # ti_business_calls：语句级解析，变量已赋值才能得出目标
+SRC_FRAMEWORK = "framework"  # ti_framework_calls：框架进程调用表
+
+SOURCES = (SRC_REGEX, SRC_RESOLVED, SRC_FRAMEWORK)
+
+SOURCE_LABEL = {
+    SRC_REGEX: "正则扫源码",
+    SRC_RESOLVED: "变量解析",
+    SRC_FRAMEWORK: "框架调用表",
+}
+
+#: 主证据优先级：字面写死最硬，框架表次之，变量解析最弱（依赖赋值可解析）。
+#: 同一对 (caller, callee) 可能被多张表记录，页面只显示主证据，其余在计数里体现。
+_SOURCE_RANK = (SRC_REGEX, SRC_FRAMEWORK, SRC_RESOLVED)
+
 #: (表名, 全量读取, 单个 TI 的读取 —— 后者把过滤下推到表扫描，避免先合并全模型)
 _SOURCES = (
     ("ti_business_calls",
-     "SELECT caller, callee, params AS detail FROM ti_business_calls",
-     "SELECT caller, callee, params AS detail FROM ti_business_calls WHERE caller = ? OR callee = ?"),
+     f"SELECT caller, callee, params AS detail, '{SRC_RESOLVED}' AS src FROM ti_business_calls",
+     f"SELECT caller, callee, params AS detail, '{SRC_RESOLVED}' AS src FROM ti_business_calls"
+     " WHERE caller = ? OR callee = ?"),
     ("process_calls_process",
-     "SELECT caller, callee, NULL AS detail FROM process_calls_process",
-     "SELECT caller, callee, NULL AS detail FROM process_calls_process WHERE caller = ? OR callee = ?"),
+     f"SELECT caller, callee, NULL AS detail, '{SRC_REGEX}' AS src FROM process_calls_process",
+     f"SELECT caller, callee, NULL AS detail, '{SRC_REGEX}' AS src FROM process_calls_process"
+     " WHERE caller = ? OR callee = ?"),
     ("ti_framework_calls",
-     "SELECT process_name, callee, purpose AS detail FROM ti_framework_calls",
-     "SELECT process_name, callee, purpose AS detail FROM ti_framework_calls WHERE process_name = ? OR callee = ?"),
+     f"SELECT process_name, callee, purpose AS detail, '{SRC_FRAMEWORK}' AS src FROM ti_framework_calls",
+     f"SELECT process_name, callee, purpose AS detail, '{SRC_FRAMEWORK}' AS src FROM ti_framework_calls"
+     " WHERE process_name = ? OR callee = ?"),
 )
 
 
@@ -81,43 +103,88 @@ def available_sources(con: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
 
 
 def _classify_cte(union: str, name: str) -> str:
-    """把「三张表合并 + 分类」的规则写成一份 SQL，供全量与单对象两条路径共用。"""
+    """把「三张表合并 + 分类 + 记录来源」的规则写成一份 SQL，供全量与单对象两条路径共用。
+
+    来源用三个 0/1 标记列而不是字符串聚合：同一对 (caller, callee) 可能被多张表
+    同时记录，标记列既能表达重叠，又不需要 ``string_agg(DISTINCT …)`` 那种排序开销
+    （该 CTE 每次调用树请求都要跑一条）。
+    """
+    flags = ", ".join(
+        f"max(CASE WHEN src = '{src}' THEN 1 ELSE 0 END) AS from_{src}" for src in SOURCES
+    )
     return f"""
     WITH raw AS (
         {union}
     ), merged AS (
-        SELECT caller, callee, max(detail) AS detail
+        SELECT caller, callee, max(detail) AS detail, {flags}
         FROM raw WHERE caller IS NOT NULL AND callee IS NOT NULL AND callee <> ''
         GROUP BY caller, callee
     ), {name} AS (
         SELECT merged.caller, merged.callee, merged.detail,
+               merged.from_regex, merged.from_resolved, merged.from_framework,
                CASE
                    WHEN merged.callee LIKE '<%' THEN '{KIND_DYNAMIC}'
                    WHEN merged.callee LIKE '}}%' THEN '{KIND_FRAMEWORK}'
                    WHEN known.name IS NULL THEN '{KIND_MISSING}'
                    ELSE '{KIND_LITERAL}'
-               END AS kind
+               END AS kind,
+               -- 调用方自己也要分类：图上「谁调用我」显示的是调用方，
+               -- 若把被调用方的 kind 贴到调用方身上，框架进程的 1996 个上游
+               -- 会被全部标成「框架」，而它们其实是普通业务 TI。
+               CASE
+                   WHEN merged.caller LIKE '}}%' THEN '{KIND_FRAMEWORK}'
+                   WHEN known_caller.name IS NULL THEN '{KIND_MISSING}'
+                   ELSE '{KIND_LITERAL}'
+               END AS caller_kind
         FROM merged
         -- processes.name 是主键，直接连接不会放大行数；用子查询 + DISTINCT 会多花约 13 ms。
         LEFT JOIN processes AS known ON known.name = merged.callee
+        LEFT JOIN processes AS known_caller ON known_caller.name = merged.caller
     )
     """
+
+
+_EMPTY_CTE = (
+    "WITH {name} AS (SELECT CAST(NULL AS VARCHAR) AS caller, CAST(NULL AS VARCHAR) AS callee,"
+    " CAST(NULL AS VARCHAR) AS detail, CAST(NULL AS VARCHAR) AS kind,"
+    " CAST(NULL AS VARCHAR) AS caller_kind,"
+    " CAST(0 AS INTEGER) AS from_regex, CAST(0 AS INTEGER) AS from_resolved,"
+    " CAST(0 AS INTEGER) AS from_framework WHERE FALSE)"
+)
+
+
+def primary_source(from_regex: int, from_resolved: int, from_framework: int) -> str | None:
+    """同一对 (caller, callee) 被多张表记录时，给出最硬的那一份证据。"""
+    present = {
+        SRC_REGEX: from_regex, SRC_RESOLVED: from_resolved, SRC_FRAMEWORK: from_framework,
+    }
+    for src in _SOURCE_RANK:
+        if present.get(src):
+            return src
+    return None
+
+
+def sources_of(from_regex: int, from_resolved: int, from_framework: int) -> list[str]:
+    """这条边被哪些来源记录（可能不止一张表）。"""
+    present = {
+        SRC_REGEX: from_regex, SRC_RESOLVED: from_resolved, SRC_FRAMEWORK: from_framework,
+    }
+    return [src for src in SOURCES if present.get(src)]
 
 
 def edges_cte(con: duckdb.DuckDBPyConnection, name: str = "call_edge") -> str:
     """生成 ``WITH <name> AS (...)`` 片段，供本模块与调用树共用同一份口径。
 
-    结果列：``caller`` / ``callee`` / ``kind`` / ``detail``。
-    同一 (caller, callee) 在两张表都出现时只保留一行，``detail`` 取非空的一侧。
+    结果列：``caller`` / ``callee`` / ``kind`` / ``detail`` /
+    ``from_regex`` / ``from_resolved`` / ``from_framework``。
+    同一 (caller, callee) 在两张表都出现时只保留一行，``detail`` 取非空的一侧，
+    来源标记各自保留。
     """
     present = available_sources(con)
     parts = [sql for table, sql, _ in _SOURCES if table in present]
     if not parts:
         # 没有任何来源表：给一个空集合，调用方仍能正常工作。
-        return (
-            f"WITH {name} AS (SELECT CAST(NULL AS VARCHAR) AS caller, CAST(NULL AS VARCHAR) AS callee,"
-            " CAST(NULL AS VARCHAR) AS detail, CAST(NULL AS VARCHAR) AS kind WHERE FALSE)"
-        )
+        return _EMPTY_CTE.format(name=name)
     return _classify_cte(" UNION ALL ".join(parts), name)
 
 
@@ -130,11 +197,7 @@ def object_edges_cte(con: duckdb.DuckDBPyConnection, process: str, alias: str = 
     present = available_sources(con)
     parts = [filtered for table, _, filtered in _SOURCES if table in present]
     if not parts:
-        return (
-            f"WITH {alias} AS (SELECT CAST(NULL AS VARCHAR) AS caller, CAST(NULL AS VARCHAR) AS callee,"
-            " CAST(NULL AS VARCHAR) AS detail, CAST(NULL AS VARCHAR) AS kind WHERE FALSE)",
-            [],
-        )
+        return _EMPTY_CTE.format(name=alias), []
     return _classify_cte(" UNION ALL ".join(parts), alias), [process, process] * len(parts)
 
 
@@ -163,10 +226,20 @@ def edges(
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     rows = con.execute(
         (cte or edges_cte(con))
-        + f" SELECT DISTINCT caller, callee, kind, detail FROM call_edge{clause} ORDER BY callee, caller",
+        + " SELECT DISTINCT caller, callee, kind, caller_kind, detail,"
+          " from_regex, from_resolved, from_framework FROM call_edge"
+        + clause
+        + " ORDER BY callee, caller",
         params,
     ).fetchall()
-    return [{"caller": r[0], "callee": r[1], "kind": r[2], "detail": r[3]} for r in rows]
+    return [
+        {
+            "caller": r[0], "callee": r[1], "kind": r[2], "caller_kind": r[3], "detail": r[4],
+            "source": primary_source(r[5], r[6], r[7]),
+            "sources": sources_of(r[5], r[6], r[7]),
+        }
+        for r in rows
+    ]
 
 
 def summary(con: duckdb.DuckDBPyConnection, name: str) -> dict:
@@ -175,17 +248,26 @@ def summary(con: duckdb.DuckDBPyConnection, name: str) -> dict:
     ``callers`` 是**去重后的调用方进程名**。调用方本身必定是目录里的 TI
     （采集只记录真实进程名），因此这里不需要再分 kind。
 
+    ``callers_by_source`` / ``callees_by_source`` 回答「这个数字凭什么」：
+    按产出它的表分别计数。三张表会重叠（同一次调用可能被正则和框架表同时记录），
+    所以各来源之和 ≥ 去重后的总数；页面必须把这层写清楚，不能让人把两个数相加。
+
     ``dynamic_callees`` 是「有几处调用目标没能解析成固定成员」——一个计数，
     不是进程名列表；这些目标可能是任何 TI，不能点名。
     """
+    empty_sources = {src: 0 for src in SOURCES}
     if is_dynamic_target(name):
         # 占位名不是成员：不存在「谁调用 <sProc2>」这种事实，直接返回空集。
-        return {"callers": [], "callees": [], "counts": {"callers": 0, "callees": {k: 0 for k in KINDS}},
+        return {"callers": [], "callees": [],
+                "counts": {"callers": 0, "callees": {k: 0 for k in KINDS}},
+                "callers_by_source": dict(empty_sources),
+                "callees_by_source": dict(empty_sources),
                 "dynamic_callees": 0, "node_callees": []}
     # 过滤下推到三张表，只算这个 TI 的上下游；一条 SQL 同时拿到两个方向。
     cte, params = object_edges_cte(con, name)
     rows = con.execute(
-        cte + " SELECT DISTINCT caller, callee, kind, detail FROM call_edge ORDER BY callee, caller",
+        cte + " SELECT DISTINCT caller, callee, kind, caller_kind, detail,"
+              " from_regex, from_resolved, from_framework FROM call_edge ORDER BY callee, caller",
         params,
     ).fetchall()
     inbound = [r for r in rows if r[1] == name]
@@ -194,14 +276,65 @@ def summary(con: duckdb.DuckDBPyConnection, name: str) -> dict:
     counts = {kind: 0 for kind in KINDS}
     for row in outbound:
         counts[row[2]] = counts.get(row[2], 0) + 1
+
+    # 按来源统计「去重后的调用方个数」：同一个调用方可能被多张表记录，必须按集合去重，
+    # 不能把行数当个数（否则 131 + 1996 会算出重叠部分）。
+    caller_sets = {src: set() for src in SOURCES}
+    callee_sets = {src: set() for src in SOURCES}
+    for row in inbound:
+        for src in sources_of(row[5], row[6], row[7]):
+            caller_sets[src].add(row[0])
+    for row in outbound:
+        for src in sources_of(row[5], row[6], row[7]):
+            callee_sets[src].add(row[1])
+
     callees = [
-        {"caller": r[0], "callee": r[1], "kind": r[2], "detail": r[3]}
+        {"caller": r[0], "callee": r[1], "kind": r[2], "detail": r[4],
+         "source": primary_source(r[5], r[6], r[7]),
+         "sources": sources_of(r[5], r[6], r[7])}
         for r in sorted(outbound, key=lambda r: (KINDS.index(r[2]) if r[2] in KINDS else 99, r[1]))
     ]
     return {
         "callers": callers,
         "callees": callees,
         "counts": {"callers": len(callers), "callees": counts},
+        "callers_by_source": {src: len(caller_sets[src]) for src in SOURCES},
+        "callees_by_source": {src: len(callee_sets[src]) for src in SOURCES},
         "dynamic_callees": counts.get(KIND_DYNAMIC, 0),
         "node_callees": [e for e in callees if e["kind"] in NODE_KINDS],
     }
+
+
+def caller_counts_by_target(con: duckdb.DuckDBPyConnection, limit: int | None = None) -> list[dict]:
+    """全模型口径对照：每个被调用对象「正则扫到几个 / 合并后几个」。
+
+    只读、单条 SQL。用途是把「页头数字为什么变了」摊开给人抽查，
+    不是给业务做分析——因此不做趋势、不做聚合排序之外的加工。
+    """
+    rows = con.execute(
+        edges_cte(con)
+        + """
+        SELECT callee,
+               count(DISTINCT caller) FILTER (WHERE from_regex = 1) AS n_regex,
+               count(DISTINCT caller) FILTER (WHERE from_resolved = 1) AS n_resolved,
+               count(DISTINCT caller) FILTER (WHERE from_framework = 1) AS n_framework,
+               count(DISTINCT caller) AS n_total
+        FROM call_edge
+        GROUP BY callee
+        ORDER BY (n_total - n_regex) DESC, n_total DESC
+        """
+    ).fetchall()
+    out = []
+    for callee, n_regex, n_resolved, n_framework, n_total in rows:
+        out.append({
+            "callee": callee,
+            "regex": n_regex,
+            "resolved": n_resolved,
+            "framework": n_framework,
+            "total": n_total,
+            "delta": n_total - n_regex,
+            "dynamic": is_dynamic_target(callee),
+        })
+    if limit is not None:
+        return out[:limit]
+    return out

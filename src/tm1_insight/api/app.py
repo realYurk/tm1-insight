@@ -25,7 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from tm1_insight import __version__
 from tm1_insight.config import Settings, get_settings
 from tm1_insight.store.db import Store
-from tm1_insight.store import queries
+from tm1_insight.store import queries, calls
 from tm1_insight.store.graph_adapter import dependencies_from_store
 from tm1_insight.ingest.progress import INGEST_STAGES, AUDIT_STAGES, stage_progress
 from tm1_insight.tasks import TaskCancelled
@@ -666,6 +666,34 @@ def explorer_process_call_tree(request: Request, name: str,
         request, "_call_tree.html", {"call_tree": tree},
         headers={"Cache-Control": "no-store"})
 
+
+
+@app.get("/calls/sources", response_class=HTMLResponse)
+def calls_sources(request: Request, focus: str = Query("", max_length=200),
+                  limit: int = Query(200, ge=10, le=1000)):
+    """调用口径差异清单：只读、可抽查。
+
+    回答的是「页头那个数字为什么变了」——把每个被调用对象在
+    正则口径（旧页面只读这一张表）与三表合并口径（当前唯一生产者）
+    下的调用方个数并排列出。不做趋势、不做评分、不导出：
+    这是证据核对页，不是分析功能。
+    """
+    store = _store()
+    con = store.connect(read_only=True)
+    try:
+        rows = calls.caller_counts_by_target(con)
+    finally:
+        con.close()
+    changed = [row for row in rows if row["delta"] != 0]
+    placeholders = [row for row in changed if row["dynamic"]]
+    return templates.TemplateResponse(request, "calls_sources.html", {
+        "rows": changed[:limit],
+        "object_total": len(rows),
+        "changed_total": len(changed),
+        "placeholder_total": len(placeholders),
+        "limit": limit,
+        "focus": focus,
+    }, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/explorer/chore/{name}", response_class=HTMLResponse)

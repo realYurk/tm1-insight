@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}调用口径差异 · TI Insight{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">概览</a><span class="sep">/</span>
+  <a href="/processes">TI 进程</a><span class="sep">/</span>
+  <span class="current">调用口径差异</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">调用口径差异</h1>
+    <p class="page-sub">
+      共 {{ object_total }} 个被调用对象 · {{ changed_total }} 个在新旧口径下数字不同
+      {% if placeholder_total %}· 其中 {{ placeholder_total }} 个是变量拼出来的占位，不是真实 TI{% endif %}
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>这两个数字分别是什么</h2>
+  <ul class="source-explain">
+    <li>
+      <strong>旧口径（正则扫源码）</strong>：只读 <code>process_calls_process</code>。
+      只认源码里直接写死的进程名，<code>ExecuteProcess(sProc)</code> 这种变量调用看不见。
+      这是改造前页头用的口径。
+    </li>
+    <li>
+      <strong>新口径（三表去重合并）</strong>：<code>process_calls_process</code> +
+      <code>ti_business_calls</code>（变量已赋值时解析出的目标）+
+      <code>ti_framework_calls</code>（<code>}bedrock.*</code> 这类框架调用）去重合并，
+      同一调用方只算一次。这是当前页头、调用树、导出共用的唯一口径。
+    </li>
+  </ul>
+  <p class="muted small">
+    差为正：旧页面少算了调用方，越大的框架进程少得越多（一个数量级）。<br>
+    差为负或对象名带尖括号：新口径把「变量拼出来的占位」当成了名字，
+    这类条目<strong>不是真实 TI</strong>，不能当调用方名单用。
+  </p>
+  <p class="muted small">
+    全部数字都是静态读取（源码文本与解析结果），不是运行证据；
+    这里只回答「谁在源码里写了要调用它」，不回答「运行时会调用几次、按什么顺序」。
+  </p>
+</div>
+
+<div class="card">
+  <h2>差异清单 <span class="tag">{{ rows|length }}</span></h2>
+  {% if changed_total > rows|length %}
+  <p class="muted small">
+    按差值从大到小只列前 {{ rows|length }} 个（共 {{ changed_total }} 个），未列出的不代表没有差异。
+  </p>
+  {% endif %}
+  <div class="table-wrap">
+    <table class="table compact">
+      <thead>
+        <tr>
+          <th>被调用对象</th>
+          <th class="num">旧口径</th>
+          <th class="num">正则</th>
+          <th class="num">变量解析</th>
+          <th class="num">框架表</th>
+          <th class="num">去重后</th>
+          <th class="num">差</th>
+          <th>性质</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr{% if row.callee == focus %} class="row-focus"{% endif %}>
+          <td>
+            {% if row.dynamic %}
+            <span class="tree-node tree-node-missing" title="变量拼接出来的占位，不是目录里的 TI">{{ row.callee }}</span>
+            {% else %}
+            <a href="/explorer/process/{{ row.callee|urlencode }}">{{ row.callee }}</a>
+            {% endif %}
+          </td>
+          <td class="num">{{ row.regex }}</td>
+          <td class="num">{{ row.regex }}</td>
+          <td class="num">{{ row.resolved }}</td>
+          <td class="num">{{ row.framework }}</td>
+          <td class="num"><strong>{{ row.total }}</strong></td>
+          <td class="num{% if row.delta > 0 %} delta-up{% endif %}">
+            {% if row.delta > 0 %}+{{ row.delta }}{% else %}{{ row.delta }}{% endif %}
+          </td>
+          <td>
+            {% if row.dynamic %}
+            <span class="tree-kind">动态占位，不是成员</span>
+            {% elif row.total == row.regex %}
+            <span class="muted small">口径一致</span>
+            {% else %}
+            <span class="muted small">
+              旧口径只看到 {{ row.regex }} 个；另有
+              {% if row.framework > row.regex %}框架表 {{ row.framework }} 个{% endif %}
+              {% if row.resolved %}变量解析 {{ row.resolved }} 个{% endif %}
+              未计入
+            </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="muted small">
+  说明：「旧口径」与「正则」两列数值相同，保留旧口径列是为了和改造前的页面截图直接对照。
+  各来源列可重叠（同一次调用可能被两张表记录），因此它们相加 ≥ 去重后的总数。
+</p>
+{% endblock %}
