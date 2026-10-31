@@ -356,44 +356,144 @@ def _extract_semantic_vars(prolog: str, data: str, metadata: str, epilog: str) -
 
 
 def process_call_tree(
-    con: duckdb.DuckDBPyConnection, root: str, max_depth: int = 8, max_breadth: int = 30
+    con: duckdb.DuckDBPyConnection,
+    root: str,
+    max_depth: int = 8,
+    max_breadth: int = 30,
+    *,
+    max_nodes: int | None = None,
+    root_breadth: int | None = None,
 ) -> dict:
     """构建以 root 为根的「调用树」：谁调用我（上游）+ 我调用谁（下游），递归展开。
 
     返回嵌套 dict：
     {
       "name": root,
-      "callers": [ {name, callers:[...]} ... ],   # 上游（谁调用我）
-      "callees": [ {name, callees:[...]} ... ],   # 下游（我调用谁）
+      "callers": [ {name, children:[...]} ... ],   # 上游（谁调用我）
+      "callees": [ {name, children:[...]} ... ],   # 下游（我调用谁）
+      # 预算与规模事实：供调用方如实展示「哪里被截断」，不允许静默截断
+      "node_count": int, "truncated": bool,
+      "limits": {"max_depth", "max_breadth", "root_breadth", "max_nodes"},
+      "direct": {"callers": {"shown", "total"}, "callees": {"shown", "total"}},
+      "truncation": {"nodes": bool, "breadth_parents": int, "root_capped": bool, "depth": bool},
     }
-    为避免爆炸，限制深度 max_depth、每层广度 max_breadth，并用 visited 去重防环。
+
+    约束（性能止损，不是语义放宽）：
+    - max_depth 限制层数；max_breadth 限制「每个父节点的子节点数」（与原实现一致）；
+      根层的直接调用者是最常看的信息，单独用 root_breadth（默认取 max_breadth）放宽；
+    - max_nodes 为整棵树（上游 + 下游）的节点总预算，超出即停止；
+    - 逐层批量取子节点：一层一条 SQL，SQL 次数 ≈ 2 × max_depth，
+      不再随节点数线性增长（原实现对每个节点各发一条 SQL）。
+
+    语义说明（有意变更，已在文档记录）：同一父节点下按名称升序取前 N 个；
+    遍历由深度优先改为逐层展开，因此一个经多条路径可达的进程会被放在
+    层数最小的位置。可达集合不变，只是重复出现的深度更浅、结果更确定。
     """
-    def _children(parent: str, direction: str, depth: int, visited: set) -> list[dict]:
-        if depth >= max_depth:
-            return []
+    root_limit = max_breadth if root_breadth is None else root_breadth
+    state = {"nodes": 1, "nodes_capped": False, "breadth_parents": 0, "depth_capped": False,
+             "root_capped": {"callers": False, "callees": False}}
+
+    def _children_of_level(parents: list[str], direction: str, breadth: int) -> tuple[dict[str, list[str]], dict[str, int]]:
+        """一层节点 → 各自的前 breadth 个子节点（一条 SQL），并回报每个父节点的真实子节点数。"""
         col = "callee" if direction == "down" else "caller"
         other = "caller" if direction == "down" else "callee"
+        if not parents:
+            return {}, {}
+        placeholders = ",".join("?" for _ in parents)
         rows = con.execute(
-            f"SELECT DISTINCT {col} FROM process_calls_process WHERE {other} = ? ORDER BY 1 LIMIT ?",
-            [parent, max_breadth],
+            f"""
+            SELECT other_side, child, total FROM (
+                SELECT {other} AS other_side, {col} AS child,
+                       row_number() OVER (PARTITION BY {other} ORDER BY {col}) AS rn,
+                       count(*) OVER (PARTITION BY {other}) AS total
+                FROM (SELECT DISTINCT {other}, {col} FROM process_calls_process
+                      WHERE {other} IN ({placeholders}))
+            ) WHERE rn <= ? ORDER BY other_side, child
+            """,
+            [*parents, breadth],
         ).fetchall()
-        out = []
-        for (child,) in rows:
-            if child in visited:
-                continue
-            visited.add(child)
-            node = {"name": child}
-            kids = _children(child, direction, depth + 1, visited)
-            if kids:
-                node["children"] = kids
-            out.append(node)
-        return out
+        grouped: dict[str, list[str]] = {}
+        totals: dict[str, int] = {}
+        for parent, child, total in rows:
+            grouped.setdefault(parent, []).append(child)
+            totals[parent] = int(total)
+        return grouped, totals
 
-    visited = {root}
-    callers = _children(root, "up", 0, visited)
-    visited = {root}
-    callees = _children(root, "down", 0, visited)
-    return {"name": root, "callers": callers, "callees": callees}
+    # 根节点自身不是子节点，这里直接按层展开，结果挂在 root 的 callers / callees 上。
+    callers: list[dict] = []
+    callees: list[dict] = []
+    direct: dict[str, dict] = {}
+    for direction, target in (("up", callers), ("down", callees)):
+        visited = {root}
+        holder: dict = {"name": root}          # 仅在根层充当子节点容器
+        frontier: list[dict] = [{"name": root, "_node": None}]
+        depth = 0
+        direct_key = "callers" if direction == "up" else "callees"
+        direct[direct_key] = {"shown": 0, "total": 0, "capped": False}
+        while frontier and depth < max_depth:
+            parents = [item["name"] for item in frontier]
+            breadth = root_limit if depth == 0 else max_breadth
+            grouped, totals = _children_of_level(parents, direction, breadth)
+            if depth == 0:
+                direct[direct_key]["total"] = totals.get(root, 0)
+            for parent, total in totals.items():
+                if total > breadth:
+                    if depth == 0 and parent == root:
+                        state["root_capped"][direct_key] = True
+                        direct[direct_key]["capped"] = True
+                    else:
+                        state["breadth_parents"] += 1
+            next_frontier: list[dict] = []
+            for item in frontier:
+                owner = holder if item["_node"] is None else item["_node"]
+                kids = []
+                for child in grouped.get(item["name"], []):
+                    if child in visited:
+                        continue
+                    if max_nodes is not None and state["nodes"] >= max_nodes:
+                        state["nodes_capped"] = True
+                        break
+                    visited.add(child)
+                    state["nodes"] += 1
+                    child_node: dict = {"name": child}
+                    kids.append(child_node)
+                    next_frontier.append({"name": child, "_node": child_node})
+                if kids:
+                    owner["children"] = kids
+                if state["nodes_capped"]:
+                    break
+            if state["nodes_capped"]:
+                break
+            if depth + 1 >= max_depth and next_frontier:
+                # 还有下一层未展开：这是被深度上限截断，必须回报。
+                deeper, _ = _children_of_level([n["name"] for n in next_frontier], direction, 1)
+                if any(deeper.get(n["name"]) for n in next_frontier):
+                    state["depth_capped"] = True
+            frontier = next_frontier
+            depth += 1
+        target.extend(holder.get("children") or [])
+        direct[direct_key]["shown"] = len(target)
+
+    truncated = bool(state["nodes_capped"] or state["breadth_parents"]
+                     or state["depth_capped"]
+                     or any(state["root_capped"].values()))
+    return {
+        "name": root,
+        "callers": callers,
+        "callees": callees,
+        "node_count": state["nodes"],
+        "truncated": truncated,
+        "limits": {"max_depth": max_depth, "max_breadth": max_breadth,
+                   "root_breadth": root_limit, "max_nodes": max_nodes},
+        "direct": direct,
+        "truncation": {
+            "nodes": state["nodes_capped"],
+            "breadth_parents": state["breadth_parents"],
+            "root_capped_callers": state["root_capped"]["callers"],
+            "root_capped_callees": state["root_capped"]["callees"],
+            "depth": state["depth_capped"],
+        },
+    }
 
 
 def process_relation_graph(

@@ -29,14 +29,19 @@
   restoreBack();
   window.addEventListener('pageshow', restoreBack);
 
-  // Add stable source anchors after the existing highlighter has produced line elements.
+  // 源码锚点：页面若自行管理惰性代码段（TM1ProcessView），定位由页面负责，
+  // 因为行节点要在切 Tab 之后才会被渲染出来，此处无法提前建立 id。
   document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('.proc-main .tab-pane').forEach(pane => {
-      pane.querySelectorAll('.code-line').forEach((line, index) => {
-        line.id = pane.dataset.pane + '-L' + (index + 1);
+    const view = window.TM1ProcessView;
+    if (!view) {
+      document.querySelectorAll('.proc-main .tab-pane').forEach(pane => {
+        pane.querySelectorAll('.code-line').forEach((line, index) => {
+          line.id = pane.dataset.pane + '-L' + (index + 1);
+        });
       });
-    });
+    }
     function focusSource() {
+      if (view) return;
       const match = /^#(prolog|metadata|data|epilog)-L([1-9][0-9]*)$/.exec(location.hash);
       if (!match) return;
       const line = document.getElementById(match[1] + '-L' + match[2]);

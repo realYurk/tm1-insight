@@ -129,7 +129,7 @@ def test_rule_source_default_open_before_semantics_and_feeders(client):
     page=client.get('/explorer/cube/Sales').text
     assert 'details open class="rule-raw"' in page
     assert page.index('class="rule-raw"')<page.index('class="rule-analysis"')
-    assert 'data-highlight="rules"' in page and 'syntax.js?v=2' in page
+    assert 'data-highlight="rules"' in page and 'syntax.js?v=' in page
 
 
 def test_defaults_routes_exports_rule_summary_and_graph_lazy_slice(client):
@@ -174,13 +174,22 @@ def test_source_viewer_copy_preserves_original_crlf_and_trailing_space():
     script=r"""
 const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert');
 class Element {
- constructor(tag){this.tag=tag;this.children=[];this.events={};this.className='';this.dataset={};this.textContent='';this.classList={contains:x=>this.className.split(' ').includes(x),add:x=>this.className+=' '+x};}
+ constructor(tag){this.tag=tag;this.children=[];this.events={};this.className='';this.dataset={};this.textContent='';this.innerHTML='';this.classList={contains:x=>this.className.split(' ').includes(x),add:x=>this.className+=' '+x};}
  before(x){x.parentElement=this.parentElement;}
  append(x){this.children.push(x);x.parentElement=this;}
  prepend(x){this.children.unshift(x);x.parentElement=this;}
  addEventListener(type,fn){this.events[type]=fn;}
+ addEventListenerOptions(type,fn){this.events[type]=fn;}
+ replaceChildren(){this.children=[];this.innerHTML='';}
+ insertAdjacentHTML(position,html){
+   this.innerHTML+=html;
+   const rows=html.match(/<div class="code-line">/g)||[];
+   for(let i=0;i<rows.length;i++){const row=new Element('div');this.children.push(row);}
+ }
+ setAttribute(){}
  querySelectorAll(){return [];}
  querySelector(){return null;}
+ getBoundingClientRect(){return {top:0,height:0};}
 }
 let written;
 let ctx={window:{},document:{readyState:'loading',addEventListener(){},createElement:tag=>new Element(tag)},navigator:{clipboard:{async writeText(text){written=text;}}},setTimeout(){}};

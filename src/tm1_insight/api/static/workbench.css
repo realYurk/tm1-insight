@@ -461,3 +461,12 @@ details summary { cursor: pointer; padding: 12px 0; }
 .rule-slice-target {margin:7px 0;font-size:15px;overflow-wrap:anywhere}
 
 .settings-nav {display:flex;flex-wrap:wrap;gap:10px;margin:0 0 18px}.settings-nav a {padding:9px 14px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text)}.settings-nav a:hover {background:var(--accent-soft)}
+
+/* TI 源码页：调用关系按需加载（首屏不构建调用树）。 */
+#call-tree-card .call-tree-note { margin: 8px 0 0; }
+#call-tree-card .call-tree { margin-top: 8px; }
+#call-tree-card #call-tree-body:not([hidden]) { margin-top: 8px; }
+#call-tree-card #call-tree-load { margin-top: 10px; }
+#call-tree-card #call-tree-load:disabled { opacity: .6; }
+#call-tree-card .call-tree-limits { margin: 6px 0 0; padding-left: 18px; }
+#call-tree-card .call-tree-limits li { margin: 2px 0; }

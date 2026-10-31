@@ -594,7 +594,6 @@ def explorer_process(request: Request, name: str, source: str = Query("", max_le
     con = store.connect(read_only=True)
     try:
         proc = queries.get_process(con, name)
-        call_tree = queries.process_call_tree(con, name) if proc else None
     finally:
         con.close()
     if not proc:
@@ -602,8 +601,71 @@ def explorer_process(request: Request, name: str, source: str = Query("", max_le
     if model and model!=_research_model():return _error_page(request,409,'模型身份已变化','读取期间模型已变化，请重新选择。')
     if source and current_source != _process_search_source():
         return _error_page(request, 409, "源码位置已失效", "数据源或文件已变化，请返回 TI 列表重新搜索；旧行号未用于定位。")
+    # 调用树不在首屏构建：源码与基本信息先返回，调用关系到页面空闲时按需加载。
     return templates.TemplateResponse(request, "process_view.html", {
-        "proc": proc, "call_tree": call_tree, "search_source": current_source})
+        "proc": proc, "search_source": current_source})
+
+
+# 调用树按需加载的默认预算。数值是性能边界，不是语义放宽：
+# 超出即显式标注「已按预算截断」，不静默丢弃。
+CALL_TREE_LIMITS = {"max_depth": 6, "max_breadth": 20, "root_breadth": 120, "max_nodes": 400}
+
+_call_tree_cache: dict[tuple, dict] = {}
+_call_tree_cache_lock = threading.Lock()
+_CALL_TREE_CACHE_MAX = 128
+
+
+def _call_tree_for(con, name: str, fingerprint: str) -> dict:
+    """带指纹的调用树缓存。键含数据源指纹、对象名与预算，数据源变化即自然失效。"""
+    key = (fingerprint, name, CALL_TREE_LIMITS["max_depth"],
+           CALL_TREE_LIMITS["max_breadth"], CALL_TREE_LIMITS["root_breadth"],
+           CALL_TREE_LIMITS["max_nodes"])
+    with _call_tree_cache_lock:
+        hit = _call_tree_cache.get(key)
+    if hit is not None:
+        return hit
+    tree = queries.process_call_tree(
+        con, name,
+        max_depth=CALL_TREE_LIMITS["max_depth"],
+        max_breadth=CALL_TREE_LIMITS["max_breadth"],
+        root_breadth=CALL_TREE_LIMITS["root_breadth"],
+        max_nodes=CALL_TREE_LIMITS["max_nodes"],
+    )
+    with _call_tree_cache_lock:
+        if len(_call_tree_cache) >= _CALL_TREE_CACHE_MAX:
+            _call_tree_cache.clear()
+        _call_tree_cache[key] = tree
+    return tree
+
+
+@app.get("/explorer/process/{name}/call-tree", response_class=HTMLResponse)
+def explorer_process_call_tree(request: Request, name: str,
+                               source: str = Query("", max_length=64)):
+    """调用树片段：按需、有预算、可失败重试。只读，不写任何库。"""
+    store = _store()
+    current_source = _process_search_source(store.settings)
+    if source and source != current_source:
+        return HTMLResponse(
+            '<p class="muted small call-tree-note">数据源已变化，请刷新本页后再加载调用树。</p>',
+            status_code=409)
+    con = store.connect(read_only=True)
+    try:
+        exists = con.execute("SELECT 1 FROM processes WHERE name = ? LIMIT 1", [name]).fetchone()
+        if not exists:
+            return HTMLResponse(
+                '<p class="muted small call-tree-note">该 TI 不在当前数据源中，未加载调用树。</p>',
+                status_code=404)
+        tree = _call_tree_for(con, name, current_source)
+    finally:
+        con.close()
+    if source and current_source != _process_search_source(store.settings):
+        return HTMLResponse(
+            '<p class="muted small call-tree-note">读取期间数据源已变化，请刷新本页。</p>',
+            status_code=409)
+    return templates.TemplateResponse(
+        request, "_call_tree.html", {"call_tree": tree},
+        headers={"Cache-Control": "no-store"})
+
 
 
 @app.get("/explorer/chore/{name}", response_class=HTMLResponse)

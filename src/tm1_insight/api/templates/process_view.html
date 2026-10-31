@@ -10,6 +10,14 @@
 {% endblock %}
 
 {% block content %}
+{% set code_panes = [] %}
+{% for key, label in [('prolog','Prolog'), ('metadata','Metadata'), ('data','Data'), ('epilog','Epilog')] %}
+{% if proc.section_lines[key] > 0 %}{% set _ = code_panes.append((key, label)) %}{% endif %}
+{% endfor %}
+{% set default_tab = ('params' if proc.parameters
+                      else ('vars' if proc.semantic_vars
+                            else (code_panes[0][0] if code_panes else ''))) %}
+
 <div class="page-head process-page-head">
   <div>
     <h1 class="page-title">{{ proc.name }}</h1>
@@ -29,21 +37,19 @@
   <div class="proc-main">
     <div class="tabbar" role="tablist">
       {% if proc.parameters %}
-      <button class="tab active" data-tab="params">参数 <span class="tab-badge">{{ proc.parameters|length }}</span></button>
+      <button class="tab{{ ' active' if default_tab == 'params' else '' }}" data-tab="params" role="tab" aria-selected="{{ 'true' if default_tab == 'params' else 'false' }}">参数 <span class="tab-badge">{{ proc.parameters|length }}</span></button>
       {% endif %}
       {% if proc.semantic_vars %}
-      <button class="tab {% if not proc.parameters %}active{% endif %}" data-tab="vars">变量 <span class="tab-badge">{{ proc.semantic_vars|length }}</span></button>
+      <button class="tab{{ ' active' if default_tab == 'vars' else '' }}" data-tab="vars" role="tab" aria-selected="{{ 'true' if default_tab == 'vars' else 'false' }}">变量 <span class="tab-badge">{{ proc.semantic_vars|length }}</span></button>
       {% endif %}
-      {% for key, label in [('prolog','Prolog'), ('metadata','Metadata'), ('data','Data'), ('epilog','Epilog')] %}
-      {% if proc.section_lines[key] > 0 %}
-      <button class="tab {% if not proc.parameters and not proc.semantic_vars and loop.first %}active{% endif %}" data-tab="{{ key }}">{{ label }} <span class="tab-badge">{{ proc.section_lines[key] }}</span></button>
-      {% endif %}
+      {% for key, label in code_panes %}
+      <button class="tab{{ ' active' if key == default_tab else '' }}" data-tab="{{ key }}" role="tab" aria-selected="{{ 'true' if key == default_tab else 'false' }}">{{ label }} <span class="tab-badge">{{ proc.section_lines[key] }}</span></button>
       {% endfor %}
     </div>
 
     <!-- 参数 -->
     {% if proc.parameters %}
-    <div class="tab-pane active" data-pane="params">
+    <div class="tab-pane{{ ' active' if default_tab == 'params' else '' }}" data-pane="params">
       <div class="card" style="margin:0;">
         <h2>参数 <span class="tag">{{ proc.parameters|length }}</span></h2>
         <div class="table-wrap">
@@ -62,7 +68,7 @@
 
     <!-- 变量 -->
     {% if proc.semantic_vars %}
-    <div class="tab-pane {% if not proc.parameters %}active{% endif %}" data-pane="vars">
+    <div class="tab-pane{{ ' active' if default_tab == 'vars' else '' }}" data-pane="vars">
       <div class="card" style="margin:0;">
         <h2>业务变量 <span class="tag">{{ proc.semantic_vars|length }}</span></h2>
         <p class="muted small">按 v 命名筛选的词法变量，赋值片段可能截断或重复；不代表运行时取值，业务含义需核对源码。</p>
@@ -80,13 +86,11 @@
     </div>
     {% endif %}
 
-    <!-- 代码段（固定统一高度文本框） -->
-    {% for key, label in [('prolog','Prolog'), ('metadata','Metadata'), ('data','Data'), ('epilog','Epilog')] %}
-    {% if proc.section_lines[key] > 0 %}
-    <div class="tab-pane {% if not proc.parameters and not proc.semantic_vars and loop.first %}active{% endif %}" data-pane="{{ key }}">
-      <pre class="code code-fixed" data-highlight="ti">{{ proc[key] }}</pre>
+    <!-- 代码段：服务端只输出纯文本，高亮按需在激活该 Tab 时进行 -->
+    {% for key, label in code_panes %}
+    <div class="tab-pane{{ ' active' if key == default_tab else '' }}" data-pane="{{ key }}">
+      <pre class="code code-fixed" data-highlight="ti" data-lazy-source="1" data-source-section="{{ key }}">{{ proc[key] }}</pre>
     </div>
-    {% endif %}
     {% endfor %}
   </div>
 
@@ -102,6 +106,7 @@
         <button class="search-nav" id="search-prev" type="button" title="上一个">↑</button>
         <button class="search-nav" id="search-next" type="button" title="下一个">↓</button>
       </div>
+      <p class="muted small" id="search-hint">在源码文本中检索，不依赖已高亮的行。</p>
     </div>
 
     <!-- 数据源头卡片 -->
@@ -134,164 +139,255 @@
     </div>
     {% endif %}
 
-    <!-- 调用关系卡片 -->
-    <div class="card side-card">
+    <!-- 调用关系卡片：按需加载，首屏不构建 -->
+    <div class="card side-card" id="call-tree-card"
+         data-endpoint="/explorer/process/{{ proc.name|urlencode }}/call-tree?source={{ search_source }}">
       <h2>调用关系</h2>
-      <div class="call-tree">
-        {% if call_tree.callers %}
-        <div class="tree-section">
-          <div class="tree-label upstream">↑ 被调用（{{ call_tree.callers|length }}）</div>
-          {% for c in call_tree.callers %}
-          {{ render_tree(c, 'caller') }}
-          {% endfor %}
-        </div>
-        {% endif %}
-        <div class="tree-root">
-          <a class="tree-node current" href="/explorer/process/{{ call_tree.name }}">{{ call_tree.name }}</a>
-        </div>
-        {% if call_tree.callees %}
-        <div class="tree-section">
-          <div class="tree-label downstream">↓ 调用（{{ call_tree.callees|length }}）</div>
-          {% for c in call_tree.callees %}
-          {{ render_tree(c, 'callee') }}
-          {% endfor %}
-        </div>
-        {% endif %}
-        {% if not call_tree.callers and not call_tree.callees %}
-        <span class="muted small">未记录静态调用关系；动态调用可能尚未解析。</span>
-        {% endif %}
-      </div>
+      <div class="call-tree" id="call-tree-body" hidden></div>
+      <p class="muted small call-tree-note" id="call-tree-status">源码已可读。调用关系在页面空闲时按需加载，不阻塞查看。</p>
+      <button class="btn ghost btn-sm" id="call-tree-load" type="button">加载调用树</button>
     </div>
   </div>
 </div>
 {% endblock %}
 
-{% macro render_tree(node, kind) %}
-<div class="tree-node-row">
-  <details {% if node.children|default([])|length < 3 %}open{% endif %}>
-    <summary>
-      {% if kind == 'caller' %}
-      <span class="tree-arrow">└─</span>
-      {% else %}
-      <span class="tree-arrow">├─</span>
-      {% endif %}
-      <a class="tree-node" href="/explorer/process/{{ node.name }}">{{ node.name }}</a>
-    </summary>
-    {% if node.children %}
-    <div class="tree-children">
-      {% for child in node.children %}
-      {{ render_tree(child, kind) }}
-      {% endfor %}
-    </div>
-    {% endif %}
-  </details>
-</div>
-{% endmacro %}
 {% block scripts %}
 <script id="process-search-context" type="application/json">{{ {'source': search_source}|tojson }}</script>
-<script src="/static/process-search.js" defer></script>
+<script src="/static/process-search.js?v=process-source-1" defer></script>
 <script>
 (function () {
-  var tabs = document.querySelectorAll('.tabbar .tab');
-  var panes = document.querySelectorAll('.tab-pane');
+  'use strict';
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabbar .tab'));
+  var panes = Array.prototype.slice.call(document.querySelectorAll('.tab-pane'));
   if (!tabs.length) return;
-  function activate(key) {
-    tabs.forEach(function (t) { t.classList.toggle('active', t.getAttribute('data-tab') === key); });
-    panes.forEach(function (p) { p.style.display = (p.getAttribute('data-pane') === key) ? 'block' : 'none'; });
+  var source = window.tm1Source || null;
+
+  function paneOf(key) {
+    for (var i = 0; i < panes.length; i++) if (panes[i].getAttribute('data-pane') === key) return panes[i];
+    return null;
+  }
+  function sourceOf(key) {
+    var pane = paneOf(key);
+    return pane ? pane.querySelector('pre[data-lazy-source]') : null;
+  }
+  // 只高亮当前激活的代码段；其余段保持纯文本，切到该 Tab 时再渲染。
+  function ensureMounted(key) {
+    var pre = sourceOf(key);
+    if (pre && source && !pre.dataset.sourceReady) source.mount(pre);
+    return pre;
+  }
+  function activate(key, line) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute('data-tab') === key;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    panes.forEach(function (p) {
+      var on = p.getAttribute('data-pane') === key;
+      p.classList.toggle('active', on);
+      p.style.display = on ? 'block' : 'none';
+    });
+    var pre = ensureMounted(key);
+    if (pre && line && source && source.revealLine) source.revealLine(pre, line);
+    return pre;
   }
   tabs.forEach(function (t) {
     t.addEventListener('click', function () { activate(t.getAttribute('data-tab')); });
   });
-  // 默认激活第一个
-  activate(tabs[0].getAttribute('data-tab'));
 
-  // ===== 跨 Tab 代码搜索 =====
+  // 暴露给 process-search.js：深链接 #section-Ln 需要「先激活、再按需渲染、再定位」。
+  window.TM1ProcessView = {
+    activate: activate,
+    reveal: function (section, line) {
+      if (!paneOf(section)) return false;
+      activate(section, line);
+      return true;
+    },
+    sections: function () {
+      return tabs.map(function (t) { return t.getAttribute('data-tab'); })
+                 .filter(function (k) { return !!sourceOf(k); });
+    }
+  };
+
+  // ===== 跨 Tab 代码搜索：在文本上检索，不逐行遍历 DOM =====
   var input = document.getElementById('code-search');
   var countEl = document.getElementById('search-count');
+  var hintEl = document.getElementById('search-hint');
   var prevBtn = document.getElementById('search-prev');
   var nextBtn = document.getElementById('search-next');
-  if (!input) return;
+  var hits = [];
+  var cur = -1;
+  var pending = null;
+  var DEBOUNCE_MS = 180;
 
-  var hits = [];      // 命中的 .code-line 元素
-  var cur = -1;       // 当前聚焦命中索引
-
-  function clearHits() {
-    hits.forEach(function (el) {
+  function textOf(pre) {
+    if (source && source.text) return source.text(pre);
+    return pre.textContent || '';
+  }
+  function collect(q) {
+    var needle = q.toLowerCase();
+    var out = [];
+    window.TM1ProcessView.sections().forEach(function (key) {
+      var pre = sourceOf(key);
+      if (!pre) return;
+      var lines = textOf(pre).split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].toLowerCase().indexOf(needle) >= 0) out.push({ key: key, line: i + 1 });
+      }
+    });
+    return out;
+  }
+  function clearMarks() {
+    document.querySelectorAll('.code-line.search-hit, .code-line.search-hit-current').forEach(function (el) {
       el.classList.remove('search-hit');
       el.classList.remove('search-hit-current');
     });
-    hits = [];
-    cur = -1;
   }
-
-  function doSearch() {
-    clearHits();
-    var q = input.value.trim();
-    if (!q) {
-      countEl.textContent = '';
-      return;
-    }
-    var ql = q.toLowerCase();
-    // 遍历所有代码段的每一行（也覆盖参数/变量里的 code 文本）
-    document.querySelectorAll('.tab-pane .code-line, .tab-pane code, .tab-pane .semvar-name, .tab-pane .semvar-value').forEach(function (line) {
-      var text = line.textContent || '';
-      if (text.toLowerCase().indexOf(ql) >= 0) {
-        // 只对代码行做行级高亮；其它元素做轻量高亮
-        if (line.classList.contains('code-line')) {
-          line.classList.add('search-hit');
-          hits.push(line);
-        }
-      }
+  // 只标记当前已渲染出来的命中行；未渲染的行在被定位时再补标记。
+  function paint(key) {
+    clearMarks();
+    var pre = sourceOf(key);
+    if (!pre) return;
+    var rows = pre.children;
+    hits.forEach(function (hit) {
+      if (hit.key !== key) return;
+      var row = rows[hit.line - 1];
+      if (!row || !row.classList || !row.classList.contains('code-line')) return;
+      row.classList.add('search-hit');
+      if (hits[cur] === hit) row.classList.add('search-hit-current');
     });
-
-    // 命中所在 Tab 汇总
-    var tabCount = {};
-    hits.forEach(function (el) {
-      var pane = el.closest('.tab-pane');
-      if (pane) tabCount[pane.getAttribute('data-pane')] = (tabCount[pane.getAttribute('data-pane')] || 0) + 1;
-    });
-
-    if (hits.length) {
-      countEl.textContent = hits.length + ' 处命中';
-      cur = 0;
-      focusHit(0);
-    } else {
-      countEl.textContent = '无匹配';
-    }
   }
-
-  function focusHit(idx) {
+  function showHit(index) {
     if (!hits.length) return;
-    if (idx < 0) idx = hits.length - 1;
-    if (idx >= hits.length) idx = 0;
-    // 清除旧 current
-    hits.forEach(function (el) { el.classList.remove('search-hit-current'); });
-    cur = idx;
-    var el = hits[cur];
-    el.classList.add('search-hit-current');
-    // 激活对应 Tab
-    var pane = el.closest('.tab-pane');
-    if (pane) {
-      activate(pane.getAttribute('data-pane'));
-    }
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    cur = ((index % hits.length) + hits.length) % hits.length;
+    var hit = hits[cur];
+    activate(hit.key);
+    var pre = sourceOf(hit.key);
+    if (pre && source && source.revealLine) source.revealLine(pre, hit.line);
+    paint(hit.key);
     countEl.textContent = (cur + 1) + ' / ' + hits.length;
   }
+  function runSearch() {
+    var q = input.value.trim();
+    clearMarks();
+    hits = [];
+    cur = -1;
+    if (!q) {
+      countEl.textContent = '';
+      hintEl.textContent = '在源码文本中检索，不依赖已高亮的行。';
+      return;
+    }
+    hits = collect(q);
+    if (!hits.length) {
+      countEl.textContent = '无匹配';
+      hintEl.textContent = '未在当前 TI 的已加载代码段中找到该文本。';
+      return;
+    }
+    var bySection = {};
+    hits.forEach(function (h) { bySection[h.key] = (bySection[h.key] || 0) + 1; });
+    hintEl.textContent = Object.keys(bySection).map(function (k) {
+      return k + ' ' + bySection[k];
+    }).join(' · ') + '（共 ' + hits.length + ' 行）';
+    showHit(0);
+  }
 
-  input.addEventListener('input', function () { doSearch(); });
+  input.addEventListener('input', function () {
+    clearTimeout(pending);
+    pending = setTimeout(runSearch, DEBOUNCE_MS);
+  });
   input.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (e.shiftKey) { focusHit(cur - 1); } else { focusHit(cur + 1); }
+      clearTimeout(pending);
+      if (!hits.length) { runSearch(); return; }
+      showHit(e.shiftKey ? cur - 1 : cur + 1);
     } else if (e.key === 'Escape') {
-      input.value = ''; doSearch();
+      input.value = '';
+      clearTimeout(pending);
+      runSearch();
     }
   });
-  nextBtn.addEventListener('click', function () { focusHit(cur + 1); });
-  prevBtn.addEventListener('click', function () { focusHit(cur - 1); });
-})();
+  nextBtn.addEventListener('click', function () { if (hits.length) showHit(cur + 1); });
+  prevBtn.addEventListener('click', function () { if (hits.length) showHit(cur - 1); });
 
+  // 深链接 #section-Ln：先切 Tab，再按需渲染，再定位。
+  function applyHash() {
+    var match = /^#(prolog|metadata|data|epilog)-L([1-9][0-9]*)$/.exec(location.hash);
+    if (!match) return;
+    if (!window.TM1ProcessView.reveal(match[1], Number(match[2]))) return;
+    var pre = sourceOf(match[1]);
+    var row = pre && pre.children[Number(match[2]) - 1];
+    document.querySelectorAll('.source-location-current').forEach(function (el) {
+      el.classList.remove('source-location-current');
+    });
+    if (row && row.classList.contains('code-line')) row.classList.add('source-location-current');
+  }
+  window.addEventListener('hashchange', applyHash);
+
+  activate(tab0());
+  applyHash();
+  window.addEventListener('pageshow', applyHash);
+
+  function tab0() {
+    var marked = document.querySelector('.tabbar .tab.active');
+    return (marked || tabs[0]).getAttribute('data-tab');
+  }
+
+  // ===== 调用关系：空闲时按需加载，可取消、可重试 =====
+  var card = document.getElementById('call-tree-card');
+  var body = document.getElementById('call-tree-body');
+  var statusEl = document.getElementById('call-tree-status');
+  var loadBtn = document.getElementById('call-tree-load');
+  var controller = null;
+  var loaded = false;
+
+  function setBusy(busy) {
+    loadBtn.disabled = busy;
+    loadBtn.textContent = busy ? '取消加载' : (loaded ? '重新加载' : '加载调用树');
+  }
+  function render(html) {
+    body.innerHTML = html;
+    body.hidden = false;
+    loaded = true;
+    statusEl.textContent = '调用关系为静态识别结果（源码中可直接读到的进程名）；动态构造的调用目标与运行顺序不在其中。';
+    setBusy(false);
+  }
+  function load() {
+    if (controller) { controller.abort(); return; }
+    controller = new AbortController();
+    setBusy(true);
+    statusEl.textContent = '正在加载调用关系…';
+    body.hidden = true;
+    body.replaceChildren();
+    fetch(card.getAttribute('data-endpoint'), { signal: controller.signal, cache: 'no-store' })
+      .then(function (response) {
+        return response.text().then(function (text) {
+          if (!response.ok) throw new Error(text || '调用树加载失败');
+          return text;
+        });
+      })
+      .then(render)
+      .catch(function (error) {
+        if (error.name === 'AbortError') {
+          statusEl.textContent = '已取消加载调用关系。源码不受影响。';
+        } else {
+          statusEl.textContent = '调用关系加载失败：' + (error.message || '未知错误') + '。可重试，或直接查看源码。';
+        }
+        setBusy(false);
+      })
+      .finally(function () { controller = null; });
+  }
+  loadBtn.addEventListener('click', load);
+
+  // 首屏可读后再加载调用关系：不抢占源码渲染。
+  function scheduleIdle(fn) {
+    if (typeof window.requestIdleCallback === 'function') { window.requestIdleCallback(fn, {timeout: 1200}); }
+    else { setTimeout(fn, 300); }
+  }
+  scheduleIdle(function () { if (!loaded && !controller) load(); });
+})();
 </script>
+
 <script>
 // 「返回来源 Cube」入口：从某个 Cube 详情跳进来时，顶部显示返回链接（保留列表筛选）
 (function () {

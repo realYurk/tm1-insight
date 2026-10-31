@@ -1,0 +1,64 @@
+{# 调用树片段：首屏不渲染，由页面按需加载。
+
+   两条使用路径共用这一个模板，保证调用关系的展示只有一个实现：
+   1. GET /explorer/process/{name}/call-tree 直接返回本文件；
+   2. process_view.html 通过 include 复用（仅作占位时不会被加载）。
+#}
+{% macro render_tree(node, kind) -%}
+<div class="tree-node-row">
+  <details {% if node.children|default([])|length < 3 %}open{% endif %}>
+    <summary>
+      {% if kind == 'caller' %}
+      <span class="tree-arrow">└─</span>
+      {% else %}
+      <span class="tree-arrow">├─</span>
+      {% endif %}
+      <a class="tree-node" href="/explorer/process/{{ node.name|urlencode }}">{{ node.name }}</a>
+    </summary>
+    {% if node.children %}
+    <div class="tree-children">
+      {% for child in node.children %}
+      {{ render_tree(child, kind) }}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </details>
+</div>
+{%- endmacro %}
+
+{% if call_tree.callers %}
+<div class="tree-section">
+  <div class="tree-label upstream">↑ 被调用（{% if call_tree.direct.callers.capped %}显示 {{ call_tree.direct.callers.shown }} / 共 {{ call_tree.direct.callers.total }}{% else %}{{ call_tree.direct.callers.total }}{% endif %}）</div>
+  {% for c in call_tree.callers %}
+  {{ render_tree(c, 'caller') }}
+  {% endfor %}
+</div>
+{% endif %}
+<div class="tree-root">
+  <a class="tree-node current" href="/explorer/process/{{ call_tree.name|urlencode }}">{{ call_tree.name }}</a>
+</div>
+{% if call_tree.callees %}
+<div class="tree-section">
+  <div class="tree-label downstream">↓ 调用（{% if call_tree.direct.callees.capped %}显示 {{ call_tree.direct.callees.shown }} / 共 {{ call_tree.direct.callees.total }}{% else %}{{ call_tree.direct.callees.total }}{% endif %}）</div>
+  {% for c in call_tree.callees %}
+  {{ render_tree(c, 'callee') }}
+  {% endfor %}
+</div>
+{% endif %}
+{% if not call_tree.callers and not call_tree.callees %}
+<p class="muted small call-tree-note">未记录静态调用关系；动态调用可能尚未解析。</p>
+{% endif %}
+{% if call_tree.truncated %}
+<p class="muted small call-tree-note">
+  本次展开 {{ call_tree.node_count }} 个节点。以下内容未展开，不代表不存在：
+  <ul class="call-tree-limits">
+    {% if call_tree.truncation.nodes %}<li>已达节点预算 {{ call_tree.limits.max_nodes }}，更远的调用停止展开。</li>{% endif %}
+    {% if call_tree.truncation.root_capped_callers %}<li>直接调用者超过展示上限 {{ call_tree.limits.root_breadth }}，只列出前 {{ call_tree.limits.root_breadth }} 个。</li>{% endif %}
+    {% if call_tree.truncation.root_capped_callees %}<li>直接下游超过展示上限 {{ call_tree.limits.root_breadth }}，只列出前 {{ call_tree.limits.root_breadth }} 个。</li>{% endif %}
+    {% if call_tree.truncation.breadth_parents %}<li>{{ call_tree.truncation.breadth_parents }} 个节点的下游/上游超过每层上限 {{ call_tree.limits.max_breadth }}，各自只展开了前 {{ call_tree.limits.max_breadth }} 个。</li>{% endif %}
+    {% if call_tree.truncation.depth %}<li>已达深度上限 {{ call_tree.limits.max_depth }} 层，更深一层的调用未展开。</li>{% endif %}
+  </ul>
+</p>
+{% else %}
+<p class="muted small call-tree-note">共 {{ call_tree.node_count }} 个节点，未达任何预算上限。</p>
+{% endif %}

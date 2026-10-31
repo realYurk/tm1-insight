@@ -167,15 +167,19 @@
     return out;
   }
 
+  function lineHtml(text, mode, lineno) {
+    return '<div class="code-line">'
+         + '<span class="lineno" aria-hidden="true">' + lineno + "</span>"
+         + '<span class="line-code">' + highlightLine(text, mode) + "</span>"
+         + "</div>";
+  }
+
   function render(code, mode) {
     var text = String(code == null ? "" : code).replace(/\r\n/g, "\n");
     var lines = text.split("\n");
     var html = "";
     for (var idx = 0; idx < lines.length; idx++) {
-      html += '<div class="code-line">'
-            + '<span class="lineno">' + (idx + 1) + "</span>"
-            + '<span class="line-code">' + highlightLine(lines[idx], mode) + "</span>"
-            + "</div>";
+      html += lineHtml(lines[idx], mode, idx + 1);
     }
     return html;
   }
@@ -187,20 +191,69 @@
 
   // Shared, idempotent source viewer for static pages and asynchronous evidence.
   var sources = new WeakMap();
+
+  // 大段源码的保护阈值：超过字符上限走纯文本（无法高亮但可读、可定位行）。
+  var PLAIN_LIMIT = 1000000;
+  // 超过行数阈值时分批渲染：首屏只渲染一块，滚动接近底部再追加，
+  // 避免一次生成上万个 DOM 节点。行号连续，定位逻辑不依赖渲染总量。
+  var CHUNK_THRESHOLD = 1500;
+  var CHUNK_SIZE = 800;
+
   function rawText(pre) {
     var lines = pre.querySelectorAll('.line-code');
     return lines.length ? Array.from(lines, function(x){return x.textContent;}).join('\n') : pre.textContent;
   }
+
+  function appendChunk(pre) {
+    var st = sources.get(pre);
+    if (!st || st.plain) return false;
+    if (st.rendered >= st.lines.length) return false;
+    var end = st.chunk ? Math.min(st.lines.length, st.rendered + st.chunk) : st.lines.length;
+    var parts = [];
+    for (var i = st.rendered; i < end; i++) parts.push(lineHtml(st.lines[i], st.mode, st.start + i));
+    pre.insertAdjacentHTML("beforeend", parts.join(""));
+    st.rendered = end;
+    return true;
+  }
+
+  function revealLine(pre, line) {
+    var st = sources.get(pre);
+    if (!st) return false;
+    var n = Number(line);
+    if (!isFinite(n) || n < st.start) return false;
+    var target = n - st.start + 1;
+    if (st.plain) {
+      // 纯文本没有行节点：按行高换算滚动位置，行号锚点仍然可用。
+      var lh = parseFloat(window.getComputedStyle(pre).lineHeight) || 20;
+      pre.scrollTop = Math.max(0, (target - 1) * lh - pre.clientHeight / 2 + lh / 2);
+      return true;
+    }
+    var guard = 0;
+    while (st.rendered < target && guard++ < 200) { if (!appendChunk(pre)) break; }
+    var row = pre.children[target - 1];
+    if (!row) return false;
+    var pr = pre.getBoundingClientRect(), rr = row.getBoundingClientRect();
+    pre.scrollTop += (rr.top - pr.top) - (pr.height - rr.height) / 2;
+    return true;
+  }
+
   function mount(pre, options) {
     options = options || {};
-    var code = options.code == null ? rawText(pre) : String(options.code);
     var previous = sources.get(pre);
-    if (previous && options.code == null && previous.display === code) return pre;
+    // 已经按自身文本挂载过就不再重建：避免分批渲染后丢失已追加的行与滚动位置。
+    if (previous && options.code == null) return pre;
+    var code = options.code == null ? rawText(pre) : String(options.code);
     var mode = options.mode || pre.dataset.highlight || 'ti';
     var first = pre.querySelector('.lineno');
     var start = options.start || Number(pre.dataset.sourceStart || (first && first.textContent) || 1);
-    var state = {raw:code, display:code.replace(/\r\n/g,'\n'), mode:mode};
-    sources.set(pre,state);
+    var display = code.replace(/\r\n/g, "\n");
+    var lines = display.split("\n");
+    var plain = options.plain === true || code.length > PLAIN_LIMIT;
+    var chunk = options.chunk != null ? options.chunk
+              : (lines.length > CHUNK_THRESHOLD ? CHUNK_SIZE : 0);
+    var state = {raw: code, display: display, mode: mode, start: start, plain: plain,
+                 chunk: chunk, rendered: 0, lines: lines};
+    sources.set(pre, state);
     var wrapper = pre.parentElement;
     if (!wrapper || !wrapper.classList.contains('source-viewer')) {
       wrapper = document.createElement('div'); wrapper.className='source-viewer';
@@ -215,16 +268,34 @@
       });
     }
     pre.classList.add('source-code');pre.dataset.sourceMode=mode;
-    // Preserve all content. Very large sources use a bounded plain-text fallback.
-    if (code.length>1000000 || code.split('\n').length>10000) {
-      pre.textContent=code;wrapper.querySelector('.source-tools span').textContent='源码 · 大文件纯文本';
+    var labelEl = wrapper.querySelector('.source-tools span');
+    if (plain) {
+      // Preserve all content. Very large sources use a bounded plain-text fallback.
+      pre.textContent = code;
+      state.rendered = lines.length;
+      if (labelEl) labelEl.textContent = '源码 · 大文件纯文本';
     } else {
-      pre.innerHTML=render(code,mode);
-      pre.querySelectorAll('.lineno').forEach(function(x,i){x.textContent=start+i;x.setAttribute('aria-hidden','true');});
+      pre.replaceChildren();
+      appendChunk(pre);
+      if (labelEl) labelEl.textContent = chunk ? '源码 · 分批渲染，滚动继续加载' : '源码';
+      if (chunk && !pre.dataset.chunkBound) {
+        pre.dataset.chunkBound = '1';
+        pre.addEventListener('scroll', function () {
+          var st = sources.get(pre);
+          if (!st || st.plain || !st.chunk || st.rendered >= st.lines.length) return;
+          if (pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 240) appendChunk(pre);
+        }, {passive: true});
+      }
     }
+    pre.dataset.sourceReady = '1';
     return pre;
   }
-  window.tm1Source={mount:mount, text:function(pre){return sources.get(pre)?.raw ?? rawText(pre);}};
+  window.tm1Source = {
+    mount: mount,
+    text: function(pre){return sources.get(pre)?.raw ?? rawText(pre);},
+    revealLine: revealLine,
+    isReady: function(pre){return pre.dataset.sourceReady === '1';}
+  };
   function scan(root) {
     var pres=[];
     if(root.nodeType!==1)return;
@@ -232,6 +303,8 @@
     root.querySelectorAll('pre.code,pre[data-highlight]').forEach(function(p){pres.push(p);});
     pres.forEach(function(pre){
       if(pre.classList.contains('dimension-expression') || pre.dataset.sourceMode==='json')return;
+      // 惰性代码段：等页面在自己的时机挂载（首屏只渲染激活的段）。
+      if(pre.dataset.lazySource && pre.dataset.sourceReady!=='1')return;
       var text=rawText(pre).trim();
       if(text[0]==='{' || text[0]==='['){try{JSON.parse(text);return;}catch(e){}}
       mount(pre);
