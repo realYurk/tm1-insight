@@ -128,14 +128,57 @@ def audit_tree(con, name: str) -> None:
             bad("树", name, f"{site['process']}:{site['line']} 不是调用行：{line.strip()[:60]}")
 
 
-def main() -> int:
+def _fingerprint(con) -> None:
+    """先把这个库长什么样说清楚，再谈一致性。
+
+    同一套巡检在两份采集上跑出来的「通过」不是同一个意思：规模、是否存在
+    excluded_objects、日志立方体认几个，都决定哪些代码路径真的被走过。
+    """
+    from tm1_insight.ingest.hard_extract import is_log_cube
+
+    def n(sql: str):
+        try:
+            return con.execute(sql).fetchone()[0]
+        except duckdb.Error:
+            return "—"
+
+    tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
+    note = ("excluded_objects 在" if "excluded_objects" in tables
+            else "无 excluded_objects（旧快照：排除记账这段代码本库没走过）")
+    print(f"  表 {len(tables)} 张，{note}")
+    print("  TI {} / 立方体 {} / 写入边 {} / 读取边 {} / 调用边 {}".format(
+        n("SELECT count(*) FROM processes"),
+        n("SELECT count(*) FROM cubes"),
+        n("SELECT count(*) FROM process_writes_cube"),
+        n("SELECT count(*) FROM process_reads_cube"),
+        n("SELECT count(*) FROM process_calls_process"),
+    ))
+    cubes = [row[0] for row in con.execute("SELECT name FROM cubes").fetchall()]
+    logs = [c for c in cubes if is_log_cube(c)]
+    print(f"  日志立方体 {len(logs)} 个（按 hard_extract 判据）")
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(description="范围这条线的端到端巡检（只读）")
+    ap.add_argument("--db", help="显式指定 duckdb 文件；不给则按当前数据目录设置")
+    args = ap.parse_args(argv)
+
     settings = get_settings()
-    db = settings.db_path
+    if args.db:
+        db = Path(args.db).expanduser().resolve()
+        source = "命令行指定"
+    else:
+        db = settings.db_path
+        override = getattr(settings, "data_dir", None)
+        source = f"数据目录设置（{override}）" if override else "默认"
     if not db.exists():
         print(f"没有找到库：{db}")
         return 2
-    print(f"库：{db}  ({db.stat().st_size / 1e9:.2f} GB)")
+    print(f"库：{db}  ({db.stat().st_size / 1e9:.2f} GB)  ← {source}")
     con = duckdb.connect(str(db), read_only=True)
+    _fingerprint(con)
 
     names = [r[0] for r in con.execute(
         "SELECT name FROM processes WHERE NOT starts_with(name,'}') ORDER BY name").fetchall()]

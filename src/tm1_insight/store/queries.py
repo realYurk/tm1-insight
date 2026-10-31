@@ -1571,33 +1571,45 @@ def list_cubes(con: duckdb.DuckDBPyConnection, with_rules_only: bool = False) ->
 
 
 def search_cubes(con: duckdb.DuckDBPyConnection, keyword: str = "",
-                 offset: int = 0, limit: int = 100) -> dict:
-    """分页 + 服务端搜索 Cube 列表，返回 {items, total, offset, limit}。"""
+                 offset: int = 0, limit: int = 100, objects: str = "all") -> dict:
+    """分页 + 服务端搜索 Cube 列表。
+
+    范围（``objects``）只决定「看哪一批」，不决定「数几个」：无论看业务还是
+    全部，都同时返回当前搜索条件下的系统对象数 ``system_total``。折叠可以，
+    少报不行——把 2096 个 } 开头的框架立方体混在列表里，和把它们藏起来却不说，
+    是同一个错误的两种写法。
+
+    返回 {items, total, offset, limit, objects, all_total, system_total}。
+    """
     kw = (keyword or "").strip()
+    conds: list[str] = []
+    params: list = []
     if kw:
-        like = f"%{kw}%"
-        total = con.execute(
-            "SELECT count(*) FROM cubes WHERE name ILIKE ?", [like]
-        ).fetchone()[0]
-        items = [
-            {"name": r[0], "has_rules": r[1], "dimension_count": r[2]}
-            for r in con.execute(
-                "SELECT name, has_rules, dimension_count FROM cubes "
-                "WHERE name ILIKE ? ORDER BY name LIMIT ? OFFSET ?",
-                [like, limit, offset],
-            ).fetchall()
-        ]
-    else:
-        total = con.execute("SELECT count(*) FROM cubes").fetchone()[0]
-        items = [
-            {"name": r[0], "has_rules": r[1], "dimension_count": r[2]}
-            for r in con.execute(
-                "SELECT name, has_rules, dimension_count FROM cubes "
-                "ORDER BY name LIMIT ? OFFSET ?",
-                [limit, offset],
-            ).fetchall()
-        ]
-    return {"items": items, "total": total, "offset": offset, "limit": limit}
+        conds.append("name ILIKE ?")
+        params.append(f"%{kw}%")
+
+    # 系统对象数始终按同一关键词统计，与当前看到的范围无关
+    system_where = " WHERE " + " AND ".join(conds + ["starts_with(name, '}')"]) if conds \
+        else " WHERE starts_with(name, '}')"
+    system_total = con.execute(
+        f"SELECT count(*) FROM cubes{system_where}", params).fetchone()[0]
+
+    shown = list(conds)
+    if objects == "business":
+        shown.append("NOT starts_with(name, '}')")
+    where = (" WHERE " + " AND ".join(shown)) if shown else ""
+    total = con.execute(f"SELECT count(*) FROM cubes{where}", params).fetchone()[0]
+    items = [
+        {"name": r[0], "has_rules": r[1], "dimension_count": r[2]}
+        for r in con.execute(
+            f"SELECT name, has_rules, dimension_count FROM cubes{where} "
+            "ORDER BY name LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
+    ]
+    all_total = system_total + total if objects == "business" else total
+    return {"items": items, "total": total, "offset": offset, "limit": limit,
+            "objects": objects, "all_total": all_total, "system_total": system_total}
 
 
 def list_processes(con: duckdb.DuckDBPyConnection) -> list[str]:

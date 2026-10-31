@@ -21,19 +21,35 @@
     <div class="list-toolbar"><h2>Cubes <span class="tag">{{ total }}</span></h2>
     <form method="get" action="/cubes" class="list-search process-list-search">
       <input class="input" type="search" name="q" value="{{ q }}" maxlength="1000" aria-label="搜索全部 Cube" placeholder="按名称搜索 Cube">
-      <button class="btn ghost btn-sm" type="submit">搜索</button>{% if q %}<a href="/cubes">清除</a>{% endif %}
+      <input type="hidden" name="objects" value="{{ objects }}">
+      <button class="btn ghost btn-sm" type="submit">搜索</button>{% if q %}<a href="/cubes?objects={{ objects }}">清除</a>{% endif %}
     </form></div>
+    {# 系统立方体开关：与 TI 列表同一套口径——默认不改列表语义，但给出只含业务
+       对象的一键视图，并把折叠了多少个写在旁边。此库有 2096 个 } 开头的框架
+       立方体（占 63%），混排时正常对象会被挤到后面几页。 #}
+    {% if system_total %}
+    <p class="muted small scope-inline">
+      {% if objects == 'business' %}
+      当前<strong>只显示业务立方体</strong>，已排除 {{ system_total }} 个 <code>}</code> 开头的系统立方体
+      （}APQ.*、}ElementAttributes_* 等）。
+      <a href="/cubes?q={{ q|urlencode }}&amp;objects=all">显示全部 {{ all_total }} 个</a>
+      {% else %}
+      当前显示全部 {{ all_total }} 个，其中 {{ system_total }} 个是 <code>}</code> 开头的系统立方体。
+      <a href="/cubes?q={{ q|urlencode }}&amp;objects=business">只看业务立方体 {{ all_total - system_total }} 个</a>
+      {% endif %}
+    </p>
+    {% endif %}
     <ul class="list dimension-list">
       {% for c in cubes %}
-      <li><a href="/cubes?name={{ c.name|urlencode }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if page > 1 %}&amp;page={{ page }}{% endif %}" {% if cube and cube.name == c.name %}aria-current="page"{% endif %}><span>{{ c.name }}</span><small class="muted">{{ c.dimension_count }} 维{% if c.has_rules %} · 有规则{% endif %}</small></a></li>
+      <li><a href="/cubes?name={{ c.name|urlencode }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if page > 1 %}&amp;page={{ page }}{% endif %}&amp;objects={{ objects }}" {% if cube and cube.name == c.name %}aria-current="page"{% endif %}><span>{{ c.name }}</span><small class="muted">{{ c.dimension_count }} 维{% if c.has_rules %} · 有规则{% endif %}</small></a></li>
       {% else %}
-      <li class="muted">{% if q %}没有匹配的 Cube，请修改搜索词。{% else %}暂无 Cube 数据，请到「连接设置」拉取元数据。{% endif %}</li>
+      <li class="muted">{% if q and objects == 'business' and system_total %}没有匹配的业务 Cube；有 {{ system_total }} 个系统立方体匹配「{{ q }}」。<a href="/cubes?q={{ q|urlencode }}&amp;objects=all">在全部里看</a>。{% elif q %}没有匹配的 Cube，请修改搜索词。{% elif objects == 'business' %}当前范围内没有 Cube；<a href="/cubes?objects=all">看全部 {{ all_total }} 个</a>。{% else %}暂无 Cube 数据，请到「连接设置」拉取元数据。{% endif %}</li>
       {% endfor %}
     </ul>
     <nav class="pagination" aria-label="Cube 列表分页">
       <span class="muted small">{{ page }} / {{ total_pages }}</span>
-      {% if page > 1 %}<a class="btn ghost btn-sm" href="/cubes?page={{ page - 1 }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">上一页</a>{% endif %}
-      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/cubes?page={{ page + 1 }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">下一页</a>{% endif %}
+      {% if page > 1 %}<a class="btn ghost btn-sm" href="/cubes?page={{ page - 1 }}&amp;objects={{ objects }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">上一页</a>{% endif %}
+      {% if page < total_pages %}<a class="btn ghost btn-sm" href="/cubes?page={{ page + 1 }}&amp;objects={{ objects }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">下一页</a>{% endif %}
     </nav>
   </aside>
 

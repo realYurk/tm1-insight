@@ -352,14 +352,15 @@ def settings_page(request: Request):
 
 # ---- 页面：Explorer（拆分为 Cube / TI 独立浏览） ----
 @app.get("/cubes", response_class=HTMLResponse)
-def cubes_page(request: Request, q: str = "", page: int = 1, name: str = Query("", max_length=1000)):
+def cubes_page(request: Request, q: str = "", page: int = 1, name: str = Query("", max_length=1000),
+               objects: Literal["all", "business"] = "all"):
     store = _store()
     source = _process_search_source(store.settings)
     con = store.connect(read_only=True)
     try:
         per_page = 100
         offset = max(0, (page - 1)) * per_page
-        result = queries.search_cubes(con, q, offset=offset, limit=per_page)
+        result = queries.search_cubes(con, q, offset=offset, limit=per_page, objects=objects)
         # 双栏浏览：选中某个 Cube 时同时返回详情（复用 get_cube + cube_lineage）
         selected = name
         cube = queries.get_cube(con, selected) if selected else None
@@ -379,6 +380,9 @@ def cubes_page(request: Request, q: str = "", page: int = 1, name: str = Query("
         "cube": cube,
         "lineage": lineage,
         "dimension_source": source,
+        "objects": objects,
+        "system_total": result["system_total"],
+        "all_total": result["all_total"],
     })
 
 
