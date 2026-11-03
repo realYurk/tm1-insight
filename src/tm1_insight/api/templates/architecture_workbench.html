@@ -10,6 +10,7 @@
       <button type="button" class="cx-mode" id="ew-mode-design" role="tab" aria-selected="false">设计</button>
     </div>
     <span class="cx-appbar-chip" id="ew-project-chip">{{ name or '选择探索入口' }} · 本地离线模型</span>
+    <a class="cx-btn" id="ew-back-to-flow" href="/architecture?name={{ name|urlencode }}&amp;kind={{ kind }}&amp;analyze={{ '1' if name else '0' }}" title="回到同一批对象的流程视图（答案优先，证据按需展开）">← 流程视图</a>
     <span id="ew-mode-hint" hidden>本地研究与设计草稿，不部署。</span>
     <div class="cx-appbar-grow"></div>
     <label class="cx-ws-name" aria-label="工作区名称"><input id="ew-name" value="我的架构研究" maxlength="200" placeholder="工作区名称"></label>

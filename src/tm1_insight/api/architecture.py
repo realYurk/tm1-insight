@@ -72,7 +72,18 @@ def manager():
 @router.get('/architecture')
 def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube','discover']='process',view:Literal['overview','functional_flow','workbench']='functional_flow'):
     from tm1_insight.api.app import templates
-    return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,initial_view=view,architecture_revision=architecture.REVISION))
+    # 资产视角：入口对象在整个模型里的分量。失败不影响架构页本身。
+    asset=None
+    if name and kind in ('cube','process'):
+        try:
+            from tm1_insight.api.app import _store
+            from tm1_insight import atlas
+            store=_store();con=store.connect(read_only=True)
+            try:asset=atlas.position(con,'cube' if kind=='cube' else 'process',name)
+            finally:con.close()
+        except Exception:  # noqa: BLE001
+            asset=None
+    return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,initial_view=view,architecture_revision=architecture.REVISION,asset=asset))
 
 
 @router.post('/api/architecture/tasks',status_code=202)

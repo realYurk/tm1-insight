@@ -6,6 +6,22 @@
 {% include 'architecture_workbench.html' %}
 {% else %}
 <header class="page-head"><div><h1 class="page-title">业务架构</h1><p class="page-sub">数据从哪里来，经过哪些处理，结果写到哪里。</p></div></header>
+{% if asset %}
+<section class="asset-strip" aria-label="入口对象在模型资产中的位置">
+  <div class="asset-strip-head">
+    <span class="tag">资产视角</span>
+    <strong>{{ asset.name }}</strong>
+    <span class="muted small">{{ asset.kind_label }} · 信号分 {{ asset.score }} · 模型内第 {{ asset.rank }} / {{ asset.total }} 位</span>
+    <a class="asset-strip-link" href="/atlas?kind={{ asset.kind }}&amp;q={{ asset.name|urlencode }}">在资产地图中查看 →</a>
+  </div>
+  <ul class="asset-strip-signals">
+    {% for s in asset.signals %}
+    <li title="{{ s.note }}"><span>{{ s.label }}</span><b class="{{ 'zero' if not s.value else '' }}">{{ s.value }}</b></li>
+    {% endfor %}
+  </ul>
+  {% if asset.notes %}<p class="asset-strip-note">{{ asset.notes|join(' ') }}</p>{% endif %}
+</section>
+{% endif %}
 {% set source = current_data_source() %}{% set build = build_info() %}{% set model = model_fingerprint() %}
 <details class="architecture-model" aria-label="当前运行版本与模型"><summary>当前模型与版本</summary><section class="architecture-identity">
   <strong>{{ '本地真实模型' if source.type == 'real_local' else source.label }}</strong>
@@ -25,7 +41,7 @@
 <section id="ar-workspace" hidden>
   <p id="ar-root" class="architecture-entry"></p><p class="muted small">局部架构 · 静态源码与模型事实 · 运行路径及迁移等价仍需验证</p>
   <nav class="architecture-primary-views study-actions" aria-label="业务架构主要视图">{% for key,label in [('functional_flow','流程总览'),('cubes','数据模型'),('write_explanations','数据形成')] %}<button type="button" class="btn ghost" data-ar-view="{{ key }}">{{ label }}</button>{% endfor %}</nav>
-  <details class="architecture-expert"><summary>更多分析与导出</summary><div class="study-actions" aria-label="架构其他视图">{% for key,label in [('overview','范围与边界'),('transformation_steps','加工链路'),('unified_relations','关系与计算'),('execution_relationships','调用与调度'),('export','架构导出')] %}<button type="button" class="btn ghost" data-ar-view="{{ key }}">{{ label }}</button>{% endfor %}<a class="btn ghost" href="/architecture?view=workbench">只读索引画布</a></div></details>
+  <details class="architecture-expert"><summary>更多分析与导出</summary><div class="study-actions" aria-label="架构其他视图">{% for key,label in [('overview','范围与边界'),('transformation_steps','加工链路'),('unified_relations','关系与计算'),('execution_relationships','调用与调度'),('export','架构导出')] %}<button type="button" class="btn ghost" data-ar-view="{{ key }}">{{ label }}</button>{% endfor %}<a class="btn ghost" href="/architecture?view=workbench&amp;name={{ name|urlencode }}&amp;kind={{ kind }}" title="同一批对象、同一份事实，用可拖拽画布呈现；适合沿关系连续展开">画布模式（同一模型对象）</a></div></details>
   <form id="ar-filter" class="architecture-filter"><input class="input" id="ar-query" placeholder="在当前视图内搜索名称" aria-label="架构范围内搜索"><button class="btn ghost">查找</button><label><input type="checkbox" id="ar-technical"> 专家视图（技术辅助与底层关系）</label></form>
   <div id="ar-content" aria-live="polite"></div>
   <div id="ar-pager" class="workflow-pager"><button type="button" class="btn ghost" id="ar-prev">上一页</button><span id="ar-page"></span><button type="button" class="btn ghost" id="ar-next">下一页</button></div>
@@ -42,4 +58,4 @@
 </details>
 {% endif %}
 {% endblock %}
-{% block scripts %}<link rel="stylesheet" href="/static/functional-flow.css?v=6"><link rel="stylesheet" href="/static/package-preview.css?v=1"><script src="/static/package-check.js?v=2" defer></script><script src="/static/workbench-tables.js?v=3" defer></script><script src="/static/mermaid-viewer.js?v=7" defer></script>{% if initial_view == 'workbench' %}<link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=2" defer></script><script src="/static/canvas-graph.js?v=14" defer></script><script src="/static/canvas-experience.js?v=1" defer></script><script src="/static/canvas-shell.js?v=2" defer></script><script src="/static/workspace-persistence.js?v=1" defer></script><script src="/static/architecture-workbench.js?v=readonly-1" defer></script>{% else %}<script src="/static/functional-flow.js?v=8" defer></script><script src="/static/architecture.js?v=human-first-3" defer></script>{% endif %}{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/asset-strip.css?v=1"><link rel="stylesheet" href="/static/functional-flow.css?v=6"><link rel="stylesheet" href="/static/package-preview.css?v=1"><script src="/static/package-check.js?v=2" defer></script><script src="/static/workbench-tables.js?v=3" defer></script><script src="/static/mermaid-viewer.js?v=7" defer></script>{% if initial_view == 'workbench' %}<link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=2" defer></script><script src="/static/canvas-graph.js?v=14" defer></script><script src="/static/canvas-experience.js?v=1" defer></script><script src="/static/canvas-shell.js?v=2" defer></script><script src="/static/workspace-persistence.js?v=1" defer></script><script src="/static/architecture-workbench.js?v=readonly-1" defer></script>{% else %}<script src="/static/functional-flow.js?v=8" defer></script><script src="/static/architecture.js?v=human-first-3" defer></script>{% endif %}{% endblock %}
