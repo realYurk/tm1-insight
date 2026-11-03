@@ -138,3 +138,16 @@ Every implementation must include: goal and non-goals; repository evidence; mini
 **Can this change help a user more reliably answer: Where did the data come from? What transformed it? Why did the result arise? How can we reproduce and verify it in a new system?**
 
 If not, it is not a core priority.
+
+## Asset extraction and offline handover — binding product direction (2026-11)
+
+TM1 Insight must make a large existing model understandable and portable as engineering knowledge: discover relevant assets, explain a bounded function from inputs through processing to outputs, and provide an inspectable offline handover. Evidence serves these answers; evidence alone is not the user-facing product. This direction supplements the North Star and preserves all four product layers and the evidence contract above.
+
+- Lead with a concise answer, prioritized objects, key slices and actionable gaps; retain original evidence and uncertainty on demand. A candidate, unknown or unverified result must never be presented as a proven calculation or runtime result.
+- Asset importance is a transparent, configurable discovery aid, not an asserted business-criticality fact: show signals, scope, missing coverage and human confirmation; do not rank solely by names or obscure a low-ranked actual dependency.
+- Reuse existing parsers, indexed facts and UI components. One write or Rule fact must retain the same identity, direction, evidence and confirmation status across Cube, lineage, architecture and exports; multiple entry points may serve different jobs.
+- Read-only browsing, source viewing and navigation must remain responsive independently of expensive analysis. Measure end-to-end cold and warm performance on representative large synthetic and, when authorized, local models; cancellation, resource budgets and versioned cache invalidation are release requirements.
+- An offline model package and a bounded functional design package must state their exact scope, model identity, schema/version, checksums, completeness and omissions. Samples are never represented as complete definitions; neither package is automatically a server backup or runtime-equivalence proof. Credentials and business cell data are excluded by default; sharing model metadata and source requires user control.
+- Restore navigation context safely across refresh and return where feasible, bound to model identity; temporary browsing does not require draft-saving. Audit actual state paths and preserve existing routes and saved data.
+- Record design intent, dimension choices and reusable practices as human-confirmed interpretations linked to source-backed examples and verification, never as inferred business facts. No integrated AI services.
+- The phased execution plan and measurable acceptance gates are documented in `docs/PRODUCT_EVOLUTION_OFFLINE_ASSETS.md`. That plan is not a claim that any phase has already shipped.
