@@ -42,6 +42,7 @@
         {% macro nav(href,label,icon,active) -%}<a href="{{ href }}" aria-label="{{ label }}" title="{{ label }}" class="nav-link {{ 'active' if active else '' }}" {% if active %}aria-current="page"{% endif %}><span class="nav-icon">{% include "icons/" ~ icon ~ ".svg" %}</span><span>{{ label }}</span></a>{%- endmacro %}
 
         {{ nav('/','工作台','home',path == '/') }}
+        {{ nav('/atlas','资产地图','atlas',path.startswith('/atlas')) }}
 
         {# 导航分组永久展开（静态结构，不使用 details/summary，禁止折叠）。 #}
         <div class="nav-group-label">模型浏览</div>

@@ -78,6 +78,8 @@ from tm1_insight.api.workbench import router as workbench_router
 app.include_router(workbench_router)
 from tm1_insight.api.assets import router as assets_router
 app.include_router(assets_router)
+from tm1_insight.api.atlas import router as atlas_router
+app.include_router(atlas_router)
 from tm1_insight.api.module_spec import router as module_spec_router
 app.include_router(module_spec_router)
 from tm1_insight.api.module_dossier import router as module_dossier_router
@@ -906,7 +908,20 @@ def invocation_export(name: str = Query(..., min_length=1, max_length=1000), cal
 @app.get("/graph", response_class=HTMLResponse)
 def graph(request: Request, ti: Optional[str] = Query(None,max_length=1000), depth:int=Query(2,ge=0,le=4), nodes:int=Query(60,ge=1,le=120), cube: Optional[str] = Query(None,max_length=1000), model: str = Query('',max_length=64)):
     if cube is not None or ti is None:
-        return templates.TemplateResponse(request, "cube_lineage.html", {"cube":cube or '',"model":model})
+        # 资产视角：这张画布在整个模型里有多重？失败不影响画布本身。
+        asset = None
+        if cube:
+            try:
+                from tm1_insight import atlas
+                store = _store()
+                con = store.connect(read_only=True)
+                try:
+                    asset = atlas.position(con, 'cube', cube)
+                finally:
+                    con.close()
+            except Exception:  # noqa: BLE001
+                asset = None
+        return templates.TemplateResponse(request, "cube_lineage.html", {"cube":cube or '',"model":model,"asset":asset})
     return templates.TemplateResponse(request,"ti_lineage.html",{"ti":ti,"depth":depth,"node_budget":nodes,"model":model})
 
 

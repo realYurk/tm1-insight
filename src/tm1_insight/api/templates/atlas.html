@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}资产地图 · TM1 Insight{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">工作台</a><span class="sep">/</span><span class="current">资产地图</span><span class="sep">/</span><span class="current">{{ kind_label }}</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head atlas-head">
+  <div>
+    <h1 class="page-title">资产地图</h1>
+    <p class="page-sub">先看清哪些对象承载了模型的主要加工，再决定深挖哪一个。分数只是技术信号的加权排序，不是业务重要性结论。</p>
+  </div>
+  <div class="atlas-head-actions">
+    <a class="btn ghost" href="/api/atlas/export?kind={{ kind }}&amp;limit=200&amp;system={{ '1' if include_system else '0' }}">导出资产清单 (Markdown)</a>
+  </div>
+</div>
+
+<div class="atlas-kpis" role="list">
+  {% for key, label in [('cube','Cube'),('process','TI 进程'),('dimension','Dimension'),('chore','Chore')] %}
+  {% set row = overview[key] %}
+  <a class="atlas-kpi {{ 'active' if kind == key else '' }}" role="listitem" href="/atlas?kind={{ key }}&amp;q={{ q|urlencode }}&amp;sort={{ sort }}&amp;system={{ '1' if include_system else '0' }}">
+    <span class="atlas-kpi-label">{{ label }}</span>
+    <strong class="atlas-kpi-value">{{ row.shown }}</strong>
+    <span class="atlas-kpi-sub">{% if row.system %}已隐藏 {{ row.system }} 个系统对象{% else %}无系统对象{% endif %}</span>
+  </a>
+  {% endfor %}
+  <div class="atlas-kpi atlas-kpi-gap" role="listitem">
+    <span class="atlas-kpi-label">无写入方 Cube</span>
+    <strong class="atlas-kpi-value">{{ gaps.cube_without_writer.count }}</strong>
+    <span class="atlas-kpi-sub">没有已记录的写入 TI；不等于没人用</span>
+  </div>
+</div>
+
+<form class="atlas-toolbar" method="get" action="/atlas" role="search">
+  <input type="hidden" name="kind" value="{{ kind }}">
+  <label class="atlas-field atlas-field-grow">
+    <span>搜索 {{ kind_label }} 名称</span>
+    <input class="input" type="search" name="q" value="{{ q }}" maxlength="200" placeholder="名称或名称的一部分，例如 Expense">
+  </label>
+  <label class="atlas-field">
+    <span>排序</span>
+    <select class="input" name="sort">
+      <option value="score" {{ 'selected' if sort == 'score' else '' }}>信号分（默认）</option>
+      <option value="name" {{ 'selected' if sort == 'name' else '' }}>名称</option>
+      {% for s in signals %}<option value="{{ s.key }}" {{ 'selected' if sort == s.key else '' }}>{{ s.label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="atlas-field">
+    <span>每页</span>
+    <select class="input" name="limit">
+      {% for size in [25, 50, 100, 200] %}<option value="{{ size }}" {{ 'selected' if limit == size else '' }}>{{ size }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="atlas-check">
+    <input type="checkbox" name="system" value="true" {{ 'checked' if include_system else '' }}>
+    含 <code>}</code> 系统对象
+  </label>
+  <button class="btn primary" type="submit">应用</button>
+  {% if q or sort != 'score' or include_system %}<a class="btn ghost" href="/atlas?kind={{ kind }}">清除条件</a>{% endif %}
+</form>
+
+<p class="atlas-count" role="status">
+  {% if q %}匹配 <strong>{{ total }}</strong> 个 {{ kind_label }}{% else %}共 <strong>{{ total }}</strong> 个 {{ kind_label }}{% endif %}
+  · 第 {{ page }} / {{ pages }} 页
+  {% if total > limit %}· 当前只列出本页 {{ items|length }} 个{% endif %}
+</p>
+
+{% if items %}
+<div class="atlas-table-wrap">
+  <table class="table atlas-table">
+    <thead>
+      <tr>
+        <th class="atlas-col-idx">#</th>
+        <th class="atlas-col-name">{{ kind_label }}</th>
+        <th class="atlas-col-score">信号分</th>
+        {% for s in signals %}<th class="atlas-col-signal" title="{{ s.note }}">{{ s.label }}<small>×{{ s.weight }}</small></th>{% endfor %}
+        <th class="atlas-col-actions">继续</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td class="atlas-col-idx">{{ (page - 1) * limit + loop.index }}</td>
+        <td class="atlas-col-name">
+          <span class="atlas-name">{{ item.name }}</span>
+          {% if item.notes %}<small class="atlas-note">{{ item.notes|join(' ') }}</small>{% endif %}
+        </td>
+        <td class="atlas-col-score">
+          <span class="atlas-score">{{ item.score }}</span>
+          <span class="atlas-bar" aria-hidden="true"><i style="width: {{ item.share }}%"></i></span>
+        </td>
+        {% for s in signals %}
+        <td class="atlas-col-signal">
+          {% set value = item.signals.get(s.key, 0) %}
+          <span class="atlas-signal {{ 'zero' if not value else '' }}" title="{{ s.note }}">{{ value }}</span>
+        </td>
+        {% endfor %}
+        <td class="atlas-col-actions">
+          {% if kind == 'cube' %}
+          <a class="atlas-link" href="/graph?cube={{ item.name|urlencode }}" title="以该 Cube 为中心查看数据血缘">血缘</a>
+          <a class="atlas-link" href="/architecture?name={{ item.name|urlencode }}&amp;kind=cube&amp;analyze=1" title="展开数据形成与加工步骤">架构</a>
+          <a class="atlas-link" href="/explorer/cube/{{ item.name|urlencode }}" title="维度结构、写入点与 Rule">结构</a>
+          {% elif kind == 'process' %}
+          <a class="atlas-link" href="/graph?ti={{ item.name|urlencode }}" title="以该 TI 为中心查看调用与写入切面">血缘</a>
+          <a class="atlas-link" href="/explorer/process/{{ item.name|urlencode }}" title="查看源码、参数与调用树">源码</a>
+          <a class="atlas-link" href="/architecture?name={{ item.name|urlencode }}&amp;kind=process&amp;analyze=1" title="展开加工链路">架构</a>
+          {% elif kind == 'dimension' %}
+          <a class="atlas-link" href="/dimensions?name={{ item.name|urlencode }}" title="元素、层级、属性与子集">维度</a>
+          <a class="atlas-link" href="/dimensions?name={{ item.name|urlencode }}&amp;view=cubes" title="哪些 Cube 使用该维度">被用</a>
+          {% else %}
+          <a class="atlas-link" href="/chores?name={{ item.name|urlencode }}" title="步骤与调度依据">步骤</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<nav class="pagination atlas-pager" aria-label="资产分页">
+  {% if page > 1 %}<a class="btn ghost btn-sm" href="/atlas?kind={{ kind }}&amp;q={{ q|urlencode }}&amp;sort={{ sort }}&amp;limit={{ limit }}&amp;page={{ page - 1 }}&amp;system={{ '1' if include_system else '0' }}">上一页</a>{% endif %}
+  <span class="muted small">{{ page }} / {{ pages }}</span>
+  {% if page < pages %}<a class="btn ghost btn-sm" href="/atlas?kind={{ kind }}&amp;q={{ q|urlencode }}&amp;sort={{ sort }}&amp;limit={{ limit }}&amp;page={{ page + 1 }}&amp;system={{ '1' if include_system else '0' }}">下一页</a>{% endif %}
+</nav>
+{% else %}
+<div class="card empty-state">
+  <div class="empty-title">{% if q %}没有匹配「{{ q }}」的 {{ kind_label }}{% else %}当前模型没有 {{ kind_label }} 数据{% endif %}</div>
+  <p class="muted">{% if q %}换个关键词，或<a href="/atlas?kind={{ kind }}">清除搜索</a>。{% else %}请先到「连接设置」采集或导入模型元数据。{% endif %}</p>
+</div>
+{% endif %}
+
+<details class="card atlas-legend">
+  <summary>这些分数是怎么算的（可核对）</summary>
+  <p class="muted small">{{ source_note }}</p>
+  <table class="table atlas-legend-table">
+    <thead><tr><th>信号</th><th>权重</th><th>口径</th></tr></thead>
+    <tbody>
+      {% for s in signals %}
+      <tr><td>{{ s.label }}</td><td>{{ s.weight }}</td><td class="muted small">{{ s.note }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted small">要换一套权重？修改 <code>src/tm1_insight/atlas.py</code> 里的 <code>SIGNALS</code> 即可，排序与导出会同步生效——不引入第二套语义。</p>
+</details>
+
+<section class="card atlas-gaps" aria-labelledby="atlas-gaps-title">
+  <h2 id="atlas-gaps-title">覆盖缺口（先知道哪里没证据）</h2>
+  <p class="muted small">{{ gaps.note }}</p>
+  <div class="atlas-gap-grid">
+    <div>
+      <h3>无已记录写入方的 Cube <span class="tag">{{ gaps.cube_without_writer.count }}</span></h3>
+      <ul class="atlas-chip-list">
+        {% for name in gaps.cube_without_writer.sample %}<li><a href="/explorer/cube/{{ name|urlencode }}">{{ name }}</a></li>{% endfor %}
+        {% if not gaps.cube_without_writer.sample %}<li class="muted">没有这类对象</li>{% endif %}
+      </ul>
+    </div>
+    <div>
+      <h3>无已采集前端引用的 Cube <span class="tag">{{ gaps.cube_without_frontend.count }}</span></h3>
+      <ul class="atlas-chip-list">
+        {% for name in gaps.cube_without_frontend.sample %}<li><a href="/explorer/cube/{{ name|urlencode }}">{{ name }}</a></li>{% endfor %}
+        {% if not gaps.cube_without_frontend.sample %}<li class="muted">没有这类对象</li>{% endif %}
+      </ul>
+      <p class="muted small">已采集前端映射关联到 {{ gaps.frontend_linked }} 个 Cube。前端资产在 <a href="/audit">前端资产</a> 里核对。</p>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}<link rel="stylesheet" href="/static/atlas.css?v=1">{% endblock %}

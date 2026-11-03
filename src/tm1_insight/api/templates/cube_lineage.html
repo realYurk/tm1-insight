@@ -3,6 +3,22 @@
 {% block content %}
 <section id="cl-root" data-cube="{{ cube }}" data-model="{{ model|default('') }}">
 <header class="page-head"><div><h1>数据血缘</h1><p class="muted">从数据来源到处理程序，再到 Cube，查看已有模型中的关系。</p></div></header>
+{% if asset %}
+<section class="asset-strip" aria-label="该 Cube 在模型资产中的位置">
+  <div class="asset-strip-head">
+    <span class="tag">资产视角</span>
+    <strong>{{ asset.name }}</strong>
+    <span class="muted small">信号分 {{ asset.score }} · 模型内第 {{ asset.rank }} / {{ asset.total }} 位</span>
+    <a class="asset-strip-link" href="/atlas?kind=cube&amp;q={{ asset.name|urlencode }}">在资产地图中查看 →</a>
+  </div>
+  <ul class="asset-strip-signals">
+    {% for s in asset.signals %}
+    <li title="{{ s.note }}"><span>{{ s.label }}</span><b class="{{ 'zero' if not s.value else '' }}">{{ s.value }}</b></li>
+    {% endfor %}
+  </ul>
+  {% if asset.notes %}<p class="asset-strip-note">{{ asset.notes|join(' ') }}</p>{% endif %}
+</section>
+{% endif %}
 {% set lineage_kind = 'cube' %}{% include 'lineage_search.html' %}
 <p id="cl-status" role="status" aria-live="polite"></p>
 <div id="cl-relations" hidden>
@@ -23,4 +39,4 @@
 </div>
 </section>
 {% endblock %}
-{% block scripts %}<link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2"><link rel="stylesheet" href="/static/cube-lineage.css?v=12"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=7" defer></script><script src="/static/canvas-graph.js?v=lineage-11" defer></script><script src="/static/lineage-view.js?v=8" defer></script><script src="/static/write-point-card.js?v=1" defer></script><script src="/static/cube-lineage.js?v=29" defer></script><script src="/static/lineage-search.js?v=2" defer></script><script src="/static/formation-answer.js?v=8" defer></script>{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/asset-strip.css?v=1"><link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2"><link rel="stylesheet" href="/static/cube-lineage.css?v=12"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=7" defer></script><script src="/static/canvas-graph.js?v=lineage-11" defer></script><script src="/static/lineage-view.js?v=8" defer></script><script src="/static/write-point-card.js?v=1" defer></script><script src="/static/cube-lineage.js?v=29" defer></script><script src="/static/lineage-search.js?v=2" defer></script><script src="/static/formation-answer.js?v=8" defer></script>{% endblock %}

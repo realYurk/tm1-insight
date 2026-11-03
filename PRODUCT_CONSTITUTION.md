@@ -62,7 +62,7 @@ Fold technical helpers into their owning steps using actual implementation and p
 
 Default views show useful inputs, processing and outputs; parser statuses, hashes, log fields and helper calls belong in expandable implementation/diagnostics. Explain unresolved facts in concrete language; never show a meaningless UNKNOWN formula as business output. Cube Profiles retain actual dimension order, grain, hierarchy/consolidation, Rule/Feeder boundaries, mappings, clear/overwrite/increment effects, sparsity/zero/null risks. Never automatically equate one Cube with one relational table.
 
-Architecture exports use a versioned deterministic schema containing module, entry_points, cubes, dimensions, processes, rules, chores, execution_relationships, data_relationships, transformation_steps, input_outputs, evidence, unresolved_dependencies and migration_notes. Preserve technical evidence separately from the default presentation. Navigation prioritizes model assets, lineage, architecture and code generation; retain legacy tools and data in advanced tools.
+Architecture exports use a versioned deterministic schema containing module, entry_points, cubes, dimensions, processes, rules, chores, execution_relationships, data_relationships, transformation_steps, input_outputs, evidence, unresolved_dependencies and migration_notes. Preserve technical evidence separately from the default presentation. Navigation is limited to five task entries (workspace, asset map, lineage, architecture, model browsing); code generation and legacy tools live in the secondary tool menu — see「资产提炼优先」below for the binding rule.
 
 ### 4. Business Interpretation — 业务解释
 
@@ -151,3 +151,45 @@ TM1 Insight must make a large existing model understandable and portable as engi
 - Restore navigation context safely across refresh and return where feasible, bound to model identity; temporary browsing does not require draft-saving. Audit actual state paths and preserve existing routes and saved data.
 - Record design intent, dimension choices and reusable practices as human-confirmed interpretations linked to source-backed examples and verification, never as inferred business facts. No integrated AI services.
 - The phased execution plan and measurable acceptance gates are documented in `docs/PRODUCT_EVOLUTION_OFFLINE_ASSETS.md`. That plan is not a claim that any phase has already shipped.
+
+## 资产提炼优先 — binding direction (2026-11-03 revision)
+
+The product currently proves too much and answers too little. Evidence is the moat, but evidence is not the product surface. TM1 Insight must let a developer answer, within three clicks, **what matters in this model, what it does, and how it is implemented** — then offer the proof on demand. The strategy and phased plan live in `docs/PRODUCT_STRATEGY_2026_11.md`; this section is the binding rule.
+
+### Two-layer output contract
+
+Every analysis must have two layers, in this order:
+
+1. **Answer layer** — a human-consumable conclusion: what this is, the key objects, the supported logic, the explicit gaps, and what the reader should do next. Written so it can go into a review or handover without rework.
+2. **Evidence layer** — the source-backed proof, collapsed by default: object, section, location, expression, snapshot, parser rule.
+
+Summarizing is allowed; inventing is not. A conclusion in the answer layer must state its basis and coverage, and must never present a candidate, unknown or unverified result as a proven calculation or runtime result.
+
+### Asset perspective
+
+An **asset map** (`/atlas`) is the first entry point: model-wide assets of every type, ordered by transparent, inspectable technical signals, with per-signal values, explicit coverage gaps and a human-readable export. Ranking is a discovery aid, never an assertion of business criticality: weights are configurable in code, signals are visible on screen, low-ranked real dependencies are never hidden, and human confirmation is recorded separately from static signals.
+
+### Navigation and entry discipline
+
+- At most **five** first-level task entries: workspace, asset map, lineage, architecture, model browsing. Do not add a sixth.
+- **One feature, one entry.** Every other path must be a deep link that lands in the identical state; no parallel routes with divergent initial state.
+- Code generation is a development aid, not an asset-understanding path: it belongs in the secondary tool menu.
+- Hidden navigation groups are prohibited as a dumping ground. If a feature cannot earn a place in the five entries or the tool menu, retire it.
+
+### State discipline
+
+View state that a user can meaningfully return to — selected object, filters, depth, view mode, page — must be encoded in the URL and replayed by the server. A refresh, a back navigation, or a model switch must never silently produce a different canvas. Temporary exploration does not require saving a draft.
+
+### Signal-to-noise rule
+
+UNKNOWN, PARTIAL and "needs confirmation" may appear in the primary view **only when they change the current conclusion**. Otherwise they belong in the evidence layer with one plain-language sentence. A page dense with unresolved markers is a defect, not a display of rigor.
+
+### Feature gate
+
+A feature may enter first-level navigation only if it passes all four checks: it answers exactly one question with a conclusion; it produces a consumable human-readable output; it states its own limits on screen; and it is measurable against an acceptance number. Failing that, it stays in the tool menu or is retired. Retiring a feature is a legitimate product action, reviewed at each release.
+
+### Preserved
+
+The existing lineage canvas, its relations, evidence semantics and read-only guarantees are retained unchanged. The asset perspective is additive information, not a replacement for the graph. No second semantic engine may be introduced: asset signals, lineage, architecture and exports must read the same facts through the existing parser, store and resolvers.
+
+No integrated LLM, RAG, AI agent or external AI service. No automated business-criticality judgment. No flattening a large model into an unreadable canvas; large-model views must aggregate, bound and expand on demand.

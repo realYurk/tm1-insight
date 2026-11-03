@@ -1,0 +1,64 @@
+/* 资产地图（/atlas）：一屏看清「模型里谁在承载加工」，再决定深挖哪一个。
+   只使用设计系统变量，浅色/深色主题自动跟随。 */
+
+.atlas-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.atlas-head-actions { display: flex; gap: 8px; }
+
+/* ---- 概览卡 ---- */
+.atlas-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 4px 0 18px; }
+@media (max-width: 1080px) { .atlas-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.atlas-kpi { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--text); text-decoration: none; box-shadow: var(--shadow-sm); transition: border-color .15s, transform .15s; }
+a.atlas-kpi:hover { border-color: var(--accent); transform: translateY(-1px); }
+.atlas-kpi.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+.atlas-kpi-label { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.atlas-kpi-value { font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.atlas-kpi-sub { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.atlas-kpi-gap { border-style: dashed; }
+.atlas-kpi-gap .atlas-kpi-value { color: var(--amber); }
+
+/* ---- 工具条 ---- */
+.atlas-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); margin-bottom: 12px; }
+.atlas-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+.atlas-field-grow { flex: 1 1 280px; min-width: 220px; }
+.atlas-field .input { width: 100%; }
+.atlas-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); padding-bottom: 6px; }
+
+.atlas-count { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+
+/* ---- 表格 ---- */
+.atlas-table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.atlas-table { width: 100%; min-width: 900px; margin: 0; }
+.atlas-table thead th { position: sticky; top: 0; background: var(--bg); z-index: 1; white-space: nowrap; font-size: 11px; letter-spacing: .03em; }
+.atlas-table thead th small { margin-left: 3px; font-weight: 400; color: var(--muted); font-size: 10px; }
+.atlas-table td { vertical-align: top; }
+.atlas-table tbody tr:hover { background: var(--accent-soft); }
+.atlas-col-idx { width: 46px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.atlas-col-name { min-width: 260px; max-width: 460px; }
+.atlas-name { font-weight: 600; overflow-wrap: anywhere; }
+.atlas-note { display: block; margin-top: 3px; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.atlas-col-score { width: 120px; }
+.atlas-score { font-variant-numeric: tabular-nums; font-weight: 600; }
+.atlas-bar { display: block; height: 4px; margin-top: 5px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.atlas-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--cyan)); }
+.atlas-col-signal { width: 78px; text-align: center; font-variant-numeric: tabular-nums; }
+.atlas-signal { display: inline-block; min-width: 26px; padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-size: 12px; font-weight: 600; }
+.atlas-signal.zero { background: transparent; color: var(--muted); font-weight: 400; }
+.atlas-col-actions { white-space: nowrap; width: 150px; }
+.atlas-link { display: inline-block; margin-right: 10px; font-size: 12px; color: var(--accent); text-decoration: none; }
+.atlas-link:hover { text-decoration: underline; }
+
+.atlas-pager { display: flex; align-items: center; gap: 10px; margin: 12px 0 20px; }
+
+/* ---- 说明与缺口 ---- */
+.atlas-legend, .atlas-gaps { margin: 16px 0; padding: 14px 16px; }
+.atlas-legend > summary { cursor: pointer; font-weight: 600; }
+.atlas-legend-table { margin-top: 10px; }
+.atlas-gaps h2 { margin: 0 0 4px; }
+.atlas-gap-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 10px; }
+@media (max-width: 900px) { .atlas-gap-grid { grid-template-columns: 1fr; } }
+.atlas-gaps h3 { font-size: 13px; margin: 0 0 6px; }
+.atlas-chip-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.atlas-chip-list li { font-size: 11px; }
+.atlas-chip-list a { display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-2); text-decoration: none; }
+.atlas-chip-list a:hover { border-color: var(--accent); color: var(--accent); }
