@@ -118,6 +118,16 @@ def test_analysis_package_verification_rejects_tampering(con, artifact, tmp_path
     with pytest.raises(ValueError,match='不安全路径'):verify_package(path)
 
 
+def test_web_package_check_is_read_only_and_handles_invalid_file(client, con, artifact):
+    data=b''.join(stream(package(artifact,con)))
+    page=client.get('/architecture')
+    assert 'package-check-form' in page.text and '/static/package-check.js' in page.text
+    response=client.post('/api/architecture/verify-package',files={'file':('test.zip',data,'application/zip')})
+    assert response.status_code==200 and response.json()['files_checked']>0
+    bad=client.post('/api/architecture/verify-package',files={'file':('bad.zip',b'broken','application/zip')})
+    assert bad.status_code==400
+
+
 def test_ai_package_redacts_credentials_without_destroying_source_locations(con,tmp_path):
     code="password='synthetic-secret';\n# password=hidden\nODBCOpen('dsn','user','another-secret');\nCellPutN(1,'Cube_B',vYear,pRegion,pMeasure);"
     con.execute("UPDATE processes SET prolog=? WHERE name='Load'",[code])

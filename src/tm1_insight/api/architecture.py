@@ -4,8 +4,10 @@ from __future__ import annotations
 from contextlib import closing
 import json
 import threading
+import tempfile
 from typing import Literal, Optional
-from fastapi import APIRouter,HTTPException,Query,Request
+from fastapi import APIRouter,HTTPException,Query,Request,File,UploadFile
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse,JSONResponse,StreamingResponse
 from tm1_insight import architecture,workflow
 from tm1_insight.api.workflow import Start as WorkflowStart,source_evidence
@@ -33,6 +35,28 @@ class Start(WorkflowStart):
     include_technical_details:bool=False
 
 router=APIRouter();_manager=None;_lock=threading.Lock()
+
+
+@router.post('/api/architecture/verify-package')
+async def verify_package_upload(file: UploadFile = File(...)):
+    """Check a selected local package without importing it into the model."""
+    from tm1_insight.workbench_export import verify_package, MAX_BYTES
+    try:
+        with tempfile.TemporaryFile() as tmp:
+            total=0
+            while chunk:=await file.read(65536):
+                total+=len(chunk)
+                if total>MAX_BYTES+1024*1024:
+                    raise HTTPException(413,'文件超过校验大小限制。')
+                tmp.write(chunk)
+            tmp.seek(0)
+            try:
+                result=await run_in_threadpool(verify_package,tmp)
+            except ValueError:
+                raise HTTPException(400,'无法通过校验：文件损坏、格式不支持或内容与清单不一致。') from None
+        return result
+    finally:
+        await file.close()
 
 
 def manager():

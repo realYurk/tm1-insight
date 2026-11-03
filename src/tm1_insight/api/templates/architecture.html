@@ -20,6 +20,15 @@
   <div id="ar-options" class="workflow-options" hidden></div>
   <details class="workflow-budgets"><summary>分析范围</summary><label>最多 TI<input id="ar-max" type="number" min="1" max="500" value="100"></label><label>调用层数<input id="ar-depth" type="number" min="0" max="64" value="16"></label><label>最多模型节点<input id="ar-nodes" type="number" min="1" max="5000" value="1000"></label><label><input id="ar-downstream" type="checkbox"> 核对外部 Rule 消费者（仍在模块外）</label><label><input id="ar-expand-technical" type="checkbox"> 展开辅助内部调用</label><p>沿真实调用扩展，不以名称前缀截断依赖。Cube 入口通过写入索引发现候选，再核对源码；消费者留在边界外，Chore / 模块关键词入口后续接入。</p></details>
 </form>
+<details class="package-check card">
+  <summary>离线分析包 · 校验文件</summary>
+  <p class="muted small">选择之前导出的分析 ZIP，检查文件是否与包内清单一致。不会导入或修改当前模型。</p>
+  <form id="package-check-form" class="study-actions">
+    <input type="file" id="package-check-file" accept=".zip,application/zip" aria-label="选择分析包 ZIP" required>
+    <button type="submit" class="btn ghost">检查文件</button>
+  </form>
+  <p id="package-check-status" role="status" aria-live="polite"></p>
+</details>
 <p id="ar-error" role="alert" class="err" hidden></p>
 <section id="ar-progress" class="job-progress" hidden><p id="ar-state" role="status"></p><progress id="ar-bar"></progress><button type="button" class="btn ghost" id="ar-cancel">取消</button></section>
 <section id="ar-workspace" hidden>
@@ -31,4 +40,4 @@
 </section>
 {% endif %}
 {% endblock %}
-{% block scripts %}<link rel="stylesheet" href="/static/functional-flow.css?v=4"><script src="/static/workbench-tables.js?v=2" defer></script><script src="/static/mermaid-viewer.js?v=7" defer></script>{% if initial_view == 'workbench' %}<link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=2" defer></script><script src="/static/canvas-graph.js?v=14" defer></script><script src="/static/canvas-experience.js?v=1" defer></script><script src="/static/canvas-shell.js?v=2" defer></script><script src="/static/workspace-persistence.js?v=1" defer></script><script src="/static/architecture-workbench.js?v=readonly-1" defer></script>{% else %}<script src="/static/functional-flow.js?v=6" defer></script><script src="/static/architecture.js?v=human-first-3" defer></script>{% endif %}{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/functional-flow.css?v=4"><script src="/static/package-check.js?v=1" defer></script><script src="/static/workbench-tables.js?v=2" defer></script><script src="/static/mermaid-viewer.js?v=7" defer></script>{% if initial_view == 'workbench' %}<link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2"><script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=2" defer></script><script src="/static/canvas-graph.js?v=14" defer></script><script src="/static/canvas-experience.js?v=1" defer></script><script src="/static/canvas-shell.js?v=2" defer></script><script src="/static/workspace-persistence.js?v=1" defer></script><script src="/static/architecture-workbench.js?v=readonly-1" defer></script>{% else %}<script src="/static/functional-flow.js?v=6" defer></script><script src="/static/architecture.js?v=human-first-3" defer></script>{% endif %}{% endblock %}
