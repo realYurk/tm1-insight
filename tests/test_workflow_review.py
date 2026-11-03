@@ -120,9 +120,9 @@ def test_review_api_and_export_use_same_projection(client,monkeypatch,con,tmp_pa
         assert 'TI-Reconstruction.json' in downloaded.headers['content-disposition']
         assert downloaded.json()==r.json()
         legacy=client.get('/graph?ti=Caller')
-        assert legacy.url.path=='/object/process/Caller'
+        assert legacy.url.path=='/explorer/process/Caller'
         cube_legacy=client.get('/graph?cube=Cube_B')
-        assert cube_legacy.url.path=='/object/cube/Cube_B' and cube_legacy.url.params.get('view')=='graph'
+        assert cube_legacy.status_code==200 and 'id="cl-root"' in cube_legacy.text
         # Legacy synthetic stores may omit Chore metadata or its entire index.
         con.execute('DROP TABLE chores')
         old=client.get('/api/workflow/tasks/synthetic/review').json()

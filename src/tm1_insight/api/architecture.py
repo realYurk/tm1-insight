@@ -87,13 +87,15 @@ def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=Fa
             except Exception:  # noqa: BLE001
                 asset=None
         return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,initial_view=view,architecture_revision=architecture.REVISION,asset=asset))
-    # 业务架构与数据血缘合并为一个对象页；旧链接落到同一个状态。
-    if name and kind in ('cube','process'):
-        target=f'/object/{kind}/{quote(name)}?view=formation' if kind=='cube' else f'/object/process/{quote(name)}?view=overview'
-        return RedirectResponse(target,status_code=302)
+    # 业务架构的「数据形成」已经长在 Cube 详情页里，TI 的加工链路在 TI 详情页。
+    # 旧链接直接落回这两个真实页面，不再单独维护第三套视图。
+    if name and kind == 'cube':
+        return RedirectResponse(f'/explorer/cube/{quote(name)}', status_code=302)
+    if name and kind == 'process':
+        return RedirectResponse(f'/explorer/process/{quote(name)}', status_code=302)
     if name:
-        return RedirectResponse('/object?kind=cube&q='+quote(name),status_code=302)
-    return RedirectResponse('/object',status_code=302)
+        return RedirectResponse('/cubes?q=' + quote(name), status_code=302)
+    return RedirectResponse('/cubes', status_code=302)
 
 
 @router.post('/api/architecture/tasks',status_code=202)

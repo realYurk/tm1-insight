@@ -5,7 +5,11 @@
     <h1 class="page-title">{{ cube.name }}</h1>
     <p class="page-sub">Cube 概览 · 血缘与前端展示一览</p>
   </div>
-  <div class="study-actions"><button type="button" class="btn ghost" data-open-object-switcher aria-haspopup="dialog">搜索 / 切换 Cube</button><a class="btn primary" href="/graph?cube={{ cube.name|urlencode }}&amp;model={{ research_model() }}">查看上下游血缘</a></div>
+  <div class="study-actions">
+    <button type="button" class="btn ghost" data-open-object-switcher aria-haspopup="dialog">搜索 / 切换 Cube</button>
+    <a class="btn primary" href="/graph?cube={{ cube.name|urlencode }}&amp;model={{ research_model() }}">查看上下游血缘</a>
+    <a class="btn ghost" href="/api/object/cube/{{ cube.name|urlencode }}/handoff.md" download title="一页结论：事实、上下游、缺口与口径，可直接发出去">导出交接</a>
+  </div>
 </div>
 
 <div class="cube-overview">

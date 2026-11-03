@@ -124,3 +124,7 @@ body:has(#cl-root) .content {max-width:none;padding:22px 24px 36px}
 #cl-root .cl-flow-process {color:#634c9a;background:#f3efff}
 #cl-root .cl-flow-cube {color:#285d99;background:#edf5ff}
 #cl-root .cl-flow-guide small {margin-left:8px;color:#74869b}
+
+/* 画布页的"换一个 Cube"搜索行：与其它搜索框同宽同高，不依赖首页样式表。 */
+#cl-root > .cl-search-row {display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:0}
+#cl-root > .cl-search-row .lineage-search-field {flex:1 1 280px}

@@ -159,8 +159,8 @@ def test_new_api_paging_filters_evidence_and_context_on_existing_workbench(clien
     assert context['rhs']['expression_ir']
     assert client.get(base+'/relation-context',params={'ref':'/details/secret'}).status_code==422
     assert client.get(base+'/export?format=relations').json()['schema']=='calculation-relations-1'
-    page=client.get('/object/cube/Cube_B')
-    assert page.status_code==200 and 'object-facts' in page.text and 'Cube_B' in page.text
+    page=client.get('/explorer/cube/Cube_B')
+    assert page.status_code==200 and 'cube-overview' in page.text and 'Cube_B' in page.text
     summaries=client.get(base+'/result?view=rule_summaries').json()['items']
     assert summaries and all('rule_semantics' not in r for r in summaries)
     assert client.get(base+'/relation-context',params={'ref':'/rules/99999/rule_semantics/0'}).status_code==404

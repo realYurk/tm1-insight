@@ -31,27 +31,28 @@ def test_base_html_has_no_collapsible_nav_group():
 
 def test_base_html_nav_entries_all_retained():
     html = _read(BASE_HTML)
-    # 一级入口收敛为四个；对象详情从 /object 进入，不再为每类对象各开一页。
+    # 三个核心对象各回自己的入口；聚合页不再占导航位置。
     for href, label in [
         ("/", "工作台"),
         ("/atlas", "资产地图"),
-        ("/object", "对象工作台"),
-        ("/browse", "模型目录"),
+        ("/cubes", "Cube"),
+        ("/processes", "TI 进程"),
+        ("/chores", "Chore 调度"),
         ("/audit", "前端资产"),
         ("/settings", "连接设置"),
     ]:
         assert href in html, f"导航缺少 {label} ({href})"
         assert label in html, f"导航缺少标签 {label}"
-    # 合并后的旧入口不再占用导航位置。
-    for gone in ("/graph", "/architecture", "/codegen", "/impact", "/compare"):
-        assert gone not in html, f"旧入口仍在一级导航：{gone}"
+    # 聚合页与旧入口都不再占用导航位置。
+    for gone in ("/object", "/browse", "/graph", "/architecture", "/codegen", "/impact", "/compare"):
+        assert f'href="{gone}"' not in html, f"旧入口仍在一级导航：{gone}"
 
 
 def test_nav_group_labels_present():
     html = _read(BASE_HTML)
     assert '数据与设置' in html
+    assert '模型浏览' in html
     assert '高级工具' not in html
-    assert '模型浏览' not in html
 
 
 def test_navigation_js_clears_stale_preferences_not_saves():

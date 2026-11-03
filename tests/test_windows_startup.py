@@ -216,8 +216,8 @@ def test_real_start_avoids_old_http_service_and_owns_new_listener(tmp_path,monke
         assert status is not None,log.read_text(encoding='utf8',errors='replace')
         assert 'tables' in status and 'old_service' not in status
         assert str(tmp_path) in status['db_path']
-        # 业务架构已并入对象工作台；带 view=workbench 的旧链接仍返回画布页。
-        assert '找一个对象'.encode() in read('/architecture')
+        # 业务架构已并入 Cube/TI 详情页；旧入口与只读画布工作区仍可访问。
+        assert b'/cubes' in read('/architecture')
         assert b'architecture' in read('/architecture?view=workbench')
         source=json.loads(read('/api/datasource/status'))
         assert source['ready'] and source['type']=='demo'

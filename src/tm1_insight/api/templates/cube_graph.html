@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{% if cube %}{{ cube }} · 数据血缘{% else %}数据血缘{% endif %}{% endblock %}
+
+{% block breadcrumb %}
+<nav class="breadcrumb">
+  <a href="/">工作台</a><span class="sep">/</span>
+  <a href="/cubes">Cube</a>
+  {% if cube %}<span class="sep">/</span><a href="/explorer/cube/{{ cube|urlencode }}">{{ cube }}</a><span class="sep">/</span><span class="current">数据血缘</span>{% endif %}
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">数据血缘</h1>
+    <p class="page-sub">{% if cube %}这个 Cube 的数从哪里来、经过哪些 TI、流向哪里。{% else %}按名称找一个 Cube，查看它的上下游关系。{% endif %}</p>
+  </div>
+  {% if cube %}<div class="study-actions"><a class="btn ghost" href="/explorer/cube/{{ cube|urlencode }}">回到 Cube 详情</a></div>{% endif %}
+</div>
+
+{# 画布本体：DOM、脚本与关系语义保持原样，只有挂载点从独立页面变成这一页。 #}
+<section id="cl-root" data-cube="{{ cube }}" data-model="{{ model }}">
+  {% include '_cube_lineage_body.html' %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2">
+<link rel="stylesheet" href="/static/cube-lineage.css?v=14">
+<script src="/static/vendor/cytoscape.min.js" defer></script>
+<script src="/static/canvas-layout.js?v=7" defer></script>
+<script src="/static/canvas-graph.js?v=lineage-11" defer></script>
+<script src="/static/lineage-view.js?v=8" defer></script>
+<script src="/static/write-point-card.js?v=1" defer></script>
+<script src="/static/cube-lineage.js?v=31" defer></script>
+<script src="/static/lineage-search.js?v=4" defer></script>
+{% endblock %}

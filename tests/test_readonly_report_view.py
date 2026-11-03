@@ -10,8 +10,8 @@ from test_datasource_api import client  # noqa: F401
 
 def test_shared_viewport_css_and_readonly_navigation(client):
     # 空数据环境下不编造对象页；入口、工具页与共享视图样式仍然可用。
-    landing=client.get('/object')
-    assert landing.status_code==200 and 'href="/object"' in landing.text
+    landing=client.get('/cubes')
+    assert landing.status_code==200 and 'href="/cubes"' in landing.text
     workbench=client.get('/architecture?view=workbench')
     assert workbench.status_code==200 and 'data-read-only="true"' in workbench.text
     assert client.get('/static/mermaid-viewer.css').status_code==200

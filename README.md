@@ -41,20 +41,25 @@ Data Row Lineage 1.0 在元数据充分时，将 NativeView 行变量、赋值�
 - 每行一次点击进入该对象自己的页面；搜索、排序、分页、是否含 `}` 系统对象全部编码在 URL 上，刷新与分享都不会丢视图。
 - 「导出资产清单」生成可直接进评审的 Markdown：模型规模、口径、信号说明、排序清单、覆盖缺口与边界说明。
 
-## 对象工作台 — 一个对象，一页答案
+## 三个核心对象 — Cube、TI、Chore
 
-数据血缘与业务架构原本是两套界面、十一个视图，回答的却是同样三个问题：这是谁、谁跟它有关系、这个数怎么来的。现在合并为一页：
+这三类对象问的是三个不同问题，所以各有自己的页面，不合并、不互相替代：
 
-- `/object/{cube|process}/{name}`，五个视图回答五个问题：**概览**（该不该继续看）、**关系图**（上下游）、**数据形成**（写入点与 Rule 怎么算出值）、**实现**（源码与 Rule 全文）、**交接**（可下载的 Markdown 结论）。
-- 每个视图由 URL 决定，切换即导航；刷新、后退、分享都落在同一状态。
-- **数据血缘的画布原样保留**，挂在 `?view=graph`；关系语义、证据链接、只读边界一行没改。
-- 旧链接全部 302 到同一状态：`/graph?cube=X` → `/object/cube/X?view=graph`，`/architecture?name=X&kind=cube` → `/object/cube/X?view=formation`。旧只读画布工作区暂时留在 `?view=workbench`。
-- 对象页只在对象确实存在时生成；查不到就给出查找页并返回 404，不用同名近似对象顶替。
-- 交接页包含规模、口径、事实表、上下游、缺口和证据边界，可直接贴进评审或发给接手的人。
+- **Cube**（`/cubes` → `/explorer/cube/{name}`）：这个数怎么形成。维度结构、数据形成（源头 Cube → 搬运 TI → 本 Cube）、写入点切面、Rule 全文。
+- **TI**（`/processes` → `/explorer/process/{name}`）：这段代码怎么跑。参数、变量、Prolog/Metadata/Data/Epilog 分段源码、调用关系、数据源。
+- **Chore**（`/chores` → `/explorer/chore/{name}`）：它什么时候被调起。调度依据与带序号的执行步骤，缺失与重复标为 PARTIAL / UNKNOWN。
+
+血缘只有一张图，主角是 Cube：`/graph?cube=X` 展示这个 Cube 的上下游画布，关系语义、证据链接、只读边界保持原样。**TI 不再有独立的血缘画布**——它的控制流（调用谁、谁调它、在哪个 Chore 里跑）本来就在 TI 详情页里，再画一张只是重复。
+
+业务架构的流程视图并入 Cube 详情页的「数据形成」；`/architecture?name=…&kind=…` 302 到对应的 Cube 或 TI 详情页，只读画布工作区保留在 `?view=workbench`。
+
+每个 Cube 和 TI 详情页都带一个「导出交接」按钮，生成 `/api/object/{kind}/{name}/handoff.md`：一页 Markdown，写明规模、口径、事实、上下游、缺口与证据边界，可直接发出去。
+
+维度不占导航位置：维度在用到它的 Cube 里读，单独开一个维度浏览器只是又一个孤岛。
 
 分工与阶段路线见 [产品战略修订](docs/PRODUCT_STRATEGY_2026_11.md)，规则边界见 [产品宪法](PRODUCT_CONSTITUTION.md)。
 
-主导航收敛为四项：工作台、资产地图、对象工作台、模型目录。数据血缘与业务架构不再是独立入口，而是对象页的视图；代码生成、影响分析、快照对比、证据包等旧页面仍可按原地址访问，但不再占用导航。本轮根因、验证和限制见 [Architecture Extraction v2 交付记录](docs/DELIVERY_ARCHITECTURE_V2.md)，人读格式见 [完整合成报告](docs/EXAMPLE_ARCHITECTURE_V2.md)。
+主导航为：工作台、资产地图、模型浏览（Cube / TI 进程 / Chore 调度）、数据与设置（前端资产、连接设置）。聚合目录页与对象工作台都已退役；代码生成、影响分析、快照对比、证据包等旧页面仍可按原地址访问，但不再占用导航。本轮根因、验证和限制见 [Architecture Extraction v2 交付记录](docs/DELIVERY_ARCHITECTURE_V2.md)，人读格式见 [完整合成报告](docs/EXAMPLE_ARCHITECTURE_V2.md)。
 
 ### 0.3：把项目知识留成自己的经验
 

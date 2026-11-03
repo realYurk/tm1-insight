@@ -3,7 +3,7 @@
     <div>
       <p class="workspace-eyebrow">TM1 INSIGHT</p>
       <h1>从对象，到它怎么运转</h1>
-      <p class="workspace-intro">搜一个 Cube 或 TI，直接得到它的上下游、数据形成方式、源码和一份可带走的交接页。</p>
+      <p class="workspace-intro">Cube 看这个数怎么形成，TI 看这段代码怎么跑，Chore 看它什么时候被调起。三者各有自己的页面，互不替代。</p>
     </div>
     <a class="workspace-source" href="/settings" data-type="{{ data_source.type }}"><span class="ds-dot"></span>{{ data_source.label }}<span aria-hidden="true"> ↗</span></a>
   </header>
@@ -19,14 +19,14 @@
   </section>
   {% endif %}
 
-  <form class="home-search" action="/object" method="get">
+  <form class="home-search" action="/search" method="get">
     <div class="home-search-kind">
       <label><input type="radio" name="kind" value="cube" checked> Cube</label>
       <label><input type="radio" name="kind" value="process"> TI 进程</label>
     </div>
     <div class="search-box">
       <span aria-hidden="true">⌕</span>
-      <input name="q" id="global-search" type="search" required maxlength="200" placeholder="输入名称或名称的一部分，回车打开对象页" autocomplete="off">
+      <input name="q" id="global-search" type="search" required maxlength="200" placeholder="输入名称或名称的一部分，回车在列表里筛选" autocomplete="off">
       <button class="btn primary">打开</button>
     </div>
   </form>
@@ -35,13 +35,13 @@
     <section aria-labelledby="home-cubes">
       <h2 id="home-cubes">分量最重的 Cube <a href="/atlas?kind=cube">全部 →</a></h2>
       <div class="catalog-list">
-        {% for c in top_cubes %}<a class="catalog-item" href="/object/cube/{{ c.name|urlencode }}"><span>{{ c.name }}</span><b>{{ c.score }}</b></a>{% endfor %}
+        {% for c in top_cubes %}<a class="catalog-item" href="/explorer/cube/{{ c.name|urlencode }}"><span>{{ c.name }}</span><b>{{ c.score }}</b></a>{% endfor %}
       </div>
     </section>
     <section aria-labelledby="home-tis">
       <h2 id="home-tis">分量最重的 TI <a href="/atlas?kind=process">全部 →</a></h2>
       <div class="catalog-list">
-        {% for p in top_processes %}<a class="catalog-item" href="/object/process/{{ p.name|urlencode }}"><span>{{ p.name }}</span><b>{{ p.score }}</b></a>{% endfor %}
+        {% for p in top_processes %}<a class="catalog-item" href="/explorer/process/{{ p.name|urlencode }}"><span>{{ p.name }}</span><b>{{ p.score }}</b></a>{% endfor %}
       </div>
     </section>
   </div>
@@ -63,7 +63,7 @@
   {% if has_data %}
   <footer class="workspace-inventory" aria-label="当前模型目录">
     <div class="workspace-inventory-head"><h2>当前模型</h2><span>{{ '示例数据' if is_demo else '本地元数据' }} · 含系统对象{% if model_file_time %} · 更新于 {{ model_file_time }}{% endif %}</span></div>
-    <dl>{% for key, label, href in [('cubes','Cube','/browse?kind=cube'),('processes','TI','/browse?kind=process'),('dimensions','维度','/browse?kind=dimension'),('chores','Chore','/browse?kind=chore')] %}<div><dt><a href="{{ href }}">{{ label }}</a></dt><dd>{{ counts.get(key,0) }}</dd></div>{% endfor %}</dl>
+    <dl>{% for key, label, href in [('cubes','Cube','/cubes'),('processes','TI','/processes'),('chores','Chore','/chores')] %}<div><dt><a href="{{ href }}">{{ label }}</a></dt><dd>{{ counts.get(key,0) }}</dd></div>{% endfor %}</dl>
   </footer>
   {% endif %}
 </section>

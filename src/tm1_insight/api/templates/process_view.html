@@ -97,7 +97,7 @@
     </details>
     {% endif %}
   </div>
-  <div class="study-actions">{% for target in proc.writes_cubes[:3] %}<a class="btn primary" href="/graph?cube={{ target|urlencode }}&amp;model={{ research_model() }}">查看 {{ target }} 血缘</a>{% else %}<a class="btn primary" href="/graph?model={{ research_model() }}">搜索 Cube 血缘</a>{% endfor %}{% if proc.writes_cubes|length > 3 %}<a class="btn ghost" href="/graph?model={{ research_model() }}">搜索其他 Cube 血缘</a>{% endif %}<a class="btn ghost" href="/calculation?name={{ proc.name|urlencode }}&amp;source={{ search_source }}">计算检查</a><button type="button" class="btn ghost" id="open-process-switcher" aria-haspopup="dialog">搜索 / 切换 TI</button></div>
+  <div class="study-actions">{% for target in proc.writes_cubes[:3] %}<a class="btn primary" href="/graph?cube={{ target|urlencode }}&amp;model={{ research_model() }}">查看 {{ target }} 血缘</a>{% else %}<a class="btn primary" href="/graph?model={{ research_model() }}">搜索 Cube 血缘</a>{% endfor %}{% if proc.writes_cubes|length > 3 %}<a class="btn ghost" href="/graph?model={{ research_model() }}">搜索其他 Cube 血缘</a>{% endif %}<a class="btn ghost" href="/calculation?name={{ proc.name|urlencode }}&amp;source={{ search_source }}">计算检查</a><a class="btn ghost" href="/api/object/process/{{ proc.name|urlencode }}/handoff.md" download title="一页结论：事实、调用方、下游、缺口与口径，可直接发出去">导出交接</a><button type="button" class="btn ghost" id="open-process-switcher" aria-haspopup="dialog">搜索 / 切换 TI</button></div>
 </div>
 {% include "process_switcher.html" %}
 

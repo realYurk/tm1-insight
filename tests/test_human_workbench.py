@@ -179,7 +179,7 @@ def test_rule_source_default_open_before_semantics_and_feeders(client):
 
 
 def test_defaults_routes_exports_rule_summary_and_graph_lazy_slice(client):
-    assert '找一个对象' in client.get('/architecture').text
+    assert client.get('/architecture').url.path=='/cubes'
     response=client.post('/api/architecture/tasks',json={'process':'Load_Sales'})
     task=response.json()['task_id'];base='/api/architecture/tasks/'+task
     deadline=time.monotonic()+12
@@ -192,9 +192,7 @@ def test_defaults_routes_exports_rule_summary_and_graph_lazy_slice(client):
     with zipfile.ZipFile(io.BytesIO(ai.content)) as z:assert 'Manifest.json' in z.namelist()
     graph=client.get('/graph?ti=Load_Sales&depth=1&nodes=10')
     # 旧 TI 血缘入口现在落到对象页，并把调用层数与预算一起带进 URL 状态。
-    assert graph.url.path=='/object/process/Load_Sales'
-    assert graph.url.params.get('view')=='graph'
-    assert graph.url.params.get('depth')=='1' and graph.url.params.get('nodes')=='10'
+    assert graph.url.path=='/explorer/process/Load_Sales'
     assert client.get('/graph?nodes=10000').status_code==422
     for path in ['/workflow','/knowledge','/learn','/experience','/impact','/compare','/codegen']:
         assert client.get(path).status_code==200

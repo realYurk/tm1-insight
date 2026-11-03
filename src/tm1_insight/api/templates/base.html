@@ -43,8 +43,15 @@
 
         {{ nav('/','工作台','home',path == '/') }}
         {{ nav('/atlas','资产地图','atlas',path.startswith('/atlas')) }}
-        {{ nav('/object','对象工作台','graph',path.startswith('/object')) }}
-        {{ nav('/browse','模型目录','cube',path.startswith('/browse')) }}
+
+        {# 三个核心浏览对象：Cube 看数与结构，TI 看实现与控制流，Chore 看调度。
+           导航分组永久展开，不使用折叠。 #}
+        <div class="nav-group-label">模型浏览</div>
+        <div class="nav-group-body">
+          {{ nav('/cubes','Cube','cube',path.startswith('/cubes') or path.startswith('/explorer/cube') or (path == '/graph' and request.query_params.get('cube'))) }}
+          {{ nav('/processes','TI 进程','process',path.startswith('/processes') or path.startswith('/explorer/process')) }}
+          {{ nav('/chores','Chore 调度','chore',path.startswith('/chores') or path.startswith('/explorer/chore')) }}
+        </div>
 
         <div class="nav-group-label">数据与设置</div>
         <div class="nav-group-body">

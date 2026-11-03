@@ -1,0 +1,21 @@
+/* 工作台首页：搜索、分量清单、最近打开。其余页面各有自己的样式表。 */
+.catalog-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.catalog-item { display: flex; justify-content: space-between; gap: 10px; align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; text-decoration: none; color: var(--text); }
+.catalog-item:hover { border-color: var(--accent); }
+.catalog-item span { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-item b { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.home-search { display: flex; flex-direction: column; gap: 10px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; box-shadow: var(--shadow-sm); }
+.home-search-kind { display: flex; gap: 16px; font-size: 13px; color: var(--text-2); }
+.home-search-kind label { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.home-search .search-box { display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px 6px 4px 12px; }
+.home-search .search-box span { color: var(--muted); }
+.home-search .search-box input { flex: 1; border: 0; background: transparent; outline: none; font: inherit; font-size: 14px; color: var(--text); padding: 7px 0; }
+
+.home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+.home-grid h2, #home-recent h2 { font-size: 14px; margin: 0 0 10px; color: var(--text); display: flex; justify-content: space-between; align-items: baseline; }
+.home-grid h2 a, #home-recent h2 a { font-size: 12px; font-weight: 500; color: var(--accent-strong); text-decoration: none; }
+
+.home-mdx { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; }
+.home-mdx > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.home-mdx textarea { width: 100%; box-sizing: border-box; margin-top: 10px; font-family: var(--font-mono); font-size: 12.5px; padding: 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); }

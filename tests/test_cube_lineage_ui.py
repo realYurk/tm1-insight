@@ -97,10 +97,10 @@ def test_legacy_mapping_without_binding_is_unknown():
 
 
 def test_cube_entry_and_legacy_ti_routes(client):
-    # 旧入口落到对象工作台：没有第二套 UI，也不为未知对象编造页面。
-    assert '找一个对象' in client.get('/graph').text
-    assert client.get('/graph?cube=Cube_B').status_code==404
-    assert client.get('/object/cube/Cube_B').status_code==404
+    # 画布页只服务 Cube；TI 不再有第二张重复的血缘画布。
+    assert 'id="cl-name"' in client.get('/graph').text
+    assert 'id="cl-root"' in client.get('/graph?cube=Cube_B').text
+    assert client.get('/graph?ti=Load').url.path=='/explorer/process/Load'
     assert 'data-read-only="true"' in client.get('/architecture?view=workbench').text
     assert client.get('/codegen').status_code==200
 
@@ -296,7 +296,7 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
   assert.match(get('cl-summary').children[0].textContent,/^Cube_B /);
   assert.equal(get('cl-summary').children[1].href,'/explorer/cube/Cube_B');
   get('cl-export').onclick();assert.match(await blob.text(),/入口：Cube\\_B/);
-  assert.equal(location,'/object/cube/Cube_B?view=graph&model=synthetic');
+  assert.equal(location,'/graph?cube=Cube_B&model=synthetic');
   const completed=get('cl-status').textContent;
   old.reject(new Error('obsolete request failed'));await tick();
   assert.equal(get('cl-status').textContent,completed);

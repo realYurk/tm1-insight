@@ -68,8 +68,7 @@
   }
   window.TM1CubeLineage={slices,writeRows,relations,coverage,markdownReport,operationLabel:operation=>operations[operation]||operation};
   const $=id=>document.getElementById(id),root=$('cl-root');if(!root)return;
-  const objectBase=()=>root.dataset.objectBase||'/object/cube';
-  const objectUrl=(name,extra)=>{const p=new URLSearchParams();p.set('view','graph');Object.entries(extra||{}).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='')p.set(k,v);});return objectBase()+'/'+encodeURIComponent(name)+'?'+p;};
+  const objectUrl=(name,extra)=>{const p=new URLSearchParams({cube:name});Object.entries(extra||{}).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='')p.set(k,v);});return '/graph?'+p;};
   const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(cls)n.className=cls;return n;};
   const link=(text,url)=>{const a=el('a',text);a.href=url;return a;};
   let snapshot='',resultName='',generation=0,abort=null,result=null,rows=[],viewer=null,inspected=new Map(),searchTimer,externalInputs=[],indexedWriters=[];
@@ -257,7 +256,7 @@
   $('cl-more').onclick=()=>{showMore=!showMore;viewer?.resetUserView();draw();};
   $('cl-close-inspector').onclick=()=>{$('cl-inspector').hidden=true;detailAbort?.abort();viewer?.resize?.();};
   $('cl-mermaid').onclick=()=>{if(!result)return;const code=window.TM1LineageView.mermaid(window.TM1LineageView.flowModel(result,rows,resultName,externalInputs,indexedWriters,graphOptions())).code;const a=el('a');a.href=URL.createObjectURL(new Blob([code],{type:'text/plain;charset=utf-8'}));a.download='Cube-Lineage.mmd';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
-  $('lineage-clear').addEventListener('click',()=>{++generation;abort?.abort();detailAbort?.abort();stopReview();$('fa-cancel')?.click();viewer?.destroy();viewer=null;result=null;externalInputs=[];$('cl-relations').hidden=true;$('cl-status').textContent='';$('cl-name').value='';history.replaceState(null,'','/object?kind=cube');});
+  $('lineage-clear').addEventListener('click',()=>{++generation;abort?.abort();detailAbort?.abort();stopReview();$('fa-cancel')?.click();viewer?.destroy();viewer=null;result=null;externalInputs=[];$('cl-relations').hidden=true;$('cl-status').textContent='';$('cl-name').value='';history.replaceState(null,'','/graph');});
   $('cl-cancel').onclick=()=>{++generation;abort?.abort();detailAbort?.abort();$('cl-status').textContent='已取消本次请求；未保存任何研究或设计资产。';};
   if(!$('cl-search').dataset.lineageSearch)$('cl-name').oninput=()=>{clearTimeout(searchTimer);const q=$('cl-name').value.trim();if(!q){$('cl-options').replaceChildren();return;}searchTimer=setTimeout(async()=>{try{const r=await fetch('/api/workbench/objects?'+new URLSearchParams({q,type:'cube',limit:20}));if(!r.ok)return;const data=await r.json();if($('cl-name').value.trim()===q)$('cl-options').replaceChildren(...data.objects.map(n=>new Option(n.name,n.name)));}catch(_){}},200);};
   $('cl-diagram').ontoggle=draw;

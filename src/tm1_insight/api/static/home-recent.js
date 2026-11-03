@@ -11,7 +11,7 @@
   items.forEach(function (item) {
     var a = document.createElement('a');
     a.className = 'catalog-item';
-    a.href = '/object/' + item.kind + '/' + encodeURIComponent(item.name);
+    a.href = '/explorer/' + item.kind + '/' + encodeURIComponent(item.name);
     var name = document.createElement('span');
     name.textContent = item.name;
     var kind = document.createElement('b');

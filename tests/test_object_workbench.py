@@ -1,19 +1,18 @@
-"""Contracts for the object workbench: one object, one URL, five answers."""
+"""Retired object-workbench routes, and the one thing that survived from it.
+
+The object page duplicated what the Cube and TI detail pages already answer in
+richer form, so it is gone. What remains is the take-away Markdown: each detail
+page links to it, and every retired address still lands on a real page.
+"""
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 
 from test_architecture import con  # noqa: F401  synthetic model fixture
 from test_datasource_api import client  # noqa: F401  isolated app client
-from test_datasource_api import client  # noqa: F401  isolated app client
 from tm1_insight import object_overview
-
-
-@pytest.fixture(autouse=True)
-def _relations(con):
-    """The architecture fixture defines code, not the indexed relation tables."""
-    con.execute("INSERT INTO process_writes_cube VALUES ('Load','Cube_B')")
-    con.execute("INSERT INTO process_reads_cube VALUES ('Load','Cube_A')")
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +41,8 @@ def page_client(client, con, monkeypatch):
     monkeypatch.setattr(object_pages, "_connect", lambda: _Shared(con))
     return client
 
+
+# ---- 聚合层：仍然是交接页的唯一事实来源 ----
 
 def test_cube_overview_answers_without_guessing(con):
     item = object_overview.build(con, 'cube', 'cube_b')
@@ -77,60 +78,7 @@ def test_handoff_is_readable_and_bounded(con):
     assert '\n## 上下游' in text
 
 
-def test_object_page_tabs_are_url_state(page_client):
-    import re
-    base = '/object/cube/Cube_B'
-    overview = page_client.get(base)
-    assert overview.status_code == 200
-    tabs = [t.strip() for t in re.findall(r'object-tab[^>]*>([^<]+)', overview.text) if t.strip()]
-    assert tabs == ['概览', '关系图', '数据形成', '实现', '交接']
-    assert 'object-facts' in overview.text
-
-    graph = page_client.get(base + '?view=graph')
-    assert 'id="cl-root"' in graph.text and 'data-object-base="/object/cube"' in graph.text
-    assert 'id="cl-name"' in graph.text and 'value="Cube_B"' in graph.text
-
-    formation = page_client.get(base + '?view=formation')
-    assert 'id="fa-root"' in formation.text and 'data-formation-autostart="true"' in formation.text
-
-    code = page_client.get(base + '?view=code')
-    assert 'object-code' in code.text or '没有 Rule 文本' in code.text
-
-    handoff = page_client.get(base + '?view=handoff')
-    assert 'object-handoff-text' in handoff.text and '## 口径' in handoff.text
-
-    # Unknown view falls back to the default answer instead of an empty shell.
-    fallback = page_client.get(base + '?view=nope')
-    assert 'object-facts' in fallback.text and 'fa-root' not in fallback.text
-
-
-def test_process_object_page_has_no_formation_tab(page_client):
-    import re
-    html = page_client.get('/object/process/Load').text
-    assert [t.strip() for t in re.findall(r'object-tab[^>]*>([^<]+)', html) if t.strip()] == ['概览', '调用关系', '实现', '交接']
-
-
-def test_legacy_routes_land_on_the_same_state(page_client):
-    graph = page_client.get('/graph?cube=Cube_B')
-    assert graph.status_code == 200
-    assert graph.url.path == '/object/cube/Cube_B'
-    assert graph.url.params.get('view') == 'graph'
-
-    arch = page_client.get('/architecture?name=Cube_B&kind=cube')
-    assert arch.url.path == '/object/cube/Cube_B' and arch.url.params.get('view') == 'formation'
-
-    process = page_client.get('/architecture?name=Load&kind=process')
-    assert process.url.path == '/object/process/Load'
-
-    landing = page_client.get('/graph')
-    assert landing.url.path == '/object' and '找一个对象' in landing.text
-
-
-def test_unknown_object_returns_a_search_page_not_a_fake_page(page_client):
-    response = page_client.get('/object/cube/No%20Such%20Cube')
-    assert response.status_code == 404
-    assert '没有这个对象' in response.text
-
+# ---- 交接导出：留在真实页面上，不再单独占一页 ----
 
 def test_object_api_and_markdown_export(page_client):
     data = page_client.get('/api/object/cube/Cube_B').json()
@@ -142,8 +90,55 @@ def test_object_api_and_markdown_export(page_client):
     assert md.text.startswith('# Cube · Cube_B')
 
 
-def test_catalog_single_entry_for_four_object_kinds(page_client):
-    for kind in ('cube', 'process', 'dimension', 'chore'):
-        response = page_client.get('/browse?kind=' + kind)
-        assert response.status_code == 200
-        assert 'catalog-list' in response.text
+def test_detail_pages_offer_the_handoff_export():
+    """导出入口长在真实详情页上，所以用模板契约而不是合成数据来验证。"""
+    root = Path(__file__).resolve().parents[1] / 'src/tm1_insight/api/templates'
+    cube = (root / '_cube_detail.html').read_text(encoding='utf-8')
+    assert '/api/object/cube/' in cube and '/handoff.md' in cube and '导出交接' in cube
+    ti = (root / 'process_view.html').read_text(encoding='utf-8')
+    assert '/api/object/process/' in ti and '/handoff.md' in ti and '导出交接' in ti
+
+
+# ---- 退役路由：一律落到真实页面，不留白屏和死链 ----
+
+def test_retired_object_routes_land_on_real_pages(page_client):
+    graph = page_client.get('/object/cube/Cube_B?view=graph')
+    assert graph.url.path == '/graph' and graph.url.params.get('cube') == 'Cube_B'
+    assert 'cl-root' in graph.text
+
+    detail = page_client.get('/object/cube/Cube_B')
+    assert detail.url.path == '/explorer/cube/Cube_B'
+
+    ti = page_client.get('/object/process/Load')
+    assert ti.url.path == '/explorer/process/Load'
+
+    assert page_client.get('/object').url.path == '/cubes'
+    for kind, target in (('cube', '/cubes'), ('process', '/processes'), ('chore', '/chores')):
+        assert page_client.get('/browse?kind=' + kind).url.path == target
+
+
+def test_lineage_has_one_home_and_ti_has_none(page_client):
+    """数据流的主线只有 Cube；TI 的重复画布已经取消，落到它自己的页面。"""
+    cube = page_client.get('/graph?cube=Cube_B')
+    assert cube.status_code == 200 and 'id="cl-root"' in cube.text
+
+    ti = page_client.get('/graph?ti=Load')
+    assert ti.url.path == '/explorer/process/Load'
+
+    empty = page_client.get('/graph')
+    assert empty.status_code == 200 and 'id="cl-name"' in empty.text
+
+
+def test_architecture_folds_back_into_the_detail_pages(page_client):
+    cube = page_client.get('/architecture?name=Cube_B&kind=cube')
+    assert cube.url.path == '/explorer/cube/Cube_B'
+
+    ti = page_client.get('/architecture?name=Load&kind=process')
+    assert ti.url.path == '/explorer/process/Load'
+
+    assert page_client.get('/architecture').url.path == '/cubes'
+
+
+def test_search_box_lands_on_the_matching_list(page_client):
+    assert page_client.get('/search?q=cube&kind=cube').url.path == '/cubes'
+    assert page_client.get('/search?q=load&kind=process').url.params.get('q') == 'load'

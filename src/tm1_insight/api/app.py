@@ -919,17 +919,20 @@ def invocation_export(name: str = Query(..., min_length=1, max_length=1000), cal
                                                       'Cache-Control':'no-store'})
 
 
-# ---- 页面：旧血缘入口 → 对象页（同一状态，不保留第二套 UI） ----
+# ---- 页面：Cube 数据血缘画布 ----
+# 数据流只有一条主线，主角是 Cube。TI 不再有第二张"血缘"画布：它的控制流
+# （调用谁、谁调它、在哪个 Chore 里跑）在 TI 详情页的调用关系里，重复的写入
+# 切面只在 Cube 这一侧讲一次。
 @app.get("/graph", response_class=HTMLResponse)
-def graph(request: Request, ti: Optional[str] = Query(None,max_length=1000), depth:int=Query(2,ge=0,le=4), nodes:int=Query(60,ge=1,le=120), cube: Optional[str] = Query(None,max_length=1000), model: str = Query('',max_length=64)):
+def graph(request: Request, ti: Optional[str] = Query(None, max_length=1000), cube: Optional[str] = Query(None, max_length=1000),
+          model: str = Query('', max_length=64), depth: int = Query(2, ge=0, le=4), nodes: int = Query(60, ge=1, le=120)):
     from urllib.parse import quote
     from fastapi.responses import RedirectResponse
-    suffix = f'&model={quote(model)}' if model else ''
-    if cube:
-        return RedirectResponse(f'/object/cube/{quote(cube)}?view=graph{suffix}', status_code=302)
-    if ti:
-        return RedirectResponse(f'/object/process/{quote(ti)}?view=graph&depth={depth}&nodes={nodes}{suffix}', status_code=302)
-    return RedirectResponse('/object', status_code=302)
+    if ti and not cube:
+        # TI 没有独立的血缘画布：控制流在它自己的详情页里，模型身份一并带过去。
+        suffix = f'?model={quote(model)}' if model else ''
+        return RedirectResponse(f'/explorer/process/{quote(ti)}{suffix}', status_code=302)
+    return templates.TemplateResponse(request, 'cube_graph.html', {'cube': cube or '', 'model': model})
 
 
 # ---- 页面：Impact（依赖 / 影响分析，复用 impact 引擎） ----

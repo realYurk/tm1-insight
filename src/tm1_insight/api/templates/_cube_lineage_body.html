@@ -1,5 +1,5 @@
 {% set lineage_kind = 'cube' %}
-<form id="cl-search" class="object-swap" data-lineage-search="cube" data-model="{{ model|default('') }}">
+<form id="cl-search" class="cl-search-row" data-lineage-search="cube" data-model="{{ model|default('') }}">
   <div class="lineage-search-field">
     <label for="cl-name">换一个 Cube</label>
     <input id="cl-name" class="input" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lineage-search-results" value="{{ cube }}" required maxlength="1000" autocomplete="off" placeholder="按名称或关键词查找 Cube">

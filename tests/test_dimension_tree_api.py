@@ -81,9 +81,10 @@ def test_navigation_reorganization(client):
     text = r.text
     # 工作台 first
     assert '>工作台<' in text
-    # 一级入口收敛为四个：工作台、资产地图、对象工作台、模型目录
-    assert '资产地图' in text and '对象工作台' in text and '模型目录' in text
-    assert '/atlas' in text and '/object' in text and '/browse' in text
+    # 三个核心对象回到各自入口；维度不再占导航位置。
+    assert '资产地图' in text and 'Cube' in text and 'TI 进程' in text and 'Chore 调度' in text
+    assert '/atlas' in text and '/cubes' in text and '/processes' in text and '/chores' in text
+    assert 'href="/object"' not in text and 'href="/browse"' not in text
     # 数据血缘与业务架构合并进对象页，不再各占一个一级入口
     assert '数据血缘' not in text and '业务架构' not in text
     assert '高级工具' not in text and '/codegen' not in text
