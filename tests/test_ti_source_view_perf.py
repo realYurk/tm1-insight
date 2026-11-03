@@ -233,6 +233,13 @@ def test_first_paint_renders_source_without_call_tree(client):
     assert "response.text().then" not in html
 
 
+def test_source_section_is_selected_before_variables(client):
+    html = client.get('/explorer/process/Wide.Hub').text
+    assert 'class="tab active" data-tab="prolog" role="tab" aria-selected="true"' in html
+    assert 'class="tab-pane active" data-pane="prolog"' in html
+    assert 'data-tab="vars"' in html
+
+
 def test_source_page_skips_unused_full_variable_resolution(client, monkeypatch):
     original = queries.get_process
     options = []

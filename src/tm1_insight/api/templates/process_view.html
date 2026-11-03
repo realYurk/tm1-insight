@@ -14,9 +14,9 @@
 {% for key, label in [('prolog','Prolog'), ('metadata','Metadata'), ('data','Data'), ('epilog','Epilog')] %}
 {% if proc.section_lines[key] > 0 %}{% set _ = code_panes.append((key, label)) %}{% endif %}
 {% endfor %}
-{% set default_tab = ('params' if proc.parameters
-                      else ('vars' if proc.semantic_vars
-                            else (code_panes[0][0] if code_panes else ''))) %}
+{% set default_tab = (code_panes[0][0] if code_panes
+                      else ('params' if proc.parameters
+                            else ('vars' if proc.semantic_vars else ''))) %}
 
 {% set cf = proc.call_facts %}
 <div class="page-head process-page-head">
