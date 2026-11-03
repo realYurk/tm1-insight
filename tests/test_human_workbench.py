@@ -12,7 +12,7 @@ from tm1_insight import architecture
 from tm1_insight.config import Settings
 from tm1_insight.human_workbench import flow,rule_page
 from tm1_insight.functional_flow import markdown,mermaid
-from tm1_insight.workbench_export import package,stream,redact_source
+from tm1_insight.workbench_export import package,stream,redact_source,verify_package
 from tm1_insight.store.queries import process_graph_rich
 from test_architecture import con, fixture  # noqa: F401
 from test_datasource_api import client  # noqa: F401
@@ -93,6 +93,29 @@ def test_package_missing_dimension_metadata_is_not_complete(con, artifact):
         assert not dim['summary']['edges']['complete']
         assert dim['summary']['attributes']['recorded'] and dim['summary']['attributes']['complete']
         assert not dim['summary']['elements']['complete']
+
+
+def test_analysis_package_verification_rejects_tampering(con, artifact, tmp_path):
+    original=b''.join(stream(package(artifact,con)))
+    path=tmp_path/'analysis.zip';path.write_bytes(original)
+    assert verify_package(path)['files_checked'] > 0
+    from typer.testing import CliRunner
+    from tm1_insight.cli import app
+    result=CliRunner().invoke(app,['verify-analysis-package',str(path)])
+    assert result.exit_code==0 and '校验通过' in result.output
+    with zipfile.ZipFile(io.BytesIO(original)) as src:
+        files={n:src.read(n) for n in src.namelist()}
+    files['BusinessFlow.md'] += b'tampered'
+    with zipfile.ZipFile(path,'w') as z:
+        for name,data in files.items():z.writestr(name,data)
+    with pytest.raises(ValueError,match='不匹配'):verify_package(path)
+    assert CliRunner().invoke(app,['verify-analysis-package',str(path)]).exit_code==1
+    del files['BusinessFlow.md']
+    with zipfile.ZipFile(path,'w') as z:
+        for name,data in files.items():z.writestr(name,data)
+    with pytest.raises(ValueError):verify_package(path)
+    with zipfile.ZipFile(path,'w') as z:z.writestr('../escape','x')
+    with pytest.raises(ValueError,match='不安全路径'):verify_package(path)
 
 
 def test_ai_package_redacts_credentials_without_destroying_source_locations(con,tmp_path):

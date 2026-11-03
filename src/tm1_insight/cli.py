@@ -57,6 +57,19 @@ app = typer.Typer(
 )
 
 
+@app.command('verify-analysis-package')
+def verify_analysis_package(bundle: Path = typer.Argument(..., help='待校验的本地分析 ZIP')):
+    """只读校验分析包清单和文件哈希，不导入或解压。"""
+    from tm1_insight.workbench_export import verify_package
+    try:
+        result = verify_package(bundle)
+    except ValueError as exc:
+        typer.echo('校验失败：' + str(exc), err=True)
+        raise typer.Exit(1) from None
+    typer.echo(f"校验通过：{result['files_checked']} 个文件，遗漏项 {result['omissions']}。")
+    typer.echo('仅检查包内一致性，不证明来源可信、资料完整或运行结果。')
+
+
 @app.command('collect-process-metadata')
 def collect_process_metadata(process: list[str] = typer.Option(..., '--process'),
                              output: Path = typer.Option(..., '--output'),
