@@ -179,7 +179,8 @@ def test_rule_source_default_open_before_semantics_and_feeders(client):
 
 
 def test_defaults_routes_exports_rule_summary_and_graph_lazy_slice(client):
-    assert client.get('/architecture').url.path=='/cubes'
+    landing=client.get('/architecture')
+    assert landing.status_code==200 and '业务架构' in landing.text  # 模型级视图，不再重定向
     response=client.post('/api/architecture/tasks',json={'process':'Load_Sales'})
     task=response.json()['task_id'];base='/api/architecture/tasks/'+task
     deadline=time.monotonic()+12

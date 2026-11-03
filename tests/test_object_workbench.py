@@ -35,10 +35,30 @@ class _Shared:
         pass
 
 
+class _Store:
+    """把 /graph 等服务端页面接到夹具库上；其余属性（settings / db_path）照旧代理。"""
+
+    def __init__(self, base, con):
+        self._base = base
+        self._con = con
+
+    def __getattr__(self, name):
+        return getattr(self._base, name)
+
+    def connect(self, *args, **kwargs):
+        return _Shared(self._con)
+
+
 @pytest.fixture
 def page_client(client, con, monkeypatch):
+    import importlib
+
     from tm1_insight.api import object_pages
+    # 包级 `app` 是 FastAPI 实例，路由所在模块要按模块名取。
+    app_module = importlib.import_module('tm1_insight.api.app')
+    base = app_module._store()
     monkeypatch.setattr(object_pages, "_connect", lambda: _Shared(con))
+    monkeypatch.setattr(app_module, "_store", lambda: _Store(base, con))
     return client
 
 
@@ -121,12 +141,21 @@ def test_lineage_has_one_home_and_ti_has_none(page_client):
     """数据流的主线只有 Cube；TI 的重复画布已经取消，落到它自己的页面。"""
     cube = page_client.get('/graph?cube=Cube_B')
     assert cube.status_code == 200 and 'id="cl-root"' in cube.text
+    # 事实先于画布：写入 / 读取 / Rule 计数由服务端直出，不等前端算。
+    assert '写入 TI' in cube.text and '读取 TI' in cube.text
+
+    # 查不到的对象不留一张空画布，也不留一句「没有」配半屏空白。
+    unknown = page_client.get('/graph?cube=No_Such_Cube')
+    assert unknown.status_code == 200 and 'id="cl-root"' not in unknown.text
+    assert '没找到' in unknown.text and 'ln-start-search' in unknown.text
 
     ti = page_client.get('/graph?ti=Load')
     assert ti.url.path == '/explorer/process/Load'
 
     empty = page_client.get('/graph')
-    assert empty.status_code == 200 and 'id="cl-name"' in empty.text
+    assert empty.status_code == 200
+    # 没有指定对象时给可选起点，而不是一个空搜索框。
+    assert 'ln-start-search' in empty.text and 'id="cl-name"' not in empty.text
 
 
 def test_architecture_folds_back_into_the_detail_pages(page_client):
@@ -136,7 +165,8 @@ def test_architecture_folds_back_into_the_detail_pages(page_client):
     ti = page_client.get('/architecture?name=Load&kind=process')
     assert ti.url.path == '/explorer/process/Load'
 
-    assert page_client.get('/architecture').url.path == '/cubes'
+    landing = page_client.get('/architecture')
+    assert landing.status_code == 200 and 'ln-facts' in landing.text
 
 
 def test_search_box_lands_on_the_matching_list(page_client):

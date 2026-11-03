@@ -85,8 +85,9 @@ def test_navigation_reorganization(client):
     assert '资产地图' in text and 'Cube' in text and 'TI 进程' in text and 'Chore 调度' in text
     assert '/atlas' in text and '/cubes' in text and '/processes' in text and '/chores' in text
     assert 'href="/object"' not in text and 'href="/browse"' not in text
-    # 数据血缘与业务架构合并进对象页，不再各占一个一级入口
-    assert '数据血缘' not in text and '业务架构' not in text
+    # 业务架构回到导航，是模型级视图；数据血缘仍只作为 Cube 的一部分。
+    assert '业务架构' in text and 'href="/architecture"' in text
+    assert '数据血缘' not in text
     assert '高级工具' not in text and '/codegen' not in text
     assert '数据与设置' in text and '/settings' in text
 

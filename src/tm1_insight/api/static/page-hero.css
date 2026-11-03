@@ -1,0 +1,21 @@
+/* 页面级结论头：先给一句话事实，再给画布/清单。
+   血缘页和业务架构页共用；只依赖主题变量，不绑定具体页面。 */
+.sr-only {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.ln-head {display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin:0 0 14px}
+.ln-head-main {min-width:0;flex:1 1 420px}
+.ln-kicker {margin:0;font-size:11.5px;font-weight:700;letter-spacing:.14em;color:var(--muted)}
+.ln-title {margin:4px 0 6px;font-size:26px;line-height:1.25;font-weight:650;letter-spacing:-.01em;color:var(--text);overflow-wrap:anywhere}
+.ln-verdict {margin:0;max-width:860px;font-size:14px;line-height:1.65;color:var(--text-2)}
+.ln-head-side {margin-left:auto;display:flex;gap:8px;align-items:center}
+
+.ln-facts {display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px;padding:0;list-style:none}
+.ln-facts li {display:flex;align-items:baseline;gap:7px;padding:8px 13px;border:1px solid var(--border);border-radius:11px;background:var(--card);box-shadow:var(--shadow-sm)}
+.ln-facts b {font-size:17px;font-weight:650;font-variant-numeric:tabular-nums;color:var(--text)}
+.ln-facts span {font-size:12px;color:var(--muted)}
+.ln-facts .is-quiet {border-style:dashed;box-shadow:none;background:transparent}
+.ln-facts .is-quiet b {color:var(--text-2)}
+
+@media (max-width:640px){
+  .ln-title {font-size:22px}
+  .ln-facts li {padding:7px 11px}
+}

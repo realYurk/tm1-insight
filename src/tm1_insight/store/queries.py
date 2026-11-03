@@ -1173,6 +1173,141 @@ def cube_lineage(con: duckdb.DuckDBPyConnection, cube: str) -> dict:
     }
 
 
+def lineage_facts(con: duckdb.DuckDBPyConnection, cube: str) -> dict:
+    """血缘页的服务端事实：只汇总已索引的写入 / 读取 / Rule 引用，不重新解析源码。
+
+    存在的意义是「先给结论，再给画布」：画布要等前端算完，结论不该等。
+    对象名一律按大小写无关匹配，与血缘图的身份规则保持一致；Rule 引用自身
+    （DB('同名 Cube',...)）单独计数，它不是跨对象关系。
+    """
+    row = con.execute(
+        "SELECT name, coalesce(rules, '') FROM cubes WHERE lower(name) = lower(?) "
+        "ORDER BY (name = ?) DESC, name LIMIT 1",
+        [cube, cube],
+    ).fetchone()
+    if not row:
+        return {"found": False, "cube": cube, "display": cube, "dims": 0,
+                "writers": 0, "readers": 0, "has_rule": False,
+                "rule_self_refs": 0, "rule_sources": [], "verdict": "", "reason": "",
+                "next_step": "当前本地模型里没有这个对象，可能不在本次采集范围内。"}
+
+    display, code = row[0], row[1] or ""
+
+    def _count(sql: str) -> int:
+        try:
+            return int(con.execute(sql, [cube]).fetchone()[0] or 0)
+        except Exception:  # noqa: BLE001 — 旧库缺表不应让页面报错
+            return 0
+
+    dims = _count("SELECT count(*) FROM cube_has_dimension WHERE lower(cube_name) = lower(?)")
+    writers = _count("SELECT count(DISTINCT process_name) FROM process_writes_cube "
+                     "WHERE lower(cube_name) = lower(?)")
+    readers = _count("SELECT count(DISTINCT process_name) FROM process_reads_cube "
+                     "WHERE lower(cube_name) = lower(?)")
+
+    rule_sources: list[str] = []
+    rule_self = 0
+    try:
+        rows = con.execute(
+            "SELECT DISTINCT source_cube FROM rule_references_cube "
+            "WHERE lower(cube_name) = lower(?) AND coalesce(source_cube,'') <> ''",
+            [cube],
+        ).fetchall()
+        for (src,) in rows:
+            if str(src).lower() == str(display).lower():
+                rule_self += 1
+            else:
+                rule_sources.append(str(src))
+    except Exception:  # noqa: BLE001
+        pass
+    rule_sources = sorted(set(rule_sources))
+
+    has_rule = bool(code.strip())
+    if writers and (rule_sources or rule_self):
+        verdict = f"由 {writers} 个 TI 写入，同时有自己的 Rule 计算。"
+    elif writers:
+        verdict = f"数据全部由 {writers} 个 TI 写入，没有 Rule 计算。"
+    elif rule_sources:
+        verdict = f"没有 TI 写入，由 Rule 从 {len(rule_sources)} 个其它 Cube 计算得到。"
+    elif has_rule and rule_self:
+        verdict = "没有 TI 写入；Rule 只引用自己，属于在 Cube 内部滚动计算。"
+    elif has_rule:
+        verdict = "没有 TI 写入，Rule 也不引用其它 Cube：计算只用本 Cube 的其它坐标。"
+    else:
+        verdict = "没有发现写入方，也没有 Rule：数据可能由前端录入或人工维护。"
+
+    if writers:
+        reason = (f"写入它的 {writers} 个 TI 没有从其它 Cube 取值"
+                  "（数据来自文件、数据库或参数），所以没有 Cube 之间的连线。")
+    elif rule_sources:
+        reason = f"它的 Rule 引用了 {len(rule_sources)} 个 Cube；若画布为空，说明本次范围内没有展开到这些引用。"
+    elif rule_self:
+        reason = "它的 Rule 只引用自身，属于 Cube 内部的滚动计算，不构成跨对象依赖。"
+    elif has_rule:
+        reason = "它的 Rule 只用到本 Cube 的其它坐标，不引用别的 Cube。"
+    else:
+        reason = "它既没有被 TI 写入，也没有 Rule，数据由前端录入或人工维护。"
+
+    if readers:
+        next_step = f"有 {readers} 个 TI 读取这个 Cube。"
+    else:
+        next_step = "没有 TI 读取这个 Cube：它可能是这条链的终点。"
+
+    return {
+        "found": True,
+        "cube": cube,
+        "display": display,
+        "dims": dims,
+        "writers": writers,
+        "readers": readers,
+        "has_rule": has_rule,
+        "rule_self_refs": rule_self,
+        "rule_sources": rule_sources,
+        "verdict": verdict,
+        "reason": reason,
+        "next_step": next_step,
+    }
+
+
+def lineage_starters(con: duckdb.DuckDBPyConnection, limit: int = 6) -> list[dict]:
+    """血缘页在没有指定 Cube 时给出的起点：写入 + 读取最多的对象。
+
+    只用于「从这里开始」，不是资产评级；排序与说明都在界面上写清楚。
+    """
+    try:
+        rows = con.execute(
+            """
+            WITH w AS (
+              SELECT lower(cube_name) AS key, count(DISTINCT process_name) AS n
+              FROM process_writes_cube GROUP BY 1
+            ), r AS (
+              SELECT lower(cube_name) AS key, count(DISTINCT process_name) AS n
+              FROM process_reads_cube GROUP BY 1
+            )
+            SELECT c.name, coalesce(w.n, 0), coalesce(r.n, 0)
+            FROM cubes c
+            LEFT JOIN w ON w.key = lower(c.name)
+            LEFT JOIN r ON r.key = lower(c.name)
+            WHERE coalesce(w.n, 0) + coalesce(r.n, 0) > 0
+              AND c.name NOT LIKE '}%'   -- TM1 系统对象（} 前缀）不是业务起点
+            GROUP BY c.name, w.n, r.n
+            ORDER BY (coalesce(w.n, 0) + coalesce(r.n, 0)) DESC, c.name
+            LIMIT ?
+            """,
+            [max(1, int(limit))],
+        ).fetchall()
+    except Exception:  # noqa: BLE001
+        return []
+    out, seen = [], set()
+    for name, writers, readers in rows:
+        key = str(name).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": name, "writers": int(writers or 0), "readers": int(readers or 0)})
+    return out
+
+
 def search_processes(con: duckdb.DuckDBPyConnection, keyword: str, limit: int = 50) -> list[str]:
     """按关键字模糊匹配 TI 进程名/代码。"""
     like = f"%{keyword}%"

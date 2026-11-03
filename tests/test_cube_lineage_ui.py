@@ -50,7 +50,11 @@ def test_cube_projection_multiple_ti_rule_and_self_loop(con):
     candidate=next(r for r in rows if r['source_name']=='Cube_A' and r['target_name']=='Cube_B')
     assert set(candidate['process_names'])=={'Load','Unbound','Multiple'}
     assert candidate['status']=='CANDIDATE' and not candidate['runtime_verified']
-    assert any(r['source_name']==r['target_name']=='Cube_B' for r in rows)
+    # 自引用（Rule 里 DB('自己',…)）是 Cube 内部的滚动计算，不是跨对象关系：
+    # 它不能进关系表，否则每个 Cube 都会"看起来"有一条上游。
+    assert not any(r['source_name']==r['target_name'] for r in rows)
+    self_refs=js(result,'window.TM1CubeLineage.selfReferences(data)')
+    assert [r['name'] for r in self_refs]==['Cube_B']
     assert any(r['kind']=='RULE_REFERENCE' and r['target_name']=='RuleOutput' for r in rows)
     assert not any(r['source_name']=='Unrelated' or r['target_name']=='Unrelated' for r in rows)
     assert all(n['type']=='cube' for n in result['nodes'])
@@ -98,10 +102,16 @@ def test_legacy_mapping_without_binding_is_unknown():
 
 def test_cube_entry_and_legacy_ti_routes(client):
     # 画布页只服务 Cube；TI 不再有第二张重复的血缘画布。
-    assert 'id="cl-name"' in client.get('/graph').text
-    assert 'id="cl-root"' in client.get('/graph?cube=Cube_B').text
+    landing=client.get('/graph')
+    assert 'ln-start-search' in landing.text and 'id="cl-root"' not in landing.text
+    # 这个库是空的：查不到的 Cube 不画一张空画布，直接退回选择态并说明没找到。
+    # 「Cube 存在 → 画布」走 test_object_workbench.test_lineage_has_one_home_and_ti_has_none。
+    unknown=client.get('/graph?cube=Cube_B')
+    assert unknown.status_code==200 and 'id="cl-root"' not in unknown.text
+    assert '没找到' in unknown.text and 'ln-start-search' in unknown.text
     assert client.get('/graph?ti=Load').url.path=='/explorer/process/Load'
-    assert 'data-read-only="true"' in client.get('/architecture?view=workbench').text
+    # 业务架构是一页模型事实，不是第二套画布。
+    assert client.get('/architecture').status_code==200
     assert client.get('/codegen').status_code==200
 
 
@@ -270,8 +280,12 @@ const assert=require('node:assert/strict'),vm=require('node:vm');
 class Element {
   constructor(){this.children=[];this.dataset={};this.value='';this.textContent='';this.disabled=false;this.attrs={};this.classList={add(){},remove(){}};}
   append(...nodes){this.children.push(...nodes);}
+  prepend(...nodes){this.children.unshift(...nodes);}
+  remove(){this.removed=true;}
+  querySelector(){return null;}
   replaceChildren(...nodes){this.children=nodes;}
   setAttribute(name,value){this.attrs[name]=value;}
+  removeAttribute(name){delete this.attrs[name];}
   addEventListener(name,handler){this['on'+name]=handler;}
   scrollIntoView(){this.scrolled=true;}
   focus(){this.focused=true;}
@@ -293,8 +307,9 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
   assert.equal(old.options.signal.aborted,true);
   // Editing the search field is not a new query or a new evidence scope.
   get('cl-name').value='Not_Queried';done(current,'Cube_B');await tick();
-  assert.match(get('cl-summary').children[0].textContent,/^Cube_B /);
-  assert.equal(get('cl-summary').children[1].href,'/explorer/cube/Cube_B');
+  // 没有任何关系时不留空画布：结论卡出现，关系区收起。
+  assert.equal(get('cl-empty').hidden,false);
+  assert.equal(get('cl-relations').hidden,true);
   get('cl-export').onclick();assert.match(await blob.text(),/入口：Cube\\_B/);
   assert.equal(location,'/graph?cube=Cube_B&model=synthetic');
   const completed=get('cl-status').textContent;
@@ -302,12 +317,16 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
   assert.equal(get('cl-status').textContent,completed);
   const staleSuccess=start('Cube_A'),latest=start('Cube_B');
   done(latest,'Cube_B');await tick();done(staleSuccess,'Cube_A');await tick();
-  assert.match(get('cl-summary').children[0].textContent,/^Cube_B /);
+  assert.equal(location,'/graph?cube=Cube_B&model=synthetic','迟到结果不得改写当前对象');
   const withRelations=start('Cube_B');
   withRelations.resolve({ok:true,json:async()=>({snapshot_id:'synthetic',limits:{},
     nodes:['Cube_A','Cube_B','Cube_C'].map(name=>({id:name,name,type:'cube'})),
     edges:[{id:'ab',source:'Cube_A',target:'Cube_B',kind:'TI_CANDIDATE',process_names:['Load']},
            {id:'cb',source:'Cube_C',target:'Cube_B',kind:'RULE_REFERENCE'}]})});await tick();
+  // 入口详情与移交模块规格是同一层动作，共用一行；标题只留计数。
+  assert.equal(get('cl-actions').children[0].href,'/explorer/cube/Cube_B');
+  assert.equal(get('cl-summary').children.length,1);
+  assert.match(get('cl-summary').children[0].textContent,/条关系/);
   const table=get('cl-table').children[0],panels=get('cl-details').children;
   assert.equal(table.children.length,3); // Header + relations only, no embedded evidence rows.
   const first=table.children[1].children[4].children[0],second=table.children[2].children[4].children[0];
@@ -325,22 +344,28 @@ function done(req,name){req.resolve({ok:true,json:async()=>({snapshot_id:'synthe
   await panels[1].children[0].children[1].onclick();assert.equal(panels[1].hidden,true);
   assert.equal(second.focused,true);
   assert.equal(second.attrs['aria-expanded'],'false');
-  const cancelled=start('Cube_A');get('cl-cancel').onclick();
-  assert.equal(get('cl-details').children.length,0);
-  const status=get('cl-status').textContent;assert.equal(cancelled.options.signal.aborted,true);
+  const cancelled=start('Cube_A');get('cl-search').onsubmit({preventDefault(){}});
+  assert.equal(cancelled.options.signal.aborted,true,'换对象会取消上一次查询');
   cancelled.reject(new Error('late cancellation failure'));await tick();
-  assert.equal(get('cl-status').textContent,status);assert.equal(get('cl-export').disabled,true);
   for(const count of [25,60,61]){
     const request=start('Cube_B');
     const nodes=Array.from({length:count},(_,i)=>({id:'c'+i,name:i?'Cube_'+i:'Cube_B',type:'cube'}));
     request.resolve({ok:true,json:async()=>({snapshot_id:'synthetic',nodes,edges:[],limits:{},query:{depth:1}})});await tick();
     const link=get('cl-module');
-    if(count<=60){const params=new URLSearchParams(link.href.split('?')[1]);assert.equal(JSON.parse(params.get('selection')).length,count);assert.equal(link.attrs['aria-disabled'],'false');}
-    else {assert.equal(link.attrs['aria-disabled'],'true');link.onclick({preventDefault(){}});assert.match(get('cl-status').textContent,/61/);}
+    if(count<=60){const params=new URLSearchParams(link.href.split('?')[1]);assert.equal(JSON.parse(params.get('selection')).length,count);assert.equal(link.hidden,false);}
+    else {
+      // 超限不再是死链：退回"只带入口 Cube"，仍然可点；原因写进 title，不撑长按钮。
+      const params=new URLSearchParams(link.href.split('?')[1]);
+      assert.equal(params.has('selection'),false);
+      assert.equal(params.get('name'),'Cube_B');
+      assert.match(link.textContent,/仅带入口 Cube/);
+      assert.match(link.title,/超出预选上限/);
+    }
   }
   const longNames=start('Cube_B');
   longNames.resolve({ok:true,json:async()=>({snapshot_id:'synthetic',nodes:Array.from({length:25},(_,i)=>({id:'long'+i,name:i?'长'.repeat(100)+i:'Cube_B',type:'cube'})),edges:[],limits:{},query:{depth:1}})});await tick();
-  assert.equal(get('cl-module').attrs['aria-disabled'],'true');
+  // 名称过长导致链接超限时同样退回入口 Cube，避免一个点不动的按钮。
+  assert.equal(new URLSearchParams(get('cl-module').href.split('?')[1]).has('selection'),false);
   assert(requests.every(r=>r.url.startsWith('/api/workbench/')
     &&(r.url.endsWith('/api/workbench/graph')?r.options.method==='POST':r.options.method===undefined)),
     'read-only local endpoints only');

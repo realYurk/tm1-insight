@@ -19,8 +19,14 @@
     source_row_slices:data.data_row_lineage?.source_view_binding?.cube===source?(data.data_row_lineage.source_coordinate_mapping||[]).map(c=>({dimension:c.dimension,kind:'动态',value:c.variable})):[],
     source_observations:(data.reads||[]).filter(r=>r.cube===source&&!(w.read_nodes||[]).includes(r.id))
   }));}
-  function relations(data){const names=new Map((data.nodes||[]).filter(n=>n.type==='cube').map(n=>[n.id,n.name]));
-    return (data.edges||[]).filter(e=>labels[e.kind]&&names.has(e.source)&&names.has(e.target)).map(e=>({...e,source_name:names.get(e.source),target_name:names.get(e.target),label:labels[e.kind]}));}
+  function cubeNames(data){return new Map((data.nodes||[]).filter(n=>n.type==='cube').map(n=>[n.id,n.name]));}
+  /* 跨对象关系：A→A 的自引用不是关系。Rule 里 DB('自己', …) 是 Cube 内部的
+     滚动计算，把它画成一条 A→A 的边会让每个 Cube 都"看起来"有上游。 */
+  function relations(data){const names=cubeNames(data);
+    return (data.edges||[]).filter(e=>labels[e.kind]&&names.has(e.source)&&names.has(e.target)&&e.source!==e.target).map(e=>({...e,source_name:names.get(e.source),target_name:names.get(e.target),label:labels[e.kind]}));}
+  /* 自引用单独成事实：数量 + 依据位置，不参与关系计数。 */
+  function selfReferences(data){const names=cubeNames(data);
+    return (data.edges||[]).filter(e=>names.has(e.source)&&e.source===e.target).map(e=>({name:names.get(e.source),kind:e.kind,label:labels[e.kind]||e.kind,evidence:e.evidence||[]}));}
   function loc(e){return e?`${e.section||'Rule'}:${e.line||e.line_start||'?'}:${e.column||1}`:'位置待确认';}
   function coverage(rows,records){
     let reviewed=0,partial=0,checks=0,total=0;
@@ -66,12 +72,16 @@
     lines.push('## 技术证据附录','','<details>','<summary>展开完整已分析证据与未确认原因</summary>','','```json',JSON.stringify({schema:'cube-lineage-review-1',snapshot_id:snapshot,query:result.query,limits:result.limits,relations:rows,inspected:result.summary_only?[]:records,export_mode:result.summary_only?'INDEX_SUMMARY':'SCOPED_RESEARCH',review_coverage:covered,report_run:result.report_run},null,2),'```','','</details>');
     return lines.join('\n');
   }
-  window.TM1CubeLineage={slices,writeRows,relations,coverage,markdownReport,operationLabel:operation=>operations[operation]||operation};
+  window.TM1CubeLineage={slices,writeRows,relations,selfReferences,coverage,markdownReport,operationLabel:operation=>operations[operation]||operation};
   const $=id=>document.getElementById(id),root=$('cl-root');if(!root)return;
   const objectUrl=(name,extra)=>{const p=new URLSearchParams({cube:name});Object.entries(extra||{}).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='')p.set(k,v);});return '/graph?'+p;};
   const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(cls)n.className=cls;return n;};
   const link=(text,url)=>{const a=el('a',text);a.href=url;return a;};
-  let snapshot='',resultName='',generation=0,abort=null,result=null,rows=[],viewer=null,inspected=new Map(),searchTimer,externalInputs=[],indexedWriters=[];
+  /* 记住看过的 Cube，只存在本机浏览器；选择页用它给"最近查看"。 */
+  function remember(name){try{const key='tm1-lineage-recent',old=JSON.parse(localStorage.getItem(key)||'[]'),
+    next=[name,...(Array.isArray(old)?old:[]).filter(x=>String(x).toLowerCase()!==String(name).toLowerCase())].slice(0,6);
+    localStorage.setItem(key,JSON.stringify(next));}catch(_){}}
+  let snapshot='',resultName='',generation=0,abort=null,result=null,rows=[],selfRefs=[],viewer=null,inspected=new Map(),searchTimer,externalInputs=[],indexedWriters=[];
   let reviewAbort=null,reviewRun=0,detailAbort=null;const writeCache=new Map(),ruleCache=new Map();
   async function get(url,opts={}){let r;try{r=await fetch(url,{...opts,signal:opts.signal||abort?.signal});}catch(e){if(e.name==='AbortError')throw e;throw new Error('本地服务不可达或连接已中断，请检查启动窗口后重新分析。');}if(!r.ok){const e=new Error(r.status===409?'本地模型已变化，停止分析；未按名称重新绑定。':`本地分析请求失败 (${r.status})`);e.status=r.status;throw e;}return r.json();}
   function cached(cache,key,url,signal){
@@ -192,12 +202,32 @@
       trigger.setAttribute('aria-expanded','false');trigger.setAttribute('aria-controls',body.id);
       const cell=el('td');cell.append(trigger);tr.append(cell);table.append(tr);
     });
-    if(!rows.length)$('cl-table').replaceChildren(el('p','当前方向与预算内没有可展示的 Cube 关联；这不证明模型没有其他依赖。'));else $('cl-table').replaceChildren(table);
-    const names=new Set(rows.flatMap(r=>[r.source_name,r.target_name]));$('cl-summary').replaceChildren(el('h2',`${resultName} · ${rows.length} 条关系 / ${names.size} 个相关 Cube`),link('查看入口 Cube 结构与全部写入 TI','/explorer/cube/'+encodeURIComponent(resultName)));
+    if(rows.length)$('cl-table').replaceChildren(table);
+    const names=new Set(rows.flatMap(r=>[r.source_name,r.target_name]));
+    const summary=$('cl-summary');
+    summary.replaceChildren();
+    /* 范围级动作用一行承载：入口详情是「去看」，移交模块规格是「带走」，同一层。 */
+    const actions=$('cl-actions');actions?.querySelector('.cl-entry')?.remove();
+    if(rows.length)summary.append(el('h2',`${rows.length} 条关系 · ${names.size} 个相关 Cube`));
+    if(rows.length&&actions){const entry=link('查看入口 Cube 结构与全部写入 TI','/explorer/cube/'+encodeURIComponent(resultName));entry.classList.add('cl-entry');actions.prepend(entry);}
+    if(selfRefs.length){
+      const names2=[...new Set(selfRefs.map(r=>r.name))].join('、');
+      $('cl-notes')?.replaceChildren(el('p',`另有 ${selfRefs.length} 处 Rule 引用自身（${names2}）：属于 Cube 内部的滚动计算，不计入上面的关系。`,'cl-selfref'));
+    } else $('cl-notes')?.replaceChildren();
   }
-  let focusRow=null, showMore=false;
+  /* 没有跨对象关系时，画布和关系表让位给结论；空画布不是"加载失败"。 */
+  function syncBlank(){
+    const missing=!!result?.limits?.missing?.length,has=rows.length>0;
+    const relations=$('cl-relations'),empty=$('cl-empty'),wrap=$('cl-diagram-wrap');
+    if(relations)relations.hidden=missing||!has;
+    if(empty)empty.hidden=missing||has;
+    if(wrap)wrap.hidden=!has;
+    const moduleLink=$('cl-module');if(moduleLink&&!has)moduleLink.hidden=true;
+  }
+  let focusRow=null, showMore=false, fitTimer=0;
+  function fitLater(){if(!viewer?.isUserView?.()){clearTimeout(fitTimer);fitTimer=setTimeout(()=>{if(!viewer?.isUserView?.())viewer?.fit?.();},280);}}
   const graphOptions=()=>({maxNodes:showMore?24:(window.innerWidth<1000?14:18),maxEdges:showMore?45:30});
-  function draw(){if(!result||!$('cl-diagram').open)return;
+  function draw(){if(!result||!window.TM1LineageView)return;
     const view=window.TM1LineageView.flowModel(result,rows,resultName,externalInputs,indexedWriters,graphOptions());
     const key=JSON.stringify([view.nodes.map(n=>n.id),view.edges.map(e=>[e.source,e.target,e.label])]);
     const previous=viewer?.getPositions?.(),positions=viewer?._lineageKey===key?previous:undefined,manual=viewer?.isUserView?.()===true,saved=manual?viewer?.getView?.():undefined;
@@ -223,7 +253,9 @@
     const rootNode=view.nodes.find(n=>n.current);if(rootNode)viewer.select([rootNode.id]);
     if(!positions&&saved&&rootNode&&previous?.[rootNode.id]){const after=viewer.getPositions()[rootNode.id],before=previous[rootNode.id];if(after)viewer.applyView({...saved,x:saved.x+(before.x-after.x)*saved.zoom,y:saved.y+(before.y-after.y)*saved.zoom});}
     $('cl-more').hidden=!view.display_truncated&&!showMore;$('cl-more').textContent=showMore?'精简画布':'显示更多';
-    $('cl-canvas-limit').textContent=view.display_truncated?`图内折叠 ${view.display_limits.nodes_hidden} 个对象 / ${view.display_limits.edges_hidden} 条连接；可点击“显示更多”或查看关系列表。`:'';
+    if(!manual)fitLater();
+    /* 口径要说清：上面数字是「索引里的关系」，这里数字是「画布画了多少」，两者不同。 */
+    $('cl-canvas-limit').textContent=view.display_truncated?`画布当前画了 ${view.nodes.length} 个对象 / ${view.edges.length} 条连线；另有 ${view.display_limits.nodes_hidden} 个对象、${view.display_limits.edges_hidden} 条连线放不下，多为外部文件来源。点“显示更多”或看下面的关系列表。`:'';
   }
   function stopReview(){++reviewRun;reviewAbort?.abort();if(result?.report_run?.status==='RUNNING'){result.report_run.cancelled=true;result.report_run.status='CANCELLED';}$('cl-review-cancel').disabled=true;$('cl-review').disabled=!result;$('cl-report').disabled=!result?.report_run&&!inspected.size;}
   async function batch(){if(!result)return;stopReview();const run=reviewRun,token=generation;reviewAbort=new AbortController();const signal=reviewAbort.signal,budget=Math.max(1,Math.min(20,Math.floor(Number($('cl-review-budget').value)||8))),groups=new Map();
@@ -238,28 +270,31 @@
     if(token!==generation)return;state.cancelled=signal.aborted;state.status=state.cancelled?'CANCELLED':state.failures.length?'PARTIAL_FAILURE':'FINISHED';if(run!==reviewRun)return;$('cl-review').disabled=false;$('cl-review-cancel').disabled=true;$('cl-report').disabled=false;
     $('cl-review-status').textContent=`分析结束；尝试 ${state.attempted} 项，失败 ${state.failures.length} 项${state.budget_truncated?'，预算截断':''}。可下载已分析范围的研究报告。`;updateCoverage();
   }
-  async function load(){showMore=false;const name=$('cl-name').value.trim();if(!name)return;stopReview();const token=++generation;abort?.abort();detailAbort?.abort();detailAbort=null;abort=new AbortController();viewer?.destroy();viewer=null;result=null;externalInputs=[];indexedWriters=[];$('cl-relations').hidden=true;$('cl-inspector').hidden=true;$('cl-node-detail').hidden=true;$('cl-node-detail').replaceChildren();inspected.clear();writeCache.clear();ruleCache.clear();$('cl-review').disabled=true;$('cl-report').disabled=true;$('cl-coverage').textContent='';$('cl-review-status').textContent='';$('cl-review-progress').hidden=true;$('cl-export').disabled=true;$('cl-table').replaceChildren();$('cl-details').replaceChildren();$('cl-summary').replaceChildren();$('cl-diagram-host').replaceChildren();$('cl-status').textContent='正在查找数据来源和处理路径…';
-    try{const data=await get('/api/workbench/graph',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshot_id:root.dataset.model||'',objects:[{type:'cube',name}],direction:$('cl-direction').value,view:'cubes',depth:Number($('cl-depth')?.value)||1,node_budget:40,edge_budget:100,relation_types:['TI_CANDIDATE','RULE_REFERENCE']})});if(token!==generation)return;snapshot=data.snapshot_id;root.dataset.model=snapshot;result=data;resultName=name;rows=relations(data);$('cl-relations').hidden=!!data.limits.missing?.length;render();draw();$('cl-export').disabled=false;
-      $('cl-status').textContent=data.limits.missing?.length?'入口 Cube 不在当前本地模型中。':`展示 ${data.query?.depth||1} 层已索引关系；虚线表示读取或数据源声明，不能单独证明值传输。外部来源检查前 4 个 Cube、各最多 12 个写入程序。${data.limits.truncated?' 本次范围已截断。':''}`;
+  async function load(){showMore=false;const name=$('cl-name').value.trim();if(!name)return;stopReview();const token=++generation;abort?.abort();detailAbort?.abort();detailAbort=null;abort=new AbortController();viewer?.destroy();viewer=null;result=null;rows=[];selfRefs=[];externalInputs=[];indexedWriters=[];$('cl-relations').hidden=true;$('cl-empty').hidden=true;$('cl-diagram-wrap').hidden=false;$('cl-inspector').hidden=true;$('cl-node-detail').hidden=true;$('cl-node-detail').replaceChildren();inspected.clear();writeCache.clear();ruleCache.clear();$('cl-review').disabled=true;$('cl-report').disabled=true;$('cl-coverage').textContent='';$('cl-review-status').textContent='';$('cl-review-progress').hidden=true;$('cl-export').disabled=true;$('cl-table').replaceChildren();$('cl-details').replaceChildren();$('cl-summary').replaceChildren();$('cl-diagram-host').replaceChildren();$('cl-status').textContent='正在查找数据来源和处理路径…';
+    try{const data=await get('/api/workbench/graph',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshot_id:root.dataset.model||'',objects:[{type:'cube',name}],direction:$('cl-direction').value,view:'cubes',depth:Number($('cl-depth')?.value)||1,node_budget:40,edge_budget:100,relation_types:['TI_CANDIDATE','RULE_REFERENCE']})});if(token!==generation)return;snapshot=data.snapshot_id;root.dataset.model=snapshot;result=data;resultName=name;rows=relations(data);selfRefs=selfReferences(data);render();syncBlank();draw();$('cl-export').disabled=false;
+      $('cl-status').textContent=data.limits.missing?.length?'本地模型里没有这个 Cube。'
+        :!rows.length?'按当前范围没有找到跨 Cube 的连线。'
+        :`${data.query?.depth||1} 层范围内 ${rows.length} 条关系；虚线只是读取声明，不能单独证明值从那根线传过。${data.limits.truncated?'范围已截断。':''}`;
       const moduleLink=$('cl-module');if(moduleLink){const selected=[...result.nodes.filter(n=>n.type==='cube').map(n=>({type:'cube',name:n.name})),...[...new Set(rows.flatMap(r=>r.process_names||[]))].map(name=>({type:'process',name}))], selection=JSON.stringify(selected);
         const url='/module-reconstruction?'+new URLSearchParams({kind:'cube',name,model:snapshot,selection});
         const tooLarge=selected.length>60||selection.length>20000||url.length>8000;
-        moduleLink.href=tooLarge?'#cl-module':url;
-        moduleLink.setAttribute('aria-disabled',String(tooLarge));moduleLink.onclick=tooLarge?e=>{e.preventDefault();$('cl-status').textContent=`当前范围有 ${selected.length} 个对象，超过模块规格移交上限（最多 60 个对象，链接长度最多 8000 字符）；请缩小范围后重试。当前关系仍保留在本页。`;}:null;
-        moduleLink.textContent=tooLarge?`范围超出模块规格上限（${selected.length} 个对象）`:`选取此局部范围生成模块规格（${selected.length} 个对象）`;}
-      $('cl-review').disabled=false;updateCoverage();history.replaceState(null,'',objectUrl(name,{model:snapshot}));
+        const fallback='/module-reconstruction?'+new URLSearchParams({kind:'cube',name,model:snapshot});
+        moduleLink.href=tooLarge?fallback:url;
+        moduleLink.removeAttribute('aria-disabled');moduleLink.onclick=null;
+        moduleLink.textContent=tooLarge?`移交模块规格（仅带入口 Cube）`:`移交模块规格（${selected.length} 个对象）`;
+        moduleLink.title=tooLarge?`当前 ${selected.length} 个对象超出预选上限，只带入口 Cube 过去。`:'把当前画布上的对象一并带过去。';
+        moduleLink.hidden=selected.length<=1;}
+      $('cl-review').disabled=false;updateCoverage();remember(name);history.replaceState(null,'',objectUrl(name,{model:snapshot}));
       const candidates=[name,...data.nodes.filter(n=>n.type==='cube'&&n.name!==name).map(n=>n.name)].slice(0,4);
-      for(const cube of candidates){if(token!==generation||abort.signal.aborted)break;try{const sources=await get('/api/workbench/lineage-inputs?'+new URLSearchParams({snapshot_id:snapshot,cube}));if(token!==generation)break;externalInputs.push(...sources.items);indexedWriters.push(...(sources.writers||[]).map(process=>({process,target:cube})));if(sources.truncated)$('cl-status').textContent+=' 部分写入程序超出本次预算。';draw();}catch(e){if(e.name==='AbortError')break;if(token===generation)$('cl-status').textContent+=e.status===409?' 模型已变化，请重新分析。':' 部分外部来源未能读取。';if(e.status===409)break;}}
+      for(const cube of candidates){if(token!==generation||abort.signal.aborted)break;try{const sources=await get('/api/workbench/lineage-inputs?'+new URLSearchParams({snapshot_id:snapshot,cube}));if(token!==generation)break;externalInputs.push(...sources.items);indexedWriters.push(...(sources.writers||[]).map(process=>({process,target:cube})));if(sources.truncated)$('cl-status').textContent+=' 另有部分写入程序未展开。';draw();}catch(e){if(e.name==='AbortError')break;if(token===generation)$('cl-status').textContent+=e.status===409?' 模型已变化，请重新分析。':' 部分外部来源未能读取。';if(e.status===409)break;}}
     }catch(e){if(token===generation&&e.name!=='AbortError')$('cl-status').textContent=e.message;}}
   $('cl-search').onsubmit=e=>{e.preventDefault();$('lineage-search-status').textContent='';load();};$('cl-direction').onchange=load;if($('cl-depth'))$('cl-depth').onchange=load;
   $('cl-zoom-in').onclick=()=>viewer?.zoomBy(1.25);$('cl-zoom-out').onclick=()=>viewer?.zoomBy(.8);$('cl-fit').onclick=()=>{viewer?.markUserView();viewer?.fit();};
   $('cl-more').onclick=()=>{showMore=!showMore;viewer?.resetUserView();draw();};
   $('cl-close-inspector').onclick=()=>{$('cl-inspector').hidden=true;detailAbort?.abort();viewer?.resize?.();};
-  $('cl-mermaid').onclick=()=>{if(!result)return;const code=window.TM1LineageView.mermaid(window.TM1LineageView.flowModel(result,rows,resultName,externalInputs,indexedWriters,graphOptions())).code;const a=el('a');a.href=URL.createObjectURL(new Blob([code],{type:'text/plain;charset=utf-8'}));a.download='Cube-Lineage.mmd';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
-  $('lineage-clear').addEventListener('click',()=>{++generation;abort?.abort();detailAbort?.abort();stopReview();$('fa-cancel')?.click();viewer?.destroy();viewer=null;result=null;externalInputs=[];$('cl-relations').hidden=true;$('cl-status').textContent='';$('cl-name').value='';history.replaceState(null,'','/graph');});
-  $('cl-cancel').onclick=()=>{++generation;abort?.abort();detailAbort?.abort();$('cl-status').textContent='已取消本次请求；未保存任何研究或设计资产。';};
+  /* 清空 = 回到选择态：整页跳转，不在同一个文档里靠脚本切换两套布局。 */
+  $('lineage-clear')?.addEventListener('click',e=>{e.preventDefault();location.href='/graph';});
   if(!$('cl-search').dataset.lineageSearch)$('cl-name').oninput=()=>{clearTimeout(searchTimer);const q=$('cl-name').value.trim();if(!q){$('cl-options').replaceChildren();return;}searchTimer=setTimeout(async()=>{try{const r=await fetch('/api/workbench/objects?'+new URLSearchParams({q,type:'cube',limit:20}));if(!r.ok)return;const data=await r.json();if($('cl-name').value.trim()===q)$('cl-options').replaceChildren(...data.objects.map(n=>new Option(n.name,n.name)));}catch(_){}},200);};
-  $('cl-diagram').ontoggle=draw;
   $('cl-review').onclick=batch;$('cl-review-cancel').onclick=()=>{stopReview();$('cl-review-status').textContent='已停止；已取得的证据保留，可下载部分研究报告。';updateCoverage();};
   function download(summaryOnly){if(!result)return;const a=el('a');a.href=URL.createObjectURL(new Blob([markdownReport({...result,summary_only:summaryOnly},resultName,rows,[...inspected.values()],snapshot)],{type:'text/markdown;charset=utf-8'}));a.download=summaryOnly?'Cube-Lineage-Summary.md':'Cube-Research.md';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
   if($('cl-json'))$('cl-json').onclick=()=>{if(!result)return;const a=el('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({schema:'cube-lineage-review-1',snapshot_id:snapshot,target:resultName,scope:result,presentation:window.TM1LineageView.cubeModel(result,rows,resultName,[...inspected.values()]),inspected:[...inspected.values()],runtime_verified:false},null,2)],{type:'application/json'}));a.download='Cube-Lineage-Technical.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};

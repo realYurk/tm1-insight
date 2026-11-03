@@ -932,7 +932,36 @@ def graph(request: Request, ti: Optional[str] = Query(None, max_length=1000), cu
         # TI 没有独立的血缘画布：控制流在它自己的详情页里，模型身份一并带过去。
         suffix = f'?model={quote(model)}' if model else ''
         return RedirectResponse(f'/explorer/process/{quote(ti)}{suffix}', status_code=302)
-    return templates.TemplateResponse(request, 'cube_graph.html', {'cube': cube or '', 'model': model})
+    # 结论先给：页面一打开就有事实（写入 / 读取 / Rule 引用），画布随后补齐。
+    # 「算不出事实」与「对象不存在」必须分开：前者画布照画，后者才退回选择态。
+    facts, starters, canvas_ok = None, [], False
+    names = (cube or '').strip()
+    if names:
+        from tm1_insight.store import queries
+        con = _store().connect(read_only=True)
+        try:
+            facts = queries.lineage_facts(con, names)
+            canvas_ok = bool(facts['found'])
+            if not canvas_ok:
+                facts = None
+                starters = queries.lineage_starters(con, 6)
+        except Exception:  # noqa: BLE001 — 事实条缺数据不应挡住画布
+            facts, canvas_ok = None, True
+        finally:
+            con.close()
+    else:
+        from tm1_insight.store import queries
+        con = _store().connect(read_only=True)
+        try:
+            starters = queries.lineage_starters(con, 6)
+        except Exception:  # noqa: BLE001
+            starters = []
+        finally:
+            con.close()
+    return templates.TemplateResponse(
+        request, 'cube_graph.html',
+        {'cube': (facts or {}).get('display', names), 'model': model,
+         'facts': facts, 'starters': starters, 'requested': names, 'canvas_ok': canvas_ok})
 
 
 # ---- 页面：Impact（依赖 / 影响分析，复用 impact 引擎） ----

@@ -13,6 +13,5 @@
     document.getElementById('tr-src').value=src;document.getElementById('tr-tgt').value=tgt;
     ['tr-src','tr-tgt'].forEach(id=>document.getElementById(id).dispatchEvent(new Event('input',{bubbles:true})));
     status.textContent='已从工作区带入来源和目标。请核对方向，点击“加载维度结构”后继续使用原有模板。';
-    const link=document.createElement('a');link.className='btn';link.textContent='返回原工作区';link.href='/architecture?view=workbench&workspace_id='+encodeURIComponent(id);status.after(link);
   }catch(e){status.textContent=e.message;}
 })();

@@ -1,0 +1,16 @@
+{# 选择态的公共部分：关系最多的起点 + 最近查看。空入口和「查不到」共用同一套。 #}
+{% if starters %}
+<section class="ln-start-list" aria-label="关系最多的 Cube">
+  <h2>关系最多 <span class="muted small">按写入 + 读取的 TI 数量排序，只用来找起点，不是业务重要性</span></h2>
+  <ul>
+    {% for s in starters %}
+    <li><a href="/graph?cube={{ s.name|urlencode }}"><span>{{ s.name }}</span><em>写入 {{ s.writers }} · 读取 {{ s.readers }}</em></a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section id="ln-recent" class="ln-start-list" aria-label="最近查看" hidden>
+  <h2>最近查看</h2>
+  <ul></ul>
+</section>

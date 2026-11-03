@@ -95,13 +95,8 @@
       }catch(e){gen.disabled=false;status(e.message,true);}
     };
     actions.appendChild(gen);
-    if(current.workspace_id){
-      const a=el('a','在架构沙盘中打开','btn');
-      a.href='/architecture?view=workbench&workspace_id='+encodeURIComponent(current.workspace_id);
-      actions.appendChild(a);
-    }
     p.appendChild(actions);
-    p.appendChild(el('p','生成结果为 TI 草案，未部署、未执行；请在沙盘中复核映射后再使用。','muted small'));
+    p.appendChild(el('p','生成结果为 TI 草案，未部署、未执行；请复核映射后再使用。','muted small'));
   }
 
   function showGenerateResult(r){

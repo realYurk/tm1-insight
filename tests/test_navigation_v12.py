@@ -35,6 +35,7 @@ def test_base_html_nav_entries_all_retained():
     for href, label in [
         ("/", "工作台"),
         ("/atlas", "资产地图"),
+        ("/architecture", "业务架构"),
         ("/cubes", "Cube"),
         ("/processes", "TI 进程"),
         ("/chores", "Chore 调度"),
@@ -43,9 +44,17 @@ def test_base_html_nav_entries_all_retained():
     ]:
         assert href in html, f"导航缺少 {label} ({href})"
         assert label in html, f"导航缺少标签 {label}"
-    # 聚合页与旧入口都不再占用导航位置。
-    for gone in ("/object", "/browse", "/graph", "/architecture", "/codegen", "/impact", "/compare"):
+    # 聚合页与旧入口都不再占用导航位置；业务架构是模型级视图，保留一级入口。
+    for gone in ("/object", "/browse", "/graph", "/codegen", "/impact", "/compare"):
         assert f'href="{gone}"' not in html, f"旧入口仍在一级导航：{gone}"
+
+
+def test_nav_has_two_model_level_views_above_object_browsing():
+    html = _read(BASE_HTML)
+    # 资产地图回答「什么值得迁」，业务架构回答「它怎么运转」，两者都在对象浏览之前。
+    browsing = html.index('模型浏览')
+    assert html.index("nav('/atlas'") < browsing
+    assert html.index("nav('/architecture'") < browsing
 
 
 def test_nav_group_labels_present():

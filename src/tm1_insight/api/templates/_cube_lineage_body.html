@@ -1,31 +1,44 @@
+{# 血缘画布的 DOM。id 与脚本绑定，改名要同步 cube-lineage.js / lineage-search.js。 #}
 {% set lineage_kind = 'cube' %}
 <form id="cl-search" class="cl-search-row" data-lineage-search="cube" data-model="{{ model|default('') }}">
   <div class="lineage-search-field">
-    <label for="cl-name">换一个 Cube</label>
-    <input id="cl-name" class="input" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lineage-search-results" value="{{ cube }}" required maxlength="1000" autocomplete="off" placeholder="按名称或关键词查找 Cube">
+    <label class="sr-only" for="cl-name">换一个 Cube</label>
+    <input id="cl-name" class="input" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lineage-search-results" value="{{ cube }}" required maxlength="1000" autocomplete="off" placeholder="换一个 Cube：输入名称或关键词">
+    <button id="lineage-clear" class="cl-clear" type="button" aria-label="清空并回到选择">×</button>
     <div id="lineage-search-results" class="search-results" role="listbox" aria-label="对象搜索结果" hidden></div>
   </div>
   <button class="btn primary" type="submit">查看</button>
-  <button id="lineage-clear" class="btn ghost" type="button">清空</button>
-  <button id="cl-cancel" class="btn ghost" type="button">取消</button>
-  <datalist id="cl-options"></datalist>
 </form>
 <p id="lineage-search-status" class="muted small" role="status" aria-live="polite"></p>
-<p id="cl-status" role="status" aria-live="polite"></p>
+<p id="cl-status" class="cl-status" role="status" aria-live="polite"></p>
+
+{# 零关系不是失败，是结论：文案由服务端事实决定，前端只在关系为空时显示。 #}
+<section id="cl-empty" class="ln-empty" hidden>
+  <p class="ln-empty-lead">画布上没有跨 Cube 的关系可画。</p>
+  {% if facts %}<p class="ln-empty-why">{{ facts.reason }}</p><p class="muted small">{{ facts.next_step }}</p>
+  {% if facts.rule_self_refs %}<p class="cl-selfref">Rule 引用自身 {{ facts.rule_self_refs }} 处：Cube 内部的滚动计算，不构成跨对象依赖。</p>{% endif %}
+  {% endif %}
+  <div class="study-actions">
+    <a class="btn ghost" href="/explorer/cube/{{ cube|urlencode }}">结构与写入方</a>
+    <a class="btn ghost" href="/explorer/cube/{{ cube|urlencode }}#rules">看 Rule</a>
+    <a class="btn ghost" href="/processes?q={{ cube|urlencode }}">找相关 TI</a>
+  </div>
+</section>
 
 <div id="cl-relations" hidden>
   <div id="cl-summary"></div>
+  <nav id="cl-actions" class="cl-actions" aria-label="范围操作"><a id="cl-module" class="btn ghost" href="/module-reconstruction">生成模块规格</a></nav>
+  <div id="cl-notes"></div>
   <div class="lineage-layout">
     <div class="lineage-main">
-      <details id="cl-diagram" open>
-        <summary>数据流向</summary>
+      <section id="cl-diagram-wrap" aria-label="数据流向画布">
         <div class="cl-canvas-toolbar">
           <div class="cl-flow-guide" aria-label="画布阅读顺序"><span class="cl-flow-source">文件 / 数据库</span><b aria-hidden="true">→</b><span class="cl-flow-process">处理 TI</span><b aria-hidden="true">→</b><span class="cl-flow-cube">Cube 与下游</span><small>拖动平移 · 滚轮缩放</small></div>
-          <div><button type="button" id="cl-zoom-out" class="btn" aria-label="缩小">−</button><button type="button" id="cl-zoom-in" class="btn" aria-label="放大">＋</button><button type="button" id="cl-fit" class="btn">适应画布</button><button type="button" id="cl-more" class="btn" hidden>显示更多</button><button type="button" id="cl-mermaid" class="btn">Mermaid</button></div>
+          <div><button type="button" id="cl-zoom-out" class="btn" aria-label="缩小">−</button><button type="button" id="cl-zoom-in" class="btn" aria-label="放大">＋</button><button type="button" id="cl-fit" class="btn">适应画布</button><button type="button" id="cl-more" class="btn" hidden>显示更多</button></div>
         </div>
         <div id="cl-diagram-host" tabindex="0" aria-label="数据血缘画布"></div>
         <p id="cl-canvas-limit" class="muted small"></p>
-      </details>
+      </section>
       <details class="lineage-secondary"><summary>关系列表</summary><div id="cl-table" class="cl-table-wrap" role="region" aria-label="Cube 关系表，可横向滚动" tabindex="0"></div></details>
     </div>
     <aside class="lineage-side" id="cl-inspector" aria-label="关系摘要" hidden>
@@ -35,7 +48,7 @@
   </div>
 
   <details class="cl-advanced" id="cl-advanced">
-    <summary>导出与范围</summary>
+    <summary>范围与导出</summary>
     <div class="cl-advanced-body">
       <div class="cl-toolbar"><label>方向<select id="cl-direction" class="input"><option value="both">上游与下游</option><option value="upstream">上游</option><option value="downstream">下游</option></select></label><label>关系层数<select id="cl-depth" class="input"><option value="1">直接关系</option><option value="2">展开两层</option><option value="3" selected>展开三层</option></select></label><button id="cl-export" type="button" class="btn" disabled>摘要 Markdown</button><button id="cl-json" type="button" class="btn">技术 JSON</button></div>
       <div class="cl-toolbar"><label>研究预算（TI / Rule，最多 20 项）<input id="cl-review-budget" class="input" type="number" min="1" max="20" value="8"></label><button id="cl-review" class="btn" disabled>批量研究报告</button><button id="cl-review-cancel" class="btn" disabled>停止</button><button id="cl-report" class="btn" disabled>下载研究报告</button></div>
@@ -44,4 +57,3 @@
   </details>
 </div>
 
-<nav class="study-actions"><a id="cl-module" class="btn ghost" href="/module-reconstruction">生成模块规格</a></nav>

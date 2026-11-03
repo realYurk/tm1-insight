@@ -121,8 +121,9 @@ def test_review_api_and_export_use_same_projection(client,monkeypatch,con,tmp_pa
         assert downloaded.json()==r.json()
         legacy=client.get('/graph?ti=Caller')
         assert legacy.url.path=='/explorer/process/Caller'
+        # 这条路由仍然可用；库里没有该对象时退回选择态，而不是画一张空画布。
         cube_legacy=client.get('/graph?cube=Cube_B')
-        assert cube_legacy.status_code==200 and 'id="cl-root"' in cube_legacy.text
+        assert cube_legacy.status_code==200 and '数据血缘' in cube_legacy.text
         # Legacy synthetic stores may omit Chore metadata or its entire index.
         con.execute('DROP TABLE chores')
         old=client.get('/api/workflow/tasks/synthetic/review').json()

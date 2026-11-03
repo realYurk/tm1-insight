@@ -33,7 +33,6 @@
 #cl-node-detail pre {max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border-radius:8px;background:var(--surface,#f4f6fa)}
 .cl-pill {display:inline-block;padding:3px 8px;border-radius:6px;background:#eef3ff;color:#365599;font-size:12px}
 .cl-unknown {color:#80612d;background:#fff7e7}
-#cl-diagram {max-width:100%;overflow:hidden;padding:14px;border:1px solid var(--border,#ddd);border-radius:10px}
 #cl-diagram-host {max-width:100%;overflow:auto;min-width:0}
 #cl-diagram-host .mv-container {max-width:100%}
 .cl-slices {display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
@@ -66,14 +65,14 @@
 .mm-more[open] .btn {display:block;width:100%;text-align:left}
 .mm-toolbar select {max-width:110px;font-size:12px}
 .formation-secondary {margin:24px 0;padding:16px;border:1px solid var(--border);border-radius:10px}
-#cl-diagram,#tr-diagram {min-width:0;max-width:100%;overflow:hidden}
+#cl-diagram-wrap,#tr-diagram {min-width:0;max-width:100%;overflow:hidden}
 #tr-diagram-host .mm-root,#cl-diagram-host .mm-root {max-width:100%}
 @media(max-width:1100px){.lineage-layout{grid-template-columns:minmax(0,1fr)}.lineage-side{position:static;max-height:none}}
 
 /* Data-lineage overview: processing cards stay readable beside the canvas. */
 #cl-relations[hidden] {display:none}
 #cl-root .lineage-layout {grid-template-columns:minmax(0,1fr) minmax(310px,410px);gap:16px}
-#cl-root #cl-diagram {background:linear-gradient(145deg,#fff,#f7faff);border-color:#dce6f5;border-radius:16px}
+#cl-root #cl-diagram-wrap {background:linear-gradient(145deg,#fff,#f7faff);border:1px solid #dce6f5;border-radius:16px}
 #cl-root .lineage-side {border-color:#dce6f5;border-radius:16px;background:#fff;box-shadow:0 8px 30px rgba(35,65,110,.06)}
 #cl-root .cl-process-card {margin:14px 0;padding:16px;background:#f7faff;border:1px solid #dce6f5;border-radius:12px;overflow-wrap:anywhere}
 #cl-root .cl-process-card h3 {margin:5px 0 8px;color:#17345c;line-height:1.4}
@@ -92,8 +91,7 @@ body:has(#cl-root) .content {max-width:none;padding:22px 24px 36px}
 #cl-root {max-width:none;width:100%}
 #cl-root .lineage-layout {grid-template-columns:minmax(0,1fr)}
 #cl-root .lineage-layout:has(#cl-inspector:not([hidden])) {grid-template-columns:minmax(0,1fr) minmax(310px,390px)}
-#cl-root #cl-diagram {padding:0;overflow:hidden}
-#cl-root #cl-diagram > summary {padding:13px 18px;background:#fff;border-bottom:1px solid #e4eaf3;font-weight:600}
+#cl-root #cl-diagram-wrap {padding:0;overflow:hidden}
 #cl-root #cl-diagram-host.cn-canvas {position:relative;inset:auto;width:100%;height:clamp(480px,68vh,1100px);min-width:0;overflow:hidden}
 #cl-root .cl-canvas-toolbar {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:9px 14px;background:#fff;border-bottom:1px solid #edf1f7;color:#687992;font-size:12px}
 #cl-root .cl-canvas-toolbar > div {display:flex;gap:6px;flex-wrap:wrap}
@@ -128,3 +126,35 @@ body:has(#cl-root) .content {max-width:none;padding:22px 24px 36px}
 /* 画布页的"换一个 Cube"搜索行：与其它搜索框同宽同高，不依赖首页样式表。 */
 #cl-root > .cl-search-row {display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:0}
 #cl-root > .cl-search-row .lineage-search-field {flex:1 1 280px}
+
+/* 没有跨对象关系时，结论占据画布的位置。 */
+.ln-empty {margin:0 0 18px;padding:20px 22px;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:12px;background:var(--card);box-shadow:var(--shadow-sm)}
+.ln-empty-lead {margin:0 0 6px;font-size:15px;font-weight:600;color:var(--text)}
+.ln-empty-why {margin:0 0 4px;max-width:80ch;font-size:13.5px;line-height:1.65;color:var(--text-2)}
+.ln-empty .study-actions {margin-top:12px}
+
+.cl-status {min-height:20px;margin:2px 0 12px;font-size:13px;color:var(--muted)}
+.cl-status:empty {min-height:0;margin:0}
+.cl-selfref {margin:0 0 14px;padding-left:10px;border-left:2px solid var(--amber);font-size:12.5px;line-height:1.6;color:var(--text-2)}
+.ln-empty .cl-selfref {margin:10px 0 0}
+.cl-clear {position:absolute;right:8px;top:50%;transform:translateY(-50%);padding:3px 7px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
+.cl-clear:hover {background:var(--bg);color:var(--text)}
+.lineage-search-field input {padding-right:34px}
+
+/* ---------- 选择态：给可选的起点，而不是空表格 ---------- */
+.ln-start-search {display:flex;gap:10px;margin:0 0 24px;padding:14px 16px;border:1px solid var(--border);border-radius:14px;background:var(--card);box-shadow:var(--shadow-sm)}
+.ln-start-search .input {flex:1;min-width:0}
+.ln-start-list {margin:0 0 24px}
+.ln-start-list h2 {display:flex;gap:10px;align-items:baseline;margin:0 0 10px;font-size:13px;font-weight:600;color:var(--text)}
+.ln-start-list ul {display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;margin:0;padding:0;list-style:none}
+.ln-start-list a {display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text);text-decoration:none}
+.ln-start-list a:hover {border-color:var(--accent);box-shadow:var(--shadow-sm)}
+.ln-start-list a span {min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ln-start-list a em {flex:none;font-style:normal;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+#cl-root > .cl-search-row .lineage-search-field {max-width:560px}
+
+/* 标题行下面的操作：都是次要动作，不用主色，也不各自占一行。 */
+.cl-actions {display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:-6px 0 16px}
+.cl-actions .btn.ghost {padding:4px 11px;font-size:12.5px;font-weight:500;color:var(--muted);border-color:var(--border);background:transparent}
+.cl-actions .btn.ghost:hover {color:var(--accent);border-color:var(--accent);background:var(--card)}
+.cl-actions:empty {display:none}

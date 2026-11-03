@@ -74,28 +74,28 @@ def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=Fa
     from urllib.parse import quote
     from fastapi.responses import RedirectResponse
     from tm1_insight.api.app import templates
-    # 旧画布工作区：暂时保留给已有工作区文件，不再是一级入口。
-    if view=='workbench':
-        asset=None
-        if name and kind in ('cube','process'):
-            try:
-                from tm1_insight.api.app import _store
-                from tm1_insight import atlas
-                store=_store();con=store.connect(read_only=True)
-                try:asset=atlas.position(con,'cube' if kind=='cube' else 'process',name)
-                finally:con.close()
-            except Exception:  # noqa: BLE001
-                asset=None
-        return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,initial_view=view,architecture_revision=architecture.REVISION,asset=asset))
-    # 业务架构的「数据形成」已经长在 Cube 详情页里，TI 的加工链路在 TI 详情页。
-    # 旧链接直接落回这两个真实页面，不再单独维护第三套视图。
-    if name and kind == 'cube':
-        return RedirectResponse(f'/explorer/cube/{quote(name)}', status_code=302)
-    if name and kind == 'process':
-        return RedirectResponse(f'/explorer/process/{quote(name)}', status_code=302)
-    if name:
-        return RedirectResponse('/cubes?q=' + quote(name), status_code=302)
-    return RedirectResponse('/cubes', status_code=302)
+    # 指定对象时，业务架构没有第二套事实：落回该对象的真实页面。
+    if name and kind=='cube':
+        return RedirectResponse(f'/explorer/cube/{quote(name)}',status_code=302)
+    if name and kind=='process':
+        return RedirectResponse(f'/explorer/process/{quote(name)}',status_code=302)
+    if name and kind=='discover':
+        return RedirectResponse('/cubes?q='+quote(name),status_code=302)
+    # 旧画布工作区已经没有对应界面：丢掉 view 参数，回到业务版图，不制造循环。
+    if view!='functional_flow':
+        return RedirectResponse('/architecture',status_code=302)
+    from tm1_insight import business_map
+    from tm1_insight.api.app import _store
+    store=_store();con=store.connect(read_only=True)
+    try:
+        data=business_map.overview(con)
+    except Exception:  # noqa: BLE001 — 事实缺失也要给出页面，而不是 500
+        data=business_map.empty()
+    finally:
+        con.close()
+    return templates.TemplateResponse(request,'architecture.html',{
+        'data':data,'headline':business_map.headline(data),
+        'architecture_revision':architecture.REVISION})
 
 
 @router.post('/api/architecture/tasks',status_code=202)

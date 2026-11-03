@@ -21,11 +21,12 @@ def test_flow_summary_filter_includes_connected_actions():
     subprocess.run([node,str(root/'tests/ui/flow_table_filter.js'),str(root/'src/tm1_insight/api/static/workbench-tables.js')],check=True)
 
 
-def test_architecture_folds_into_the_object_workbench(client):
-    # 旧业务架构入口不再是一套并行 UI：无对象时进入对象查找，有对象时落到对象页。
+def test_architecture_is_one_model_level_page(client):
+    # 业务架构只剩一页：模型级事实。带对象的老链接落回对象自己的页面。
     landing=client.get('/architecture')
-    assert landing.url.path=='/cubes'
-    assert client.get('/architecture?kind=discover&name=BP&view=functional_flow').status_code==200
+    assert landing.status_code==200 and '业务架构' in landing.text
+    assert client.get('/architecture?kind=discover&name=BP').url.path=='/cubes'
+    assert client.get('/architecture?view=workbench').url.path=='/architecture'
     assert client.get('/graph').status_code==200
 
 
@@ -191,13 +192,12 @@ def test_flow_api_exports_and_existing_views(client):
 
 
 def test_entry_links_prefix_discovery_and_local_assets(client):
-    page = client.get('/architecture?kind=discover&name=BP&view=functional_flow')
+    page = client.get('/architecture?kind=discover&name=BP')
     assert page.status_code==200
     assert page.url.path=='/cubes'
     for path in ['/explorer/process/Load_Sales','/explorer/cube/Sales']:
         response = client.get(path)
         assert response.status_code==200 and '/graph?' in response.text
-    for path in ['/static/functional-flow.js','/static/functional-flow.css']:
-        assert client.get(path).status_code==200
-    js = client.get('/static/functional-flow.js').text
-    assert 'innerHTML' not in js and 'https://' not in js
+    # 旧流程视图的脚本已经随旧架构栈下线，只剩流程数据本身（后端）仍被测。
+    assert client.get('/static/architecture.js').status_code==404
+    assert client.get('/static/business-map.css').status_code==200

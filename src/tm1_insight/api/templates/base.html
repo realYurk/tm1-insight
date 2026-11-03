@@ -8,7 +8,8 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/workbench.css?v=call-scope-4">
   <link rel="stylesheet" href="/static/mermaid-viewer.css?v=1">
-  <link rel="stylesheet" href="/static/human-workbench.css?v=2"><script src="/static/syntax.js?v=3"></script><script src="/static/object-badge.js?v=1"></script><script src="/static/copy-writer.js?v=1" defer></script><script src="/static/rule-slice.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/human-workbench.css?v=2">
+  <link rel="stylesheet" href="/static/page-hero.css?v=2"><script src="/static/syntax.js?v=3"></script><script src="/static/object-badge.js?v=1"></script><script src="/static/copy-writer.js?v=1" defer></script><script src="/static/rule-slice.js?v=1" defer></script>
   <script>
     // 页面加载前应用主题，避免闪烁
     (function () {
@@ -42,7 +43,9 @@
         {% macro nav(href,label,icon,active) -%}<a href="{{ href }}" aria-label="{{ label }}" title="{{ label }}" class="nav-link {{ 'active' if active else '' }}" {% if active %}aria-current="page"{% endif %}><span class="nav-icon">{% include "icons/" ~ icon ~ ".svg" %}</span><span>{{ label }}</span></a>{%- endmacro %}
 
         {{ nav('/','工作台','home',path == '/') }}
+        {# 两个模型级视图：资产地图回答「什么值得迁」，业务架构回答「它怎么运转」。 #}
         {{ nav('/atlas','资产地图','atlas',path.startswith('/atlas')) }}
+        {{ nav('/architecture','业务架构','graph',path.startswith('/architecture')) }}
 
         {# 三个核心浏览对象：Cube 看数与结构，TI 看实现与控制流，Chore 看调度。
            导航分组永久展开，不使用折叠。 #}

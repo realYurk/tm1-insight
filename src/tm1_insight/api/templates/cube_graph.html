@@ -1,37 +1,98 @@
 {% extends "base.html" %}
-{% block title %}{% if cube %}{{ cube }} · 数据血缘{% else %}数据血缘{% endif %}{% endblock %}
+{% block title %}{% if cube and canvas_ok %}{{ cube }} · 数据血缘{% else %}数据血缘{% endif %}{% endblock %}
 
 {% block breadcrumb %}
 <nav class="breadcrumb">
   <a href="/">工作台</a><span class="sep">/</span>
   <a href="/cubes">Cube</a>
-  {% if cube %}<span class="sep">/</span><a href="/explorer/cube/{{ cube|urlencode }}">{{ cube }}</a><span class="sep">/</span><span class="current">数据血缘</span>{% endif %}
 </nav>
 {% endblock %}
 
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1 class="page-title">数据血缘</h1>
-    <p class="page-sub">{% if cube %}这个 Cube 的数从哪里来、经过哪些 TI、流向哪里。{% else %}按名称找一个 Cube，查看它的上下游关系。{% endif %}</p>
+{% if cube and canvas_ok %}
+{# 结论优先：先给一句话事实，再给画布。画布要等前端算完，结论不该等。 #}
+<header class="ln-head">
+  <div class="ln-head-main">
+    <p class="ln-kicker">数据血缘</p>
+    <h1 class="ln-title">{{ cube }}</h1>
+    {% if facts %}<p class="ln-verdict">{{ facts.verdict }}</p>{% endif %}
   </div>
-  {% if cube %}<div class="study-actions"><a class="btn ghost" href="/explorer/cube/{{ cube|urlencode }}">回到 Cube 详情</a></div>{% endif %}
-</div>
+  <div class="ln-head-side">
+    <a class="btn ghost" href="/explorer/cube/{{ cube|urlencode }}">Cube 详情</a>
+  </div>
+</header>
 
-{# 画布本体：DOM、脚本与关系语义保持原样，只有挂载点从独立页面变成这一页。 #}
+{% if facts %}
+<ul class="ln-facts" aria-label="已索引的事实">
+  <li><b>{{ facts.dims }}</b><span>维度</span></li>
+  <li><b>{{ facts.writers }}</b><span>写入 TI</span></li>
+  <li><b>{{ facts.readers }}</b><span>读取 TI</span></li>
+  <li><b>{{ facts.rule_sources|length }}</b><span>Rule 引用 Cube</span></li>
+  {% if facts.rule_self_refs %}<li class="is-quiet" title="Rule 通过 DB('同名 Cube', …) 引用自身，是 Cube 内部的滚动计算，不算外部依赖。"><b>{{ facts.rule_self_refs }}</b><span>Rule 自引用</span></li>{% endif %}
+</ul>
+{% endif %}
+
 <section id="cl-root" data-cube="{{ cube }}" data-model="{{ model }}">
   {% include '_cube_lineage_body.html' %}
 </section>
+{% else %}
+{# 没有可用对象：查不到就给入口，而不是一句「没有」配半屏空白。 #}
+<header class="ln-head">
+  <div class="ln-head-main">
+    <p class="ln-kicker">数据血缘</p>
+    {% if cube %}
+    <h1 class="ln-title">没找到「{{ cube }}」</h1>
+    <p class="ln-verdict">本地模型里没有这个 Cube。可能是名字少了后半截，也可能是它不在本次采集范围里。</p>
+    {% else %}
+    <h1 class="ln-title">这个 Cube 的数从哪里来</h1>
+    <p class="ln-verdict">选一个 Cube，看它的写入 TI、Rule 引用，以及往下流到哪些 Cube。</p>
+    {% endif %}
+  </div>
+</header>
+
+<form class="ln-start-search" action="/graph" method="get" role="search">
+  <input class="input" type="search" name="cube" value="{{ cube }}" placeholder="输入 Cube 名称或关键词，例如 Allocation" autocomplete="off" maxlength="1000" required aria-label="Cube 名称">
+  <button class="btn primary" type="submit">查看血缘</button>
+</form>
+
+{% include '_lineage_starters.html' %}
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if cube and canvas_ok %}
 <link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2">
-<link rel="stylesheet" href="/static/cube-lineage.css?v=14">
+<link rel="stylesheet" href="/static/cube-lineage.css?v=35">
 <script src="/static/vendor/cytoscape.min.js" defer></script>
 <script src="/static/canvas-layout.js?v=7" defer></script>
 <script src="/static/canvas-graph.js?v=lineage-11" defer></script>
-<script src="/static/lineage-view.js?v=8" defer></script>
+<script src="/static/lineage-view.js?v=9" defer></script>
 <script src="/static/write-point-card.js?v=1" defer></script>
-<script src="/static/cube-lineage.js?v=31" defer></script>
-<script src="/static/lineage-search.js?v=4" defer></script>
+<script src="/static/cube-lineage.js?v=35" defer></script>
+<script src="/static/lineage-search.js?v=5" defer></script>
+{% else %}
+<link rel="stylesheet" href="/static/cube-lineage.css?v=35">
+<script>
+(function(){
+  var box = document.getElementById('ln-recent');
+  if (!box) return;
+  var names = [];
+  try { names = JSON.parse(localStorage.getItem('tm1-lineage-recent') || '[]'); } catch (e) { names = []; }
+  names = (names || []).filter(function (n) { return typeof n === 'string' && n; }).slice(0, 6);
+  if (!names.length) return;
+  var list = box.querySelector('ul');
+  names.forEach(function (name) {
+    var li = document.createElement('li');
+    var a = document.createElement('a');
+    a.href = '/graph?cube=' + encodeURIComponent(name);
+    var span = document.createElement('span');
+    span.textContent = name;
+    a.appendChild(span);
+    li.appendChild(a);
+    list.appendChild(li);
+  });
+  box.hidden = false;
+})();
+</script>
+{% endif %}
 {% endblock %}

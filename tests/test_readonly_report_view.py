@@ -12,8 +12,9 @@ def test_shared_viewport_css_and_readonly_navigation(client):
     # 空数据环境下不编造对象页；入口、工具页与共享视图样式仍然可用。
     landing=client.get('/cubes')
     assert landing.status_code==200 and 'href="/cubes"' in landing.text
-    workbench=client.get('/architecture?view=workbench')
-    assert workbench.status_code==200 and 'data-read-only="true"' in workbench.text
+    # 旧「架构沙盘」已下线：同一个 URL 回到业务架构页，不再有第二套只读画布。
+    workbench=client.get('/architecture?view=workbench', follow_redirects=False)
+    assert workbench.status_code==302 and workbench.headers['location']=='/architecture'
     assert client.get('/static/mermaid-viewer.css').status_code==200
 
 
