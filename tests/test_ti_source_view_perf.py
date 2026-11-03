@@ -233,6 +233,33 @@ def test_first_paint_renders_source_without_call_tree(client):
     assert "response.text().then" not in html
 
 
+def test_source_page_skips_unused_full_variable_resolution(client, monkeypatch):
+    original = queries.get_process
+    options = []
+
+    def capture(con, name, **kwargs):
+        options.append(kwargs)
+        return original(con, name, **kwargs)
+
+    monkeypatch.setattr(queries, 'get_process', capture)
+    response = client.get('/explorer/process/Wide.Hub')
+    assert response.status_code == 200
+    assert options == [{'include_variables': False}]
+    assert 'vSeed' in response.text and 'CellPutN' in response.text
+
+
+def test_light_process_projection_preserves_other_fields(client):
+    from tm1_insight.api.app import _store
+    con = _store().connect(read_only=True)
+    try:
+        full = queries.get_process(con, 'Wide.Hub')
+        light = queries.get_process(con, 'Wide.Hub', include_variables=False)
+    finally:
+        con.close()
+    assert full['variables'] and light['variables'] == []
+    assert {k: v for k, v in full.items() if k != 'variables'} == {k: v for k, v in light.items() if k != 'variables'}
+
+
 def test_call_tree_fragment_is_bounded_and_explains_truncation(client):
     response = client.get("/explorer/process/Wide.Hub/call-tree")
     assert response.status_code == 200

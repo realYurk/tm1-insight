@@ -1718,7 +1718,7 @@ def get_chore(con: duckdb.DuckDBPyConnection, name: str) -> dict | None:
     }
 
 
-def get_process(con: duckdb.DuckDBPyConnection, name: str) -> dict | None:
+def get_process(con: duckdb.DuckDBPyConnection, name: str, *, include_variables: bool = True) -> dict | None:
     row = con.execute(
         "SELECT name, prolog, metadata, data, epilog, parameters, datasource FROM processes WHERE name = ?",
         [name],
@@ -1748,14 +1748,15 @@ def get_process(con: duckdb.DuckDBPyConnection, name: str) -> dict | None:
     ).fetchall())
 
     # 变量：复用语句级解析器的赋值提取 + 值追溯
-    from tm1_insight.ingest.hard_extract import extract_assignments, resolve_value
-
-    full = "\n".join([prolog, metadata, data, epilog])
-    var_map = extract_assignments(full)
-    variables = [
-        {"name": k, "value": resolve_value(v[-1], var_map)}
-        for k, v in sorted(var_map.items())
-    ]
+    variables = []
+    if include_variables:
+        from tm1_insight.ingest.hard_extract import extract_assignments, resolve_value
+        full = "\n".join([prolog, metadata, data, epilog])
+        var_map = extract_assignments(full)
+        variables = [
+            {"name": k, "value": resolve_value(v[-1], var_map)}
+            for k, v in sorted(var_map.items())
+        ]
 
     # 调用关系：只走 store.calls 这一个生产者，页面与导出都不得自行拼表。
     # 兼容字段（calls_process / business_calls / called_by）由同一份事实投影而来，

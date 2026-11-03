@@ -615,7 +615,7 @@ def explorer_process(request: Request, name: str, source: str = Query("", max_le
         return _error_page(request, 409, "源码位置已失效", "数据源或文件已变化，请返回 TI 列表重新搜索；旧行号未用于定位。")
     con = store.connect(read_only=True)
     try:
-        proc = queries.get_process(con, name)
+        proc = queries.get_process(con, name, include_variables=False)
     finally:
         con.close()
     if not proc:
