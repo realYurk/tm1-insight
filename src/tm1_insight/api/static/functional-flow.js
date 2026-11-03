@@ -142,7 +142,7 @@
       const lane = ['process','rule'].includes(n.kind) ? 1 : n.kind === 'chore' || ['源数据','数据对象'].includes(n.role) ? 0 : 2;
       const card = make('button', '', lanes[lane]); card.type = 'button'; card.className = 'flow-node flow-node-' + n.kind; card.dataset.flowNode = n.id; card.title = n.title; card.setAttribute('aria-pressed', 'false');
       make('small', (n.kind === 'process' ? 'TI' : n.kind === 'cube' ? 'CUBE' : n.kind.toUpperCase()) + ' · ' + n.role, card).className = 'flow-eyebrow';
-      make('strong', n.kind==='process'&&n.title.length>48?n.title.slice(0,15)+' … '+n.title.slice(-28):n.title, card); make('span', n.summary, card).className = 'flow-node-summary';
+      make('strong', n.title, card); make('span', n.summary, card).className = 'flow-node-summary';
       if (n.slices[0]?.coordinates.length) make('span', '示例切面 · ' + n.slices[0].coordinates.slice(0, 3).map(c => c.dimension + ' = ' + c.value).join('；'), card).className = 'flow-node-slice';
       card.addEventListener('click', () => selectNode(n)); cards.set(n.id, card);
     });

@@ -2,6 +2,9 @@
 import copy
 import json
 import time
+import shutil
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +12,13 @@ from tm1_insight import architecture
 from tm1_insight.functional_flow import assemble, from_artifact, markdown, mermaid, slice_summary
 from test_architecture import con, fixture  # noqa: F401
 from test_datasource_api import client  # noqa: F401
+
+
+def test_flow_summary_filter_includes_connected_actions():
+    node=shutil.which('node')
+    if not node:pytest.skip('Node is not installed')
+    root=Path(__file__).resolve().parents[1]
+    subprocess.run([node,str(root/'tests/ui/flow_table_filter.js'),str(root/'src/tm1_insight/api/static/workbench-tables.js')],check=True)
 
 
 def test_access_directions_proof_and_technical_folding(con):
