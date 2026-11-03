@@ -21,6 +21,15 @@ def test_flow_summary_filter_includes_connected_actions():
     subprocess.run([node,str(root/'tests/ui/flow_table_filter.js'),str(root/'src/tm1_insight/api/static/workbench-tables.js')],check=True)
 
 
+def test_architecture_promotes_core_views_and_keeps_existing_links(client):
+    html=client.get('/architecture').text
+    primary=html.split('aria-label="业务架构主要视图"',1)[1].split('</nav>',1)[0]
+    assert all('data-ar-view="'+key+'"' in primary for key in ('functional_flow','cubes','write_explanations'))
+    assert '更多分析与导出' in html and '/architecture?view=workbench' in html
+    assert 'package-check-form' in html
+    assert client.get('/graph').status_code==200
+
+
 def test_access_directions_proof_and_technical_folding(con):
     report = architecture.build(con, 'Load')
     flow = assemble(report, include_context=True)

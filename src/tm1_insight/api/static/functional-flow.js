@@ -30,7 +30,8 @@
     make('h2', '业务流程总览', heading);
     make('p', '输入 → 处理 → 结果。点击流程对象或下方表格查看局部关系，技术证据按需展开。', heading);
     make('p', '连线表示读取、写入或规则引用，不代表逐值传输或运行顺序。', heading).className='flow-note';
-    const toolbar = make('div', '', heading); toolbar.className = 'study-actions';
+    const exports = details(heading, '导出当前流程');
+    const toolbar = make('div', '', exports); toolbar.className = 'study-actions';
     [['human-markdown', '人类阅读版 Markdown'], ['mermaid', 'Mermaid 图'], ['flow-json', '流程 JSON'], ['ai-package', '技术完整版 ZIP']].forEach(([format, label]) => {
       const a = make('a', label, toolbar); a.className = 'btn ghost'; a.href = api.url('export', { format, include_context:includeContext });
     });
@@ -64,7 +65,7 @@
     };
     btnFlow.addEventListener('click', () => switchView('flow'));
     btnMmd.addEventListener('click', () => switchView('mermaid'));
-    const options = make('label', '', toolbar); options.className='flow-context'; const check=make('input','',options); check.type='checkbox'; check.checked=includeContext; options.append(document.createTextNode(' 展开调用入口、消费者与来源规则')); check.addEventListener('change',()=>{includeContext=check.checked;render(parent,api).catch(e=>make('p',e.message,parent));});
+    const options = make('label', '', heading); options.className='flow-context'; const check=make('input','',options); check.type='checkbox'; check.checked=includeContext; options.append(document.createTextNode(' 展开调用入口、消费者与来源规则')); check.addEventListener('change',()=>{includeContext=check.checked;render(parent,api).catch(e=>make('p',e.message,parent));});
 
     if (flow.statistics.truncated) make('p', '已达到展示范围上限，当前图不完整。请缩小入口，完整事实可在架构导出中查看。', parent).className = 'flow-boundary';
     const layout = make('div', '', selfView); layout.className = 'flow-layout';

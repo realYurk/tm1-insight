@@ -2,6 +2,14 @@
 .flow-heading {display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin-bottom:12px}
 .flow-heading h2,.flow-heading p {margin:0}
 .flow-heading .study-actions {margin-left:auto}
+.flow-heading > details {margin-left:auto;color:var(--muted)}
+.flow-heading > details summary,.architecture-model summary {cursor:pointer;font-size:13px}
+.flow-heading > details .study-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.architecture-model {margin-bottom:14px;color:var(--muted)}
+.architecture-model .architecture-identity {margin:10px 0 0}
+.architecture-primary-views {display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 10px}
+.architecture-expert {margin:10px 0 18px}
+.architecture-expert summary {cursor:pointer;color:var(--muted)}
 .flow-note {color:var(--muted);font-size:12px;line-height:1.7;max-width:1000px}
 .flow-boundary {padding:12px;border:1px solid var(--border);border-left:3px solid #b47824;border-radius:8px}
 .flow-layout {display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start;margin:20px 0}
