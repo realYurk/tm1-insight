@@ -124,6 +124,9 @@ def test_web_package_check_is_read_only_and_handles_invalid_file(client, con, ar
     assert 'package-check-form' in page.text and '/static/package-check.js' in page.text
     response=client.post('/api/architecture/verify-package',files={'file':('test.zip',data,'application/zip')})
     assert response.status_code==200 and response.json()['files_checked']>0
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        assert response.json()['summary']==z.read('BusinessFlow.md').decode('utf-8')
+    assert 'package-preview-text' in page.text
     bad=client.post('/api/architecture/verify-package',files={'file':('bad.zip',b'broken','application/zip')})
     assert bad.status_code==400
 

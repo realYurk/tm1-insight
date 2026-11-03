@@ -52,7 +52,7 @@ def canonical(value):
     return json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
 
 
-def verify_package(path):
+def verify_package(path, *, include_summary=False):
     """Verify an analysis ZIP without extracting it or trusting its manifest."""
     try:
         with zipfile.ZipFile(path) as archive:
@@ -88,7 +88,16 @@ def verify_package(path):
             if listed != set(names)-{'Manifest.json'}:raise ValueError('文件与清单不一致')
             omissions=manifest.get('omissions',[])
             if not isinstance(omissions,list):raise ValueError('遗漏清单无效')
-            return {'schema':VERSION,'files_checked':len(listed),'omissions':len(omissions)}
+            result={'schema':VERSION,'files_checked':len(listed),'omissions':len(omissions)}
+            if include_summary:
+                # Only read the exact, checksummed report; do not extract or render HTML.
+                if 'BusinessFlow.md' in listed:
+                    info=archive.getinfo('BusinessFlow.md')
+                    if info.file_size>512*1024:raise ValueError('功能说明超过预览大小限制')
+                    result['summary']=archive.read(info).decode('utf-8')
+                else:
+                    result['summary']=None
+            return result
     except (zipfile.BadZipFile, KeyError, UnicodeDecodeError, json.JSONDecodeError, OSError, RuntimeError) as exc:
         raise ValueError('分析包损坏或清单无效') from exc
 

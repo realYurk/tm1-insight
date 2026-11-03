@@ -51,7 +51,7 @@ async def verify_package_upload(file: UploadFile = File(...)):
                 tmp.write(chunk)
             tmp.seek(0)
             try:
-                result=await run_in_threadpool(verify_package,tmp)
+                result=await run_in_threadpool(lambda: verify_package(tmp,include_summary=True))
             except ValueError:
                 raise HTTPException(400,'无法通过校验：文件损坏、格式不支持或内容与清单不一致。') from None
         return result
