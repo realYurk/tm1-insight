@@ -79,7 +79,20 @@ def test_ai_package_checksums_sources_metadata_missing_and_stability(con,artifac
         assert dim['summary']['elements']['total']==120
         assert len(dim['summary']['elements']['sample'])==25
         assert not dim['summary']['elements']['complete']
+        assert '不是完整服务器备份' in z.read('README.md').decode('utf-8')
     assert con.execute('SELECT prolog FROM processes WHERE name=?',['Load']).fetchone()==before
+
+
+def test_package_missing_dimension_metadata_is_not_complete(con, artifact):
+    # 缺失字段和已记录的空数组不同；元素数量不一致也不能称完整。
+    con.execute("UPDATE dimensions SET edges=NULL, attributes='[]', element_count=999 WHERE name='Product'")
+    with zipfile.ZipFile(io.BytesIO(b''.join(stream(package(artifact,con))))) as z:
+        dims=[json.loads(z.read(n)) for n in z.namelist() if n.startswith('dimensions/')]
+        dim=next(d for d in dims if d['metadata']['name']=='Product')
+        assert not dim['summary']['edges']['recorded']
+        assert not dim['summary']['edges']['complete']
+        assert dim['summary']['attributes']['recorded'] and dim['summary']['attributes']['complete']
+        assert not dim['summary']['elements']['complete']
 
 
 def test_ai_package_redacts_credentials_without_destroying_source_locations(con,tmp_path):

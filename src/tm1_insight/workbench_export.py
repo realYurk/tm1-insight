@@ -125,10 +125,14 @@ def package(path, con, guard=lambda:None, settings=None):
                 summary={}
                 for field in dimensions.FIELDS:
                     page=dimensions.records(con,name,field,page=1)
-                    summary[field]=dict(total=page['total'],sample=page['items'][:25],sample_limit=25,complete=page['total']<=25,
-                        recorded=meta['fields'][field]['status']=='recorded')
+                    recorded=meta['fields'][field]['status']=='recorded'
+                    count_consistent=field!='elements' or meta['element_count'] is None or meta['element_count']==page['total']
+                    summary[field]=dict(total=page['total'],sample=page['items'][:25],sample_limit=25,
+                        complete=recorded and page['total']<=25 and count_consistent, recorded=recorded)
                 write(f'dimensions/dimension-{i:04d}.json',canonical(sanitize(dict(metadata=meta,summary=summary),private_values)),kind='dimension_summary')
             guard()
+            readme='''# 本地分析包阅读说明\n\n先阅读 BusinessFlow.md；Diagram.mmd 可用于查看流程图。\nArchitecture.json 和 sources/ 保留当前分析范围的结构、证据和已核对源码。\n\n维度文件是摘要，每类最多 25 条；未采集字段不等于空结构。\n请查看 Manifest.json 和维度文件中的遗漏、记录状态与采样情况。\n本包不是完整服务器备份，也不证明运行结果或重建等价。\n源码和结构可能包含敏感信息，请自行决定分享范围。\n'''
+            write('README.md',readme.encode('utf-8'),kind='package_guide')
             manifest=dict(schema=VERSION,model=header,files=entries,sources=sources,omissions=omissions,
                 sections={k:'Architecture.json#/'+k for k in ('cubes','dimensions','processes','rules','chores','execution_relationships','formation_relationships','write_explanations','unified_relations','relation_evidence','evidence','diagnostics','unresolved_dependencies','details')},
                 source_policy='仅当前已核对范围，源码有凭据脱敏；原哈希指向本地原件，文件校验指向实际导出。',
