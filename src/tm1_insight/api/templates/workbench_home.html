@@ -1,12 +1,17 @@
 <section class="workspace-home" aria-label="模型分析工作台">
   <header class="workspace-heading">
-    <div><p class="workspace-eyebrow">TM1 INSIGHT / WORKSPACE</p><h1>从 MDX 找到可能的写入程序</h1><p class="workspace-intro">粘贴报表 MDX，按 Cube 与关键切面查找相关 TI。</p></div>
+    <div>
+      <p class="workspace-eyebrow">TM1 INSIGHT</p>
+      <h1>从对象，到它怎么运转</h1>
+      <p class="workspace-intro">搜一个 Cube 或 TI，直接得到它的上下游、数据形成方式、源码和一份可带走的交接页。</p>
+    </div>
     <a class="workspace-source" href="/settings" data-type="{{ data_source.type }}"><span class="ds-dot"></span>{{ data_source.label }}<span aria-hidden="true"> ↗</span></a>
   </header>
 
   {% if not has_data %}
   <section class="workspace-empty" aria-label="开始使用">
-    <h2>准备一份模型数据</h2><p>选择本地模型、导入数据包，或连接 TM1 采集元数据，之后可以离线分析。</p>
+    <h2>还没有模型数据</h2>
+    <p>选择本地模型、导入数据包，或连接 TM1 采集元数据。</p>
     <a class="btn primary" href="/settings">选择数据源</a>
     <input type="file" id="import-file" accept=".duckdb,.zip" hidden onchange="importDataPackage(this)">
     <button type="button" class="btn ghost" id="import-btn" onclick="document.getElementById('import-file').click()">导入数据包</button>
@@ -14,45 +19,51 @@
   </section>
   {% endif %}
 
-  <details class="workspace-start"><summary>按名称查找 Cube 或 TI</summary><section aria-labelledby="workspace-search-title">
-    <p class="workspace-eyebrow">01 / 定位对象</p><h2 id="workspace-search-title">从 Cube 或 TI 理解业务架构</h2>
-    <div class="search-hero">
-      <label class="workspace-search-label" for="global-search">Cube、TI 名称或前缀</label>
-      <form action="/architecture" method="get"><input type="hidden" name="analyze" value="1"><input type="hidden" name="kind" value="discover"><div class="search-box"><span aria-hidden="true">⌕</span><input name="name" required maxlength="1000" data-architecture-discover="true" type="search" id="global-search" placeholder="输入名称或名称的一部分…" autocomplete="off" aria-controls="search-results"><button class="btn primary">查看业务流程</button></div></form>
-      <div class="search-results" id="search-results" aria-live="polite" hidden></div>
+  <form class="home-search" action="/object" method="get">
+    <div class="home-search-kind">
+      <label><input type="radio" name="kind" value="cube" checked> Cube</label>
+      <label><input type="radio" name="kind" value="process"> TI 进程</label>
     </div>
-    <p class="workspace-search-note">按名称或前缀查找 Cube / TI；选定入口后先看流程、对象与关键切面，技术依据按需展开。</p>
-    <div class="workspace-shortcuts"><a href="/processes">浏览 TI 进程 →</a><a href="/cubes">查看 Cube 结构 →</a><a href="/chores">检查 Chore 调度 →</a></div>
-  </section></details>
+    <div class="search-box">
+      <span aria-hidden="true">⌕</span>
+      <input name="q" id="global-search" type="search" required maxlength="200" placeholder="输入名称或名称的一部分，回车打开对象页" autocomplete="off">
+      <button class="btn primary">打开</button>
+    </div>
+  </form>
 
-  <div class="workspace-columns">
-    <section class="workspace-route" aria-labelledby="workspace-route-title" hidden>
-      <p class="workspace-eyebrow">02 / 沿证据推进</p><h2 id="workspace-route-title">从数据模型到加工步骤</h2>
-      <ul class="workspace-steps">
-        <li><span>调用</span><div><strong>先理解输入与结果</strong><p>查看相关 Cube、加工 TI 和结果对象，技术辅助过程默认折叠。</p></div></li>
-        <li><span>计算</span><div><strong>按需查看计算依据</strong><p>把读写事实与表达式依赖分开，追踪受支持的赋值链和维度坐标。</p></div></li>
-        <li><span>证据</span><div><strong>在同一工作台打开源码</strong><p>逐条回到源码位置，按需查看四个 Section，并导出私有 JSON / Markdown。</p></div></li>
-      </ul>
-      <p class="workspace-boundary">静态定义不等于运行结果。动态引用与不支持的语义显示具体的待核对提示，业务含义需要人工确认。</p>
+  <div class="home-grid">
+    <section aria-labelledby="home-cubes">
+      <h2 id="home-cubes">分量最重的 Cube <a href="/atlas?kind=cube">全部 →</a></h2>
+      <div class="catalog-list">
+        {% for c in top_cubes %}<a class="catalog-item" href="/object/cube/{{ c.name|urlencode }}"><span>{{ c.name }}</span><b>{{ c.score }}</b></a>{% endfor %}
+      </div>
     </section>
-    <section class="workspace-mdx" aria-label="MDX 反查">
-      <p class="workspace-eyebrow">已有报表切面？</p>
-      <details id="mdx-card" open><summary>用 MDX 查找候选写入进程</summary>
-        <p class="muted small">按已解析的 Cube 和坐标匹配写入候选；匹配分数不能证明该值由谁产生。</p>
-        <label for="mdx-input">MDX 表达式</label>
-        <textarea id="mdx-input" rows="6" placeholder="SELECT … FROM [Cube] WHERE (…)" spellcheck="false"></textarea>
-        <div class="mdx-focus"><label>重点维度（可选）<input id="mdx-focus-dimension" placeholder="例如 Measure"></label><label>重点成员<input id="mdx-focus-member" placeholder="例如 Amount"></label></div><div class="mdx-actions"><button id="mdx-btn" class="btn primary" onclick="traceMdx()">解析并反查</button><button class="btn ghost" onclick="fillExample()">填入示例</button><button class="btn ghost" onclick="clearMdx()">清空</button></div>
-        <div id="mdx-result" hidden></div>
-      </details>
-      <div class="workspace-utilities"><h3>准备数据与工具</h3><a href="/audit">前端资产与 Cube 引用 →</a><a href="/architecture">业务架构 →</a><a href="/codegen">代码生成 →</a><a href="/settings">连接与数据源设置 →</a></div>
+    <section aria-labelledby="home-tis">
+      <h2 id="home-tis">分量最重的 TI <a href="/atlas?kind=process">全部 →</a></h2>
+      <div class="catalog-list">
+        {% for p in top_processes %}<a class="catalog-item" href="/object/process/{{ p.name|urlencode }}"><span>{{ p.name }}</span><b>{{ p.score }}</b></a>{% endfor %}
+      </div>
     </section>
   </div>
 
+  <section id="home-recent" hidden aria-labelledby="home-recent-title">
+    <h2 id="home-recent-title">最近打开</h2>
+    <div class="catalog-list" id="home-recent-list"></div>
+  </section>
+
+  <details class="home-mdx">
+    <summary>已有报表 MDX？按切面反查候选写入 TI</summary>
+    <p class="muted small">按已解析的 Cube 与坐标匹配写入候选；匹配分数不能证明值由谁产生。</p>
+    <textarea id="mdx-input" rows="5" placeholder="SELECT … FROM [Cube] WHERE (…)" spellcheck="false"></textarea>
+    <div class="mdx-focus"><label>重点维度（可选）<input id="mdx-focus-dimension" placeholder="例如 Measure"></label><label>重点成员<input id="mdx-focus-member" placeholder="例如 Amount"></label></div>
+    <div class="mdx-actions"><button id="mdx-btn" class="btn primary" onclick="traceMdx()">反查</button><button class="btn ghost" onclick="fillExample()">示例</button><button class="btn ghost" onclick="clearMdx()">清空</button></div>
+    <div id="mdx-result" hidden></div>
+  </details>
+
   {% if has_data %}
   <footer class="workspace-inventory" aria-label="当前模型目录">
-    <div class="workspace-inventory-head"><h2>当前模型目录</h2><span>{{ '合成示例数据' if is_demo else '本地元数据' }} · 文件修改时间 {{ model_file_time or 'UNKNOWN' }}</span></div>
-    <dl>{% for key, label, href in [('cubes','Cubes','/cubes'),('processes','TI 进程','/processes'),('dimensions','维度','/dimensions'),('chores','Chores','/chores'),('rules','Rule 文本','/cubes')] %}<div><dt><a href="{{ href }}">{{ label }}</a></dt><dd>{{ counts.get(key,0) }}</dd></div>{% endfor %}</dl>
-    <p>目录数量不代表逻辑已理解。文件修改时间不代表服务器采集时间或历史快照版本。</p>
+    <div class="workspace-inventory-head"><h2>当前模型</h2><span>{{ '示例数据' if is_demo else '本地元数据' }} · 含系统对象{% if model_file_time %} · 更新于 {{ model_file_time }}{% endif %}</span></div>
+    <dl>{% for key, label, href in [('cubes','Cube','/browse?kind=cube'),('processes','TI','/browse?kind=process'),('dimensions','维度','/browse?kind=dimension'),('chores','Chore','/browse?kind=chore')] %}<div><dt><a href="{{ href }}">{{ label }}</a></dt><dd>{{ counts.get(key,0) }}</dd></div>{% endfor %}</dl>
   </footer>
   {% endif %}
 </section>

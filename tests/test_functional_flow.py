@@ -21,12 +21,11 @@ def test_flow_summary_filter_includes_connected_actions():
     subprocess.run([node,str(root/'tests/ui/flow_table_filter.js'),str(root/'src/tm1_insight/api/static/workbench-tables.js')],check=True)
 
 
-def test_architecture_promotes_core_views_and_keeps_existing_links(client):
-    html=client.get('/architecture').text
-    primary=html.split('aria-label="业务架构主要视图"',1)[1].split('</nav>',1)[0]
-    assert all('data-ar-view="'+key+'"' in primary for key in ('functional_flow','cubes','write_explanations'))
-    assert '更多分析与导出' in html and '/architecture?view=workbench' in html
-    assert 'package-check-form' in html
+def test_architecture_folds_into_the_object_workbench(client):
+    # 旧业务架构入口不再是一套并行 UI：无对象时进入对象查找，有对象时落到对象页。
+    landing=client.get('/architecture')
+    assert landing.status_code==200 and '找一个对象' in landing.text
+    assert client.get('/architecture?kind=discover&name=BP&view=functional_flow').status_code==200
     assert client.get('/graph').status_code==200
 
 
@@ -194,7 +193,7 @@ def test_flow_api_exports_and_existing_views(client):
 def test_entry_links_prefix_discovery_and_local_assets(client):
     page = client.get('/architecture?kind=discover&name=BP&view=functional_flow')
     assert page.status_code==200
-    assert 'data-view="functional_flow"' in page.text and '按名称 / 前缀找入口' in page.text
+    assert '找一个对象' in page.text
     for path in ['/explorer/process/Load_Sales','/explorer/cube/Sales']:
         response = client.get(path)
         assert response.status_code==200 and '/graph?' in response.text

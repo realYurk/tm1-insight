@@ -91,8 +91,10 @@ def test_bounded_cube_report_controller():
 
 
 def test_routes_keep_model_identity_and_reject_stale_source(client):
-    assert 'data-model="old-model"' in client.get('/graph?cube=Cube_B&model=old-model').text
-    assert 'data-model="old-model"' in client.get('/graph?ti=Load&model=old-model').text
+    stale=client.get('/graph?cube=Cube_B&model=old-model')
+    assert stale.url.path=='/object/cube/Cube_B' and stale.url.params.get('model')=='old-model'
+    stale_ti=client.get('/graph?ti=Load&model=old-model')
+    assert stale_ti.url.path=='/object/process/Load' and stale_ti.url.params.get('model')=='old-model'
     assert client.get('/explorer/process/Load?model=old-model').status_code==409
     assert client.get('/explorer/cube/Cube_B?model=old-model').status_code==409
     assert client.post('/api/workbench/graph',json={'snapshot_id':'old-model','objects':[{'name':'Cube_B'}]}).status_code==409

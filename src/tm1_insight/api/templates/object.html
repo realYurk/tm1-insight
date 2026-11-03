@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }} · {{ item.kind_label }}{% endblock %}
+{% block content %}
+{% set base = '/object/' ~ kind ~ '/' ~ (item.name|urlencode) %}
+<article class="object-page" data-kind="{{ kind }}" data-name="{{ item.name }}">
+  <header class="object-head">
+    <div class="object-ident">
+      <span class="object-kind object-kind-{{ kind }}">{{ item.kind_label }}</span>
+      <h1>{{ item.name }}</h1>
+      {% if item.position %}<a class="object-score" href="/atlas?kind={{ kind }}&amp;q={{ item.name|urlencode }}" title="资产信号只用于发现，不代表业务重要度">{{ item.position.score }} 分 · 第 {{ item.position.rank }} / {{ item.position.total }} 位</a>{% endif %}
+    </div>
+    <p class="object-answer">{{ item.answer }}</p>
+    <nav class="object-tabs" aria-label="对象视图">
+      {% for key, label in views %}<a class="object-tab {{ 'active' if view == key }}" href="{{ base }}?view={{ key }}" {% if view == key %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+    </nav>
+  </header>
+
+  {% if view == 'overview' %}
+  <section class="object-pane" aria-label="概览">
+    <ul class="object-facts">
+      {% for f in item.facts %}<li class="{{ 'zero' if not f.value }}"><b>{{ f.value }}</b><span>{{ f.label }}</span></li>{% endfor %}
+    </ul>
+
+    <div class="object-columns">
+      <section class="object-card">
+        <h2>上游 <small>{{ item.upstream|length }}</small></h2>
+        {% if item.upstream %}<p class="object-chips">{% for n in item.upstream %}<a href="/object/cube/{{ n|urlencode }}">{{ n }}</a>{% endfor %}</p>
+        {% else %}<p class="object-empty">没有已索引的上游。</p>{% endif %}
+        {% if kind == 'process' and item.callers %}
+        <h2>调用方 <small>{{ item.callers|length }}</small></h2>
+        <p class="object-chips">{% for n in item.callers %}<a href="/object/process/{{ n|urlencode }}">{{ n }}</a>{% endfor %}</p>
+        {% endif %}
+      </section>
+
+      <section class="object-card">
+        <h2>下游 <small>{{ item.downstream|length }}</small></h2>
+        {% if item.downstream %}<p class="object-chips">{% for n in item.downstream %}<a href="/object/cube/{{ n|urlencode }}">{{ n }}</a>{% endfor %}</p>
+        {% else %}<p class="object-empty">没有已索引的下游。</p>{% endif %}
+        {% if kind == 'cube' and item.writers %}
+        <h2>写入 TI <small>{{ item.writers|length }}</small></h2>
+        <p class="object-chips">{% for n in item.writers[:12] %}<a href="/object/process/{{ n|urlencode }}">{{ n }}</a>{% endfor %}{% if item.writers|length > 12 %}<span class="object-more">等 {{ item.writers|length }} 个</span>{% endif %}</p>
+        {% elif kind == 'cube' and item.readers %}
+        <h2>读取 TI <small>{{ item.readers|length }}</small></h2>
+        <p class="object-chips">{% for n in item.readers[:12] %}<a href="/object/process/{{ n|urlencode }}">{{ n }}</a>{% endfor %}</p>
+        {% endif %}
+        {% if kind == 'process' and item.callees %}
+        <h2>子进程 <small>{{ item.callees|length }}</small></h2>
+        <p class="object-chips">{% for n in item.callees %}<a href="/object/process/{{ n|urlencode }}">{{ n }}</a>{% endfor %}</p>
+        {% endif %}
+      </section>
+    </div>
+
+    {% if item.issues %}
+    <section class="object-gaps" aria-label="未知与边界">
+      <h2>需要知道</h2>
+      <ul>{% for note in item.issues %}<li>{{ note }}</li>{% endfor %}</ul>
+    </section>
+    {% endif %}
+
+    <nav class="object-next" aria-label="继续">
+      <a class="btn primary" href="{{ base }}?view=graph">看关系图</a>
+      {% if kind == 'cube' %}<a class="btn" href="{{ base }}?view=formation">看数据怎么形成</a>{% endif %}
+      <a class="btn" href="{{ base }}?view=code">看实现</a>
+      <a class="btn ghost" href="{{ base }}?view=handoff">生成交接页</a>
+      {% if kind == 'cube' %}<a class="btn ghost" href="/graph?cube={{ item.name|urlencode }}">直接打开画布</a>{% endif %}
+    </nav>
+  </section>
+
+  {% elif view == 'graph' %}
+  <section class="object-pane object-pane-graph" aria-label="{{ '关系图' if kind == 'cube' else '调用关系' }}">
+    {% if kind == 'cube' %}
+    <section id="cl-root" data-cube="{{ item.name }}" data-model="{{ model }}" data-object-base="/object/cube">
+      {% include '_cube_lineage_body.html' %}
+    </section>
+    {% else %}
+    <section id="tr-root" data-process="{{ item.name }}" data-model="{{ model }}" data-depth="{{ depth }}" data-budget="{{ node_budget }}">
+      {% include '_ti_lineage_body.html' %}
+    </section>
+    {% endif %}
+  </section>
+
+  {% elif view == 'formation' %}
+  <section class="object-pane" aria-label="数据形成">
+    <section id="cl-root" data-model="{{ model }}">
+      <form id="cl-search" class="object-swap" data-formation-autostart="true">
+        <div class="lineage-search-field"><label for="cl-name">目标 Cube</label><input id="cl-name" class="input" value="{{ item.name }}" readonly></div>
+        <button class="btn primary" type="submit">开始分析</button>
+        <button id="cl-cancel" type="button" class="btn ghost" hidden>取消</button>
+      </form>
+      <p id="cl-status" role="status" aria-live="polite"></p>
+      <details class="formation-secondary" open>
+        <summary>写入点与 Rule 如何算出这个值</summary>
+        <section id="fa-root" aria-label="目标 Cube 形成答案">
+          <div class="cl-toolbar">
+            <label>切面维度<input id="fa-dimension" class="input" placeholder="例如 Measure"></label>
+            <label>固定成员<input id="fa-member" class="input" placeholder="例如 Member2"></label>
+            <label>分析预算<input id="fa-budget" class="input" type="number" min="1" max="40" value="12"></label>
+            <button id="fa-cancel" type="button" class="btn" disabled>停止</button>
+            <button id="fa-export" type="button" class="btn" disabled>下载 JSON</button>
+            <button id="fa-retry" type="button" class="btn">重试未完成项</button>
+          </div>
+          <p id="fa-status" role="status"></p>
+          <p id="fa-scope" class="muted small"></p>
+          <div id="fa-answer"></div>
+          <div hidden><span id="fa-problem-title"></span><div id="fa-problems"></div></div>
+        </section>
+      </details>
+    </section>
+  </section>
+
+  {% elif view == 'code' %}
+  <section class="object-pane" aria-label="实现">
+    {% if kind == 'cube' %}
+      {% if code.rules %}<pre class="code object-code">{{ code.rules }}</pre>
+      {% else %}<p class="object-empty">这个 Cube 没有 Rule 文本。值来自 TI 写入。</p>{% endif %}
+      {% if item.writers %}
+      <h2 class="object-subhead">写入它的 TI</h2>
+      <ul class="object-list">{% for n in item.writers %}<li><a href="/object/process/{{ n|urlencode }}?view=code">{{ n }}</a></li>{% endfor %}</ul>
+      {% endif %}
+      <p class="object-note">静态文本，未执行。查看写入点如何取值请回到 <a href="{{ base }}?view=formation">数据形成</a>。</p>
+    {% else %}
+      {% for key, label in [('prolog','Prolog'),('metadata','Metadata'),('data','Data'),('epilog','Epilog')] %}
+      <details class="object-section" {% if key == 'prolog' %}open{% endif %}>
+        <summary>{{ label }} <small>{{ code.get(key, '')|length }} 字符</small></summary>
+        {% if code.get(key) %}<pre class="code object-code">{{ code[key] }}</pre>{% else %}<p class="object-empty">本节为空。</p>{% endif %}
+      </details>
+      {% endfor %}
+      {% if item.parameters %}
+      <h2 class="object-subhead">参数</h2>
+      <ul class="object-list">{% for p in item.parameters %}<li>{{ p.get('Name') or p.get('name') or p }}</li>{% endfor %}</ul>
+      {% endif %}
+    {% endif %}
+  </section>
+
+  {% elif view == 'handoff' %}
+  <section class="object-pane" aria-label="交接">
+    <div class="object-handoff-actions">
+      <a class="btn primary" href="/api/object/{{ kind }}/{{ item.name|urlencode }}/handoff.md" download>下载 Markdown</a>
+      <button class="btn ghost" type="button" id="object-copy">复制</button>
+      <span class="muted small" id="object-copy-status" role="status"></span>
+    </div>
+    <pre class="object-handoff" id="object-handoff-text">{{ handoff }}</pre>
+    <details class="package-check card">
+  <summary>离线分析包 · 校验与预览</summary>
+  <p class="muted small">选择之前导出的分析 ZIP，检查清单并预览包内功能说明。不会导入或修改当前模型。</p>
+  <form id="package-check-form" class="study-actions">
+    <input type="file" id="package-check-file" accept=".zip,application/zip" aria-label="选择分析包 ZIP" required>
+    <button type="submit" class="btn ghost">检查文件</button>
+  </form>
+  <p id="package-check-status" role="status" aria-live="polite"></p>
+  <section id="package-preview" hidden><h3>包内功能说明</h3><p class="muted small">以下为包内原有说明，范围和缺失项请结合导出清单核对。</p><pre id="package-preview-text" class="package-preview-text"></pre></section>
+</details>
+  </section>
+  {% endif %}
+</article>
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="/static/object.css?v=1">
+{% if view == 'graph' and kind == 'cube' %}
+<link rel="stylesheet" href="/static/canvas.css?v=readonly-1-2"><link rel="stylesheet" href="/static/cube-lineage.css?v=13">
+<script src="/static/vendor/cytoscape.min.js" defer></script><script src="/static/canvas-layout.js?v=7" defer></script><script src="/static/canvas-graph.js?v=lineage-11" defer></script><script src="/static/lineage-view.js?v=8" defer></script><script src="/static/write-point-card.js?v=1" defer></script><script src="/static/cube-lineage.js?v=30" defer></script><script src="/static/lineage-search.js?v=3" defer></script>
+{% elif view == 'graph' and kind == 'process' %}
+<link rel="stylesheet" href="/static/cube-lineage.css?v=13"><script src="/static/mermaid-viewer.js?v=8" defer></script><script src="/static/lineage-view.js?v=1" defer></script><script src="/static/cube-lineage.js?v=30" defer></script><script src="/static/lineage-search.js?v=3" defer></script><script src="/static/ti-lineage.js?v=12" defer></script>
+{% elif view == 'handoff' %}
+<link rel="stylesheet" href="/static/package-preview.css?v=1"><script src="/static/package-check.js?v=2" defer></script>
+{% elif view == 'formation' %}
+<link rel="stylesheet" href="/static/cube-lineage.css?v=13"><script src="/static/write-point-card.js?v=1" defer></script><script src="/static/formation-answer.js?v=8" defer></script>
+{% endif %}
+<script src="/static/object.js?v=1" defer></script>
+{% endblock %}

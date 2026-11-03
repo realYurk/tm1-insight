@@ -103,3 +103,13 @@ def test_gaps_and_export(con):
     assert '`Sales`' in text
     assert '覆盖缺口' in text
     assert '不代表运行时结果' in text
+
+
+def test_case_variant_duplicates_do_not_split_one_object(con):
+    """采集合并后可能出现只有大小写不同的同名 Cube；清单与分数必须唯一且稳定。"""
+    con.execute("INSERT INTO cubes(name,dimensions,rules,has_rules,dimension_count) VALUES ('sales','[]','',false,3)")
+    con.execute("INSERT INTO process_reads_cube VALUES ('Load1','sales')")
+    names = [i['name'].lower() for i in atlas.summary(con, 'cube', limit=100)['items']]
+    assert names.count('sales') == 1
+    scores = {atlas.position(con, 'cube', 'SALES')['score'] for _ in range(3)}
+    assert len(scores) == 1

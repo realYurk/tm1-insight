@@ -113,6 +113,28 @@
   - 首屏"一段话答案"对 5 个抽样对象人工验收通过（找 2 名未参与实现者）。
 - **风险**：两套栈共享部分 API，合并时可能触发状态不一致。用"先合并入口、后合并渲染"的两步走降低风险。
 
+#### P1 交付记录（2026-11-03，S1 + S2 已完成）
+
+已合并为**一个对象页**，旧的 11 个视图收敛为 5 个：
+
+| 旧入口 | 新位置 | 处理 |
+|---|---|---|
+| `/graph?cube=X` | `/object/cube/X?view=graph` | 302，画布与关系语义原样保留 |
+| `/graph?ti=X` | `/object/process/X?view=graph` | 302，TI 调用图并入同一页 |
+| `/architecture?name=X&kind=cube` | `/object/cube/X?view=formation` | 302，形成答案独立成视图 |
+| `/architecture?name=X&kind=process` | `/object/process/X?view=overview` | 302 |
+| `?view=workbench` 只读画布 | 保留，不再出现在导航 | 待最后一批工作区文件迁移后删除（S3） |
+
+- 新增 `src/tm1_insight/object_overview.py`：一个对象的答案、事实、缺口、交接 Markdown 全部只读聚合，不引入第二个语义引擎。
+- 新增 `/object` 查找页、`/browse` 四类对象统一目录、`/api/object/{kind}/{name}` 与 `handoff.md`。
+- 导航 6 → 4：工作台、资产地图、对象工作台、模型目录；代码生成/影响分析/快照/证据包/经验退出导航，旧地址仍可直达。
+- 首页从"MDX 反查"改为"搜索对象 + 分量最重的 Cube/TI + 最近打开"；MDX 降到折叠区。
+- 删除 `cube_lineage.html`、`ti_lineage.html`、`lineage_search.html`，画布 DOM 抽成 `_cube_lineage_body.html` / `_ti_lineage_body.html` 供对象页复用。
+- 修复真实缺陷：索引里存在只有大小写不同的同名对象（`Sys Parameter` / `sys parameter`），旧实现按小写合并时"后写覆盖"，导致同一对象的资产分在 344 与 1910 之间跳变。现在清单去重、信号按 `lower()` 分组，数值稳定。
+- 字体栈去掉未随包分发的 Inter / JetBrains Mono，改用系统字体；长段"技术说明"从首屏移到折叠层。
+
+**仍属 S3（下一次）**：删除 `architecture?view=workbench` 与 `architecture.html` 的死分支、清理仅被旧栈引用的 JS/CSS、把 `rule_references` 的 Rule 全文预览并入 `code` 视图。P2 的人工确认与交接 ZIP 未开始。
+
 ### P2 · 资产视角贯通（血缘 / 架构 / 对象页）
 
 - **动作**：

@@ -81,16 +81,13 @@ def test_navigation_reorganization(client):
     text = r.text
     # 工作台 first
     assert '>工作台<' in text
-    # 模型资产分组 + 四个对象 + 代码生成
-    assert '模型浏览' in text
-    assert '/cubes' in text and '/dimensions' in text and '/processes' in text and '/chores' in text
-    assert '代码生成' in text
-    # 数据血缘 / 系统架构 / 高级工具 / 系统与数据
-    # Human-First 2.0: labels follow the new grouping; all old routes remain.
-    assert '数据血缘' in text and '业务架构' in text and '高级工具' in text and '模型管理' in text
-    assert '/architecture' in text and '/settings' in text
-    # 不再有「浏览模型对象」旧分组
-    assert '浏览模型对象' not in text
+    # 一级入口收敛为四个：工作台、资产地图、对象工作台、模型目录
+    assert '资产地图' in text and '对象工作台' in text and '模型目录' in text
+    assert '/atlas' in text and '/object' in text and '/browse' in text
+    # 数据血缘与业务架构合并进对象页，不再各占一个一级入口
+    assert '数据血缘' not in text and '业务架构' not in text
+    assert '高级工具' not in text and '/codegen' not in text
+    assert '数据与设置' in text and '/settings' in text
 
 
 def test_codegen_teaching_card_removed_and_four_tabs(client):

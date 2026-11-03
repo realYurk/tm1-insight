@@ -80,6 +80,8 @@ from tm1_insight.api.assets import router as assets_router
 app.include_router(assets_router)
 from tm1_insight.api.atlas import router as atlas_router
 app.include_router(atlas_router)
+from tm1_insight.api.object_pages import router as object_router
+app.include_router(object_router)
 from tm1_insight.api.module_spec import router as module_spec_router
 app.include_router(module_spec_router)
 from tm1_insight.api.module_dossier import router as module_dossier_router
@@ -313,12 +315,25 @@ def index(request: Request):
         model_file_time = None
 
     settings = get_settings()
+    top_cubes, top_processes = [], []
+    try:
+        from tm1_insight import atlas
+        con = store.connect(read_only=True)
+        try:
+            top_cubes = atlas.summary(con, 'cube', limit=8)['items']
+            top_processes = atlas.summary(con, 'process', limit=6)['items']
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        top_cubes, top_processes = [], []
     return templates.TemplateResponse(request, "index.html", {
         "counts": counts,
         "has_data": has_data,
         "data_source": data_source,
         "is_demo": data_source.get("type") == "demo",
         "model_file_time": model_file_time,
+        "top_cubes": top_cubes,
+        "top_processes": top_processes,
         "tm1_address": settings.tm1_address,
         "tm1_port": settings.tm1_port,
         "tm1_user": settings.tm1_user,
@@ -904,25 +919,17 @@ def invocation_export(name: str = Query(..., min_length=1, max_length=1000), cal
                                                       'Cache-Control':'no-store'})
 
 
-# ---- 页面：Graph（知识图谱：以 TI 为中心的操作 cube + 调用链） ----
+# ---- 页面：旧血缘入口 → 对象页（同一状态，不保留第二套 UI） ----
 @app.get("/graph", response_class=HTMLResponse)
 def graph(request: Request, ti: Optional[str] = Query(None,max_length=1000), depth:int=Query(2,ge=0,le=4), nodes:int=Query(60,ge=1,le=120), cube: Optional[str] = Query(None,max_length=1000), model: str = Query('',max_length=64)):
-    if cube is not None or ti is None:
-        # 资产视角：这张画布在整个模型里有多重？失败不影响画布本身。
-        asset = None
-        if cube:
-            try:
-                from tm1_insight import atlas
-                store = _store()
-                con = store.connect(read_only=True)
-                try:
-                    asset = atlas.position(con, 'cube', cube)
-                finally:
-                    con.close()
-            except Exception:  # noqa: BLE001
-                asset = None
-        return templates.TemplateResponse(request, "cube_lineage.html", {"cube":cube or '',"model":model,"asset":asset})
-    return templates.TemplateResponse(request,"ti_lineage.html",{"ti":ti,"depth":depth,"node_budget":nodes,"model":model})
+    from urllib.parse import quote
+    from fastapi.responses import RedirectResponse
+    suffix = f'&model={quote(model)}' if model else ''
+    if cube:
+        return RedirectResponse(f'/object/cube/{quote(cube)}?view=graph{suffix}', status_code=302)
+    if ti:
+        return RedirectResponse(f'/object/process/{quote(ti)}?view=graph&depth={depth}&nodes={nodes}{suffix}', status_code=302)
+    return RedirectResponse('/object', status_code=302)
 
 
 # ---- 页面：Impact（依赖 / 影响分析，复用 impact 引擎） ----

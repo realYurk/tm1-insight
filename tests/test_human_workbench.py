@@ -120,13 +120,10 @@ def test_analysis_package_verification_rejects_tampering(con, artifact, tmp_path
 
 def test_web_package_check_is_read_only_and_handles_invalid_file(client, con, artifact):
     data=b''.join(stream(package(artifact,con)))
-    page=client.get('/architecture')
-    assert 'package-check-form' in page.text and '/static/package-check.js' in page.text
     response=client.post('/api/architecture/verify-package',files={'file':('test.zip',data,'application/zip')})
     assert response.status_code==200 and response.json()['files_checked']>0
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         assert response.json()['summary']==z.read('BusinessFlow.md').decode('utf-8')
-    assert 'package-preview-text' in page.text
     bad=client.post('/api/architecture/verify-package',files={'file':('bad.zip',b'broken','application/zip')})
     assert bad.status_code==400
 
@@ -182,7 +179,7 @@ def test_rule_source_default_open_before_semantics_and_feeders(client):
 
 
 def test_defaults_routes_exports_rule_summary_and_graph_lazy_slice(client):
-    assert 'data-view="functional_flow"' in client.get('/architecture').text
+    assert '找一个对象' in client.get('/architecture').text
     response=client.post('/api/architecture/tasks',json={'process':'Load_Sales'})
     task=response.json()['task_id'];base='/api/architecture/tasks/'+task
     deadline=time.monotonic()+12
@@ -194,13 +191,10 @@ def test_defaults_routes_exports_rule_summary_and_graph_lazy_slice(client):
     assert ai.status_code==200
     with zipfile.ZipFile(io.BytesIO(ai.content)) as z:assert 'Manifest.json' in z.namelist()
     graph=client.get('/graph?ti=Load_Sales&depth=1&nodes=10')
-    # The TI page now lazily uses the existing Workflow job's independent
-    # writes, replacing the legacy Formation-summary DOM hook. Keep the route,
-    # scope controls and technical Formation entry covered rather than require
-    # an obsolete rendering implementation.
-    assert graph.status_code==200 and 'id="tr-root"' in graph.text
-    assert 'data-depth="1"' in graph.text and 'data-budget="10"' in graph.text
-    assert 'Formation 加工证据' in graph.text
+    # 旧 TI 血缘入口现在落到对象页，并把调用层数与预算一起带进 URL 状态。
+    assert graph.url.path=='/object/process/Load_Sales'
+    assert graph.url.params.get('view')=='graph'
+    assert graph.url.params.get('depth')=='1' and graph.url.params.get('nodes')=='10'
     assert client.get('/graph?nodes=10000').status_code==422
     for path in ['/workflow','/knowledge','/learn','/experience','/impact','/compare','/codegen']:
         assert client.get(path).status_code==200

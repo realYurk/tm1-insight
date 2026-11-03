@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}对象 · TM1 Insight{% endblock %}
+{% block content %}
+<div class="catalog">
+  <header class="catalog-head">
+    <h1>找一个对象</h1>
+    <p>输入 Cube 或 TI 名称，进入它自己的页面：关系、形成方式、实现和可带走的交接页。</p>
+  </header>
+
+  <form class="catalog-bar" action="/object" method="get">
+    <div class="catalog-tabs">
+      <a class="{{ 'active' if kind == 'cube' }}" href="/object?kind=cube">Cube</a>
+      <a class="{{ 'active' if kind == 'process' }}" href="/object?kind=process">TI 进程</a>
+    </div>
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input class="input" type="search" name="q" value="{{ q }}" placeholder="{{ 'Cube 名称或关键词' if kind == 'cube' else 'TI 名称或关键词' }}" autofocus maxlength="200" style="flex:1 1 320px">
+    <button class="btn primary" type="submit">查找</button>
+    <a class="btn ghost" href="/browse?kind={{ kind }}">浏览全部</a>
+  </form>
+
+  {% if results %}
+  <section class="catalog-list" aria-label="搜索结果">
+    {% for r in results %}<a class="catalog-item" href="/object/{{ r.kind }}/{{ r.name|urlencode }}"><span>{{ r.name }}</span><b>打开 →</b></a>{% endfor %}
+  </section>
+  {% elif q %}
+  <p class="object-empty">没有匹配的对象。换一个关键词，或到 <a href="/browse?kind={{ kind }}&amp;q={{ q|urlencode }}">目录</a> 里翻。</p>
+  {% endif %}
+
+  <section>
+    <h2 class="object-subhead">模型里分量最重的 Cube</h2>
+    <div class="catalog-list">
+      {% for c in cubes %}<a class="catalog-item" href="/object/cube/{{ c.name|urlencode }}"><span>{{ c.name }}</span><b>{{ c.score }}</b></a>{% endfor %}
+    </div>
+  </section>
+  <section>
+    <h2 class="object-subhead">分量最重的 TI</h2>
+    <div class="catalog-list">
+      {% for p in processes %}<a class="catalog-item" href="/object/process/{{ p.name|urlencode }}"><span>{{ p.name }}</span><b>{{ p.score }}</b></a>{% endfor %}
+    </div>
+  </section>
+
+  {% if error %}<p class="object-empty">读取本地模型失败：{{ error }}</p>{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/object.css?v=1">{% endblock %}

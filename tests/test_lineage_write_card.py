@@ -37,7 +37,9 @@ console.log('shared write card verified');
 
 def test_both_lineage_views_use_the_shared_cube_style_card():
     root = Path('src/tm1_insight/api')
-    template = (root / 'templates/cube_lineage.html').read_text(encoding='utf-8')
+    template = (root / 'templates/object.html').read_text(encoding='utf-8')
+    # 画布与形成答案共用同一个写入点卡片，且卡片先于两个消费者加载。
     assert template.index('write-point-card.js') < template.index('cube-lineage.js')
+    assert template.index('write-point-card.js') < template.index('formation-answer.js')
     for filename in ('cube-lineage.js', 'formation-answer.js'):
         assert 'TM1WritePointCard.writePoint' in (root / 'static' / filename).read_text(encoding='utf-8')

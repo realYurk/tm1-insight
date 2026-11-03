@@ -62,7 +62,7 @@ Fold technical helpers into their owning steps using actual implementation and p
 
 Default views show useful inputs, processing and outputs; parser statuses, hashes, log fields and helper calls belong in expandable implementation/diagnostics. Explain unresolved facts in concrete language; never show a meaningless UNKNOWN formula as business output. Cube Profiles retain actual dimension order, grain, hierarchy/consolidation, Rule/Feeder boundaries, mappings, clear/overwrite/increment effects, sparsity/zero/null risks. Never automatically equate one Cube with one relational table.
 
-Architecture exports use a versioned deterministic schema containing module, entry_points, cubes, dimensions, processes, rules, chores, execution_relationships, data_relationships, transformation_steps, input_outputs, evidence, unresolved_dependencies and migration_notes. Preserve technical evidence separately from the default presentation. Navigation is limited to five task entries (workspace, asset map, lineage, architecture, model browsing); code generation and legacy tools live in the secondary tool menu — see「资产提炼优先」below for the binding rule.
+Architecture exports use a versioned deterministic schema containing module, entry_points, cubes, dimensions, processes, rules, chores, execution_relationships, data_relationships, transformation_steps, input_outputs, evidence, unresolved_dependencies and migration_notes. Preserve technical evidence separately from the default presentation. Navigation is limited to four task entries (workspace, asset map, object workbench, model catalog); code generation and legacy tools live inside an object's views — see「资产提炼优先」below for the binding rule.
 
 ### 4. Business Interpretation — 业务解释
 
@@ -171,10 +171,20 @@ An **asset map** (`/atlas`) is the first entry point: model-wide assets of every
 
 ### Navigation and entry discipline
 
-- At most **five** first-level task entries: workspace, asset map, lineage, architecture, model browsing. Do not add a sixth.
+- Exactly **four** first-level entries: workspace (`/`), asset map (`/atlas`), object workbench (`/object`), model catalog (`/browse`). Connection and frontend-asset settings sit in a secondary group. Do not add a fifth task entry.
 - **One feature, one entry.** Every other path must be a deep link that lands in the identical state; no parallel routes with divergent initial state.
-- Code generation is a development aid, not an asset-understanding path: it belongs in the secondary tool menu.
-- Hidden navigation groups are prohibited as a dumping ground. If a feature cannot earn a place in the five entries or the tool menu, retire it.
+- Code generation is a development aid, not an asset-understanding path: it appears inside an object's implementation view, never as a first-level entry.
+- Hidden navigation groups are prohibited as a dumping ground. If a feature cannot earn a place in the four entries or an object view, retire it. Legacy routes may keep returning a redirect, never a second UI.
+
+### Object workbench — one object, one page
+
+Lineage and business architecture are not two products. Both answer, for one object, the same three questions: what is it, what depends on it, how is its value produced. Therefore:
+
+- A Cube or TI has exactly one page: `/object/{kind}/{name}`. Its views are `overview`, `graph`, `formation` (Cube only), `code`, `handoff`.
+- Each view answers exactly one question and is rendered server-side from the URL; switching tabs is a normal navigation, not hidden client state. No view may exist without a URL.
+- The lineage canvas is preserved unchanged in semantics and rendering, mounted at `?view=graph`. `/graph?cube=|ti=` redirects there; it must never fork into a second canvas stack.
+- Business architecture's flow views are folded into `overview`, `formation` and `code`. `/architecture?name=…&kind=…` redirects to the object page; the old read-only canvas workspace survives only behind `view=workbench` until its last user migrates.
+- Handoff (`?view=handoff`) is the deliverable: a Markdown page a developer can send without editing, stating scope, facts, upstream/downstream, gaps and the evidence boundary.
 
 ### State discipline
 
@@ -190,6 +200,8 @@ A feature may enter first-level navigation only if it passes all four checks: it
 
 ### Preserved
 
-The existing lineage canvas, its relations, evidence semantics and read-only guarantees are retained unchanged. The asset perspective is additive information, not a replacement for the graph. No second semantic engine may be introduced: asset signals, lineage, architecture and exports must read the same facts through the existing parser, store and resolvers.
+The existing lineage canvas, its relations, evidence semantics and read-only guarantees are retained unchanged; only its mount point moved into the object page. The asset perspective is additive information, not a replacement for the graph. No second semantic engine may be introduced: asset signals, lineage, architecture and exports must read the same facts through the existing parser, store and resolvers.
+
+Identity is resolved case-insensitively and deduplicated: two indexed names that differ only in case are one object, and an object page never presents one variant's numbers as if they covered both.
 
 No integrated LLM, RAG, AI agent or external AI service. No automated business-criticality judgment. No flattening a large model into an unreadable canvas; large-model views must aggregate, bound and expand on demand.

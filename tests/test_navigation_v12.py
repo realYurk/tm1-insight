@@ -31,34 +31,27 @@ def test_base_html_has_no_collapsible_nav_group():
 
 def test_base_html_nav_entries_all_retained():
     html = _read(BASE_HTML)
-    # 所有核心入口必须存在（模型资产 + 高级工具 + 系统与数据）
+    # 一级入口收敛为四个；对象详情从 /object 进入，不再为每类对象各开一页。
     for href, label in [
         ("/", "工作台"),
-        ("/cubes", "Cube"),
-        ("/dimensions", "Dimension"),
-        ("/processes", "TI 进程"),
-        ("/chores", "Chore 调度"),
-        ("/codegen", "代码生成"),
-        ("/graph", "数据血缘"),
-        ("/architecture", "业务架构"),
-        ("/impact", "影响分析"),
-        ("/compare", "快照与版本"),
+        ("/atlas", "资产地图"),
+        ("/object", "对象工作台"),
+        ("/browse", "模型目录"),
         ("/audit", "前端资产"),
-        ("/workflow", "工作流技术检查"),
-        ("/knowledge", "证据包导出"),
-        ("/learn", "功能梳理（旧版）"),
-        ("/experience", "我的经验"),
         ("/settings", "连接设置"),
     ]:
         assert href in html, f"导航缺少 {label} ({href})"
         assert label in html, f"导航缺少标签 {label}"
+    # 合并后的旧入口不再占用导航位置。
+    for gone in ("/graph", "/architecture", "/codegen", "/impact", "/compare"):
+        assert gone not in html, f"旧入口仍在一级导航：{gone}"
 
 
 def test_nav_group_labels_present():
     html = _read(BASE_HTML)
-    assert '模型浏览' in html
-    assert '高级工具' in html
-    assert '模型管理' in html
+    assert '数据与设置' in html
+    assert '高级工具' not in html
+    assert '模型浏览' not in html
 
 
 def test_navigation_js_clears_stale_preferences_not_saves():

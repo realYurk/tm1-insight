@@ -43,34 +43,14 @@
 
         {{ nav('/','工作台','home',path == '/') }}
         {{ nav('/atlas','资产地图','atlas',path.startswith('/atlas')) }}
+        {{ nav('/object','对象工作台','graph',path.startswith('/object')) }}
+        {{ nav('/browse','模型目录','cube',path.startswith('/browse')) }}
 
-        {# 导航分组永久展开（静态结构，不使用 details/summary，禁止折叠）。 #}
-        <div class="nav-group-label">模型浏览</div>
+        <div class="nav-group-label">数据与设置</div>
         <div class="nav-group-body">
-          {{ nav('/cubes','Cube','cube',path.startswith('/cubes') or path.startswith('/explorer/cube')) }}
-          {{ nav('/dimensions','Dimension','dimension',path.startswith('/dimensions')) }}
-          {{ nav('/processes','TI 进程','process',path.startswith('/processes') or path.startswith('/explorer/process')) }}
-          {{ nav('/chores','Chore 调度','chore',path.startswith('/chores') or path.startswith('/explorer/chore')) }}
-          <div class="nav-separator" role="separator" aria-hidden="true"></div>
-          {{ nav('/codegen','代码生成','codegen',path.startswith('/codegen')) }}
+          {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
+          {{ nav('/settings','连接设置','settings',path.startswith('/settings')) }}
         </div>
-
-        {{ nav('/graph','数据血缘','graph',path == '/graph') }}
-        {{ nav('/architecture','业务架构','network',path == '/architecture') }}
-
-
-
-        <div class="nav-group-label">模型管理</div>
-        {{ nav('/settings','连接设置','settings',path.startswith('/settings')) }}
-        {{ nav('/compare','快照与版本','assets',path.startswith('/compare')) }}
-        {{ nav('/audit','前端资产','assets',path.startswith('/audit')) }}
-        <details hidden class="nav-advanced" {{ 'open' if path in ['/impact','/workflow','/knowledge','/learn','/experience'] else '' }}><summary aria-label="高级工具" title="高级工具"><span class="nav-icon">{% include "icons/assets.svg" %}</span><span class="nav-text">高级工具</span></summary>
-          {{ nav('/impact','影响分析','graph',path.startswith('/impact')) }}
-          {{ nav('/workflow','工作流技术检查','graph',path == '/workflow') }}
-          {{ nav('/knowledge','证据包导出','assets',path.startswith('/knowledge')) }}
-          {{ nav('/learn','功能梳理（旧版）','assets',path.startswith('/learn')) }}
-          {{ nav('/experience','我的经验','assets',path.startswith('/experience')) }}
-        </details>
       </nav>
 
       <div class="sidebar-foot">

@@ -68,6 +68,8 @@
   }
   window.TM1CubeLineage={slices,writeRows,relations,coverage,markdownReport,operationLabel:operation=>operations[operation]||operation};
   const $=id=>document.getElementById(id),root=$('cl-root');if(!root)return;
+  const objectBase=()=>root.dataset.objectBase||'/object/cube';
+  const objectUrl=(name,extra)=>{const p=new URLSearchParams();p.set('view','graph');Object.entries(extra||{}).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='')p.set(k,v);});return objectBase()+'/'+encodeURIComponent(name)+'?'+p;};
   const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(cls)n.className=cls;return n;};
   const link=(text,url)=>{const a=el('a',text);a.href=url;return a;};
   let snapshot='',resultName='',generation=0,abort=null,result=null,rows=[],viewer=null,inspected=new Map(),searchTimer,externalInputs=[],indexedWriters=[];
@@ -246,7 +248,7 @@
         moduleLink.href=tooLarge?'#cl-module':url;
         moduleLink.setAttribute('aria-disabled',String(tooLarge));moduleLink.onclick=tooLarge?e=>{e.preventDefault();$('cl-status').textContent=`当前范围有 ${selected.length} 个对象，超过模块规格移交上限（最多 60 个对象，链接长度最多 8000 字符）；请缩小范围后重试。当前关系仍保留在本页。`;}:null;
         moduleLink.textContent=tooLarge?`范围超出模块规格上限（${selected.length} 个对象）`:`选取此局部范围生成模块规格（${selected.length} 个对象）`;}
-      $('cl-review').disabled=false;updateCoverage();history.replaceState(null,'','/graph?'+new URLSearchParams({cube:name,model:snapshot}));
+      $('cl-review').disabled=false;updateCoverage();history.replaceState(null,'',objectUrl(name,{model:snapshot}));
       const candidates=[name,...data.nodes.filter(n=>n.type==='cube'&&n.name!==name).map(n=>n.name)].slice(0,4);
       for(const cube of candidates){if(token!==generation||abort.signal.aborted)break;try{const sources=await get('/api/workbench/lineage-inputs?'+new URLSearchParams({snapshot_id:snapshot,cube}));if(token!==generation)break;externalInputs.push(...sources.items);indexedWriters.push(...(sources.writers||[]).map(process=>({process,target:cube})));if(sources.truncated)$('cl-status').textContent+=' 部分写入程序超出本次预算。';draw();}catch(e){if(e.name==='AbortError')break;if(token===generation)$('cl-status').textContent+=e.status===409?' 模型已变化，请重新分析。':' 部分外部来源未能读取。';if(e.status===409)break;}}
     }catch(e){if(token===generation&&e.name!=='AbortError')$('cl-status').textContent=e.message;}}
@@ -255,7 +257,7 @@
   $('cl-more').onclick=()=>{showMore=!showMore;viewer?.resetUserView();draw();};
   $('cl-close-inspector').onclick=()=>{$('cl-inspector').hidden=true;detailAbort?.abort();viewer?.resize?.();};
   $('cl-mermaid').onclick=()=>{if(!result)return;const code=window.TM1LineageView.mermaid(window.TM1LineageView.flowModel(result,rows,resultName,externalInputs,indexedWriters,graphOptions())).code;const a=el('a');a.href=URL.createObjectURL(new Blob([code],{type:'text/plain;charset=utf-8'}));a.download='Cube-Lineage.mmd';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
-  $('lineage-clear').addEventListener('click',()=>{++generation;abort?.abort();detailAbort?.abort();stopReview();$('fa-cancel')?.click();viewer?.destroy();viewer=null;result=null;externalInputs=[];$('cl-relations').hidden=true;$('cl-status').textContent='';history.replaceState(null,'','/graph'+(snapshot?'?'+new URLSearchParams({model:snapshot}):''));});
+  $('lineage-clear').addEventListener('click',()=>{++generation;abort?.abort();detailAbort?.abort();stopReview();$('fa-cancel')?.click();viewer?.destroy();viewer=null;result=null;externalInputs=[];$('cl-relations').hidden=true;$('cl-status').textContent='';$('cl-name').value='';history.replaceState(null,'','/object?kind=cube');});
   $('cl-cancel').onclick=()=>{++generation;abort?.abort();detailAbort?.abort();$('cl-status').textContent='已取消本次请求；未保存任何研究或设计资产。';};
   if(!$('cl-search').dataset.lineageSearch)$('cl-name').oninput=()=>{clearTimeout(searchTimer);const q=$('cl-name').value.trim();if(!q){$('cl-options').replaceChildren();return;}searchTimer=setTimeout(async()=>{try{const r=await fetch('/api/workbench/objects?'+new URLSearchParams({q,type:'cube',limit:20}));if(!r.ok)return;const data=await r.json();if($('cl-name').value.trim()===q)$('cl-options').replaceChildren(...data.objects.map(n=>new Option(n.name,n.name)));}catch(_){}},200);};
   $('cl-diagram').ontoggle=draw;

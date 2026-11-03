@@ -85,7 +85,7 @@
       <tr>
         <td class="atlas-col-idx">{{ (page - 1) * limit + loop.index }}</td>
         <td class="atlas-col-name">
-          <span class="atlas-name">{{ item.name }}</span>
+          {% if kind in ['cube','process'] %}<a class="atlas-name" href="/object/{{ kind }}/{{ item.name|urlencode }}">{{ item.name }}</a>{% else %}<span class="atlas-name">{{ item.name }}</span>{% endif %}
           {% if item.notes %}<small class="atlas-note">{{ item.notes|join(' ') }}</small>{% endif %}
         </td>
         <td class="atlas-col-score">
@@ -99,14 +99,9 @@
         </td>
         {% endfor %}
         <td class="atlas-col-actions">
-          {% if kind == 'cube' %}
-          <a class="atlas-link" href="/graph?cube={{ item.name|urlencode }}" title="以该 Cube 为中心查看数据血缘">血缘</a>
-          <a class="atlas-link" href="/architecture?name={{ item.name|urlencode }}&amp;kind=cube&amp;analyze=1" title="展开数据形成与加工步骤">架构</a>
-          <a class="atlas-link" href="/explorer/cube/{{ item.name|urlencode }}" title="维度结构、写入点与 Rule">结构</a>
-          {% elif kind == 'process' %}
-          <a class="atlas-link" href="/graph?ti={{ item.name|urlencode }}" title="以该 TI 为中心查看调用与写入切面">血缘</a>
-          <a class="atlas-link" href="/explorer/process/{{ item.name|urlencode }}" title="查看源码、参数与调用树">源码</a>
-          <a class="atlas-link" href="/architecture?name={{ item.name|urlencode }}&amp;kind=process&amp;analyze=1" title="展开加工链路">架构</a>
+          {% if kind in ['cube','process'] %}
+          <a class="atlas-link" href="/object/{{ kind }}/{{ item.name|urlencode }}" title="关系、形成方式、实现与可带走的交接页">打开</a>
+          {% elif kind == 'dimension' %}
           {% elif kind == 'dimension' %}
           <a class="atlas-link" href="/dimensions?name={{ item.name|urlencode }}" title="元素、层级、属性与子集">维度</a>
           <a class="atlas-link" href="/dimensions?name={{ item.name|urlencode }}&amp;view=cubes" title="哪些 Cube 使用该维度">被用</a>

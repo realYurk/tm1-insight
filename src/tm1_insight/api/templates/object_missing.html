@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}对象不存在 · TM1 Insight{% endblock %}
+{% block content %}
+<div class="catalog">
+  <header class="catalog-head">
+    <h1>本地模型里没有这个对象</h1>
+    <p>{{ 'TI 进程' if kind == 'process' else 'Cube' }} <code>{{ name }}</code> 不在当前采集的索引中。不会用同名近似对象替代。</p>
+  </header>
+  {% if error %}<p class="object-empty">读取错误：{{ error }}</p>{% endif %}
+  <nav class="object-next">
+    <a class="btn primary" href="/object?kind={{ kind }}&amp;q={{ name|urlencode }}">按名称查找</a>
+    <a class="btn" href="/browse?kind={{ kind }}">浏览目录</a>
+    <a class="btn ghost" href="/settings">检查数据源</a>
+  </nav>
+</div>
+{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="/static/object.css?v=1">{% endblock %}

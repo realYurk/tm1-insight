@@ -71,19 +71,29 @@ def manager():
 
 @router.get('/architecture')
 def workspace(request:Request,name:str=Query('',max_length=1000),analyze:bool=False,kind:Literal['process','cube','discover']='process',view:Literal['overview','functional_flow','workbench']='functional_flow'):
+    from urllib.parse import quote
+    from fastapi.responses import RedirectResponse
     from tm1_insight.api.app import templates
-    # 资产视角：入口对象在整个模型里的分量。失败不影响架构页本身。
-    asset=None
+    # 旧画布工作区：暂时保留给已有工作区文件，不再是一级入口。
+    if view=='workbench':
+        asset=None
+        if name and kind in ('cube','process'):
+            try:
+                from tm1_insight.api.app import _store
+                from tm1_insight import atlas
+                store=_store();con=store.connect(read_only=True)
+                try:asset=atlas.position(con,'cube' if kind=='cube' else 'process',name)
+                finally:con.close()
+            except Exception:  # noqa: BLE001
+                asset=None
+        return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,initial_view=view,architecture_revision=architecture.REVISION,asset=asset))
+    # 业务架构与数据血缘合并为一个对象页；旧链接落到同一个状态。
     if name and kind in ('cube','process'):
-        try:
-            from tm1_insight.api.app import _store
-            from tm1_insight import atlas
-            store=_store();con=store.connect(read_only=True)
-            try:asset=atlas.position(con,'cube' if kind=='cube' else 'process',name)
-            finally:con.close()
-        except Exception:  # noqa: BLE001
-            asset=None
-    return templates.TemplateResponse(request,'architecture.html',dict(name=name,analyze=analyze,kind=kind,initial_view=view,architecture_revision=architecture.REVISION,asset=asset))
+        target=f'/object/{kind}/{quote(name)}?view=formation' if kind=='cube' else f'/object/process/{quote(name)}?view=overview'
+        return RedirectResponse(target,status_code=302)
+    if name:
+        return RedirectResponse('/object?kind=cube&q='+quote(name),status_code=302)
+    return RedirectResponse('/object',status_code=302)
 
 
 @router.post('/api/architecture/tasks',status_code=202)

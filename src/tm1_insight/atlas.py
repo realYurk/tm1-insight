@@ -120,9 +120,9 @@ def _cube_items(con, include_system: bool) -> list[dict]:
     writers: dict[str, set[str]] = {}
     for process, cube in _safe_rows(con, "SELECT DISTINCT process_name, cube_name FROM process_writes_cube"):
         writers.setdefault(str(cube).lower(), set()).add(str(process))
-    readers = keyed("SELECT cube_name, COUNT(DISTINCT process_name) FROM process_reads_cube GROUP BY 1")
-    rule_out = keyed("SELECT cube_name, COUNT(DISTINCT source_cube) FROM rule_references_cube GROUP BY 1")
-    rule_in = keyed("SELECT source_cube, COUNT(DISTINCT cube_name) FROM rule_references_cube GROUP BY 1")
+    readers = keyed("SELECT lower(cube_name), COUNT(DISTINCT process_name) FROM process_reads_cube GROUP BY 1")
+    rule_out = keyed("SELECT lower(cube_name), COUNT(DISTINCT source_cube) FROM rule_references_cube GROUP BY 1")
+    rule_in = keyed("SELECT lower(source_cube), COUNT(DISTINCT cube_name) FROM rule_references_cube GROUP BY 1")
     frontend: dict[str, int] = {}
     for _menu, cubes_text in _safe_rows(con, "SELECT menu, backend_cubes FROM front_backend_mapping"):
         for cube in _split_list(cubes_text):
@@ -131,12 +131,18 @@ def _cube_items(con, include_system: bool) -> list[dict]:
     chores = _chore_index(con)
 
     items = []
+    seen: set[str] = set()
+    # 采集合并可能留下只有大小写不同的同名对象；按信息更全的一行保留，
+    # 否则同一 Cube 会在清单里出现两次且分数不同（排序不稳定）。
     for name, has_rules, dimension_count in _safe_rows(
-            con, "SELECT name, has_rules, dimension_count FROM cubes"):
+            con, "SELECT name, has_rules, dimension_count FROM cubes ORDER BY has_rules DESC, dimension_count DESC, name"):
         name = str(name)
         if not include_system and is_system(name):
             continue
         key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
         cube_writers = writers.get(key, set())
         scheduled: set[str] = set()
         for process in cube_writers:
@@ -166,29 +172,32 @@ def _cube_items(con, include_system: bool) -> list[dict]:
 
 
 def _process_items(con, include_system: bool) -> list[dict]:
-    write_counts = {str(p): int(n) for p, n in _safe_rows(
-        con, "SELECT process_name, COUNT(DISTINCT cube_name) FROM process_writes_cube GROUP BY 1")}
-    read_counts = {str(p): int(n) for p, n in _safe_rows(
-        con, "SELECT process_name, COUNT(DISTINCT cube_name) FROM process_reads_cube GROUP BY 1")}
-    callers = {str(p): int(n) for p, n in _safe_rows(
-        con, "SELECT callee, COUNT(DISTINCT caller) FROM process_calls_process GROUP BY 1")}
-    callees = {str(p): int(n) for p, n in _safe_rows(
-        con, "SELECT caller, COUNT(DISTINCT callee) FROM process_calls_process GROUP BY 1")}
-    chores = _chore_index(con)
-    lengths = {str(n): int(l or 0) for n, l in _safe_rows(
-        con, "SELECT name, code_length FROM processes")}
+    def keyed(sql: str) -> dict[str, int]:
+        return {str(k).lower(): int(n) for k, n in _safe_rows(con, sql)}
+
+    write_counts = keyed("SELECT lower(process_name), COUNT(DISTINCT cube_name) FROM process_writes_cube GROUP BY 1")
+    read_counts = keyed("SELECT lower(process_name), COUNT(DISTINCT cube_name) FROM process_reads_cube GROUP BY 1")
+    callers = keyed("SELECT lower(callee), COUNT(DISTINCT caller) FROM process_calls_process GROUP BY 1")
+    callees = keyed("SELECT lower(caller), COUNT(DISTINCT callee) FROM process_calls_process GROUP BY 1")
+    chores = {str(k).lower(): v for k, v in _chore_index(con).items()}
+    lengths = keyed("SELECT lower(name), code_length FROM processes")
 
     items = []
-    for (name,) in _safe_rows(con, "SELECT name FROM processes"):
+    seen: set[str] = set()
+    for (name,) in _safe_rows(con, "SELECT name FROM processes ORDER BY (name = lower(name)), name"):
         name = str(name)
         if not include_system and is_system(name):
             continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
         signals = {
-            "writes": write_counts.get(name, 0),
-            "reads": read_counts.get(name, 0),
-            "callers": callers.get(name, 0),
-            "callees": callees.get(name, 0),
-            "scheduled": len(chores.get(name, set())),
+            "writes": write_counts.get(key, 0),
+            "reads": read_counts.get(key, 0),
+            "callers": callers.get(key, 0),
+            "callees": callees.get(key, 0),
+            "scheduled": len(chores.get(key, set())),
         }
         notes = []
         if not signals["writes"] and not signals["reads"]:
@@ -198,7 +207,7 @@ def _process_items(con, include_system: bool) -> list[dict]:
         items.append({
             "kind": "process", "name": name, "score": _score("process", signals),
             "signals": signals, "notes": notes,
-            "meta": {"code_length": lengths.get(name, 0)},
+            "meta": {"code_length": lengths.get(key, 0)},
         })
     return items
 

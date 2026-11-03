@@ -31,7 +31,7 @@
   for(const [name,message] of failures)host.append(el('p',name+'：'+message+'。成功结果已保留，可重试。'));
   const ph=$('fa-problems');ph.replaceChildren();for(const b of blockers.values()){const p=el('section');p.append(el('h3',b.object),el('p',b.reason),el('p',b.action),el('p','影响 '+new Set(b.affected).size+' 个写入 / Rule 记录'));ph.append(p);}
   $('fa-problem-title').textContent=blockers.size?'影响当前值解释的共享证据缺口（'+blockers.size+' 项）':'当前已分析值表达式没有新增共享阻塞';
-  $('fa-scope').textContent=(query.dimension?`切面条件：${query.dimension} = ${query.member}；只排除已确认固定坐标不匹配项。`:'区域概览：未指定切面，不代表匹配某个具体单元格。')+' '+(plan?.scope||'')+(plan?.truncated?' TI 预算截断：已选择 '+plan.writers_selected+' / 至少 '+plan.writers_discovered+' 个索引写入者。':'')+(truncated?' 单项分析预算截断，当前答案不完整。':'')+' 所有结果均为静态证据，不代表运行时验证。';
+  $('fa-scope').textContent=(query.dimension?`切面：${query.dimension} = ${query.member}。`:'区域概览：未指定切面。')+(plan?.truncated?` TI 预算截断（${plan.writers_selected} / 至少 ${plan.writers_discovered}）。`:'')+(truncated?' 单项预算截断，答案不完整。':'');
   if(!groups&&task==='COMPLETED')host.append(el('p','当前范围未取得匹配的形成记录。检查切面条件、索引范围与截断信息。'));
   status();
  }
